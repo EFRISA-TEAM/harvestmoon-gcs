@@ -968,7 +968,7 @@ public class PythonCameraService : ICameraService
         }
     }
 
-    private static (string? Command, string LauncherArgs) ResolvePythonCommand(string? venvSubdir = null)
+    public static (string? Command, string LauncherArgs) ResolvePythonCommand(string? venvSubdir = null)
     {
         var probes = new List<(string Command, string ProbeArgs, string LauncherArgs)>();
 

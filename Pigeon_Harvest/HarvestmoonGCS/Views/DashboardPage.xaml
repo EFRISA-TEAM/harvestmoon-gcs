@@ -86,6 +86,18 @@
             <Setter Property="FontWeight" Value="SemiBold"/>
         </Style>
 
+        <!-- Secondary button -->
+        <Style x:Key="HarvestSecondaryButton" TargetType="Button">
+            <Setter Property="Background" Value="#1E293B"/>
+            <Setter Property="Foreground" Value="#E2E8F0"/>
+            <Setter Property="BorderBrush" Value="#334155"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+
         <!-- Hud action button -->
         <Style x:Key="HudActionButton" TargetType="Button">
             <Setter Property="Background" Value="#8C000000"/>
@@ -144,7 +156,14 @@
                                         <ComboBoxItem Content="★ Multi-Sektor 60s (Showcase Utama)"/>
                                         <ComboBoxItem Content="Sawah 15 HST (15.5s · FHI 81.7% PPT)"/>
                                         <ComboBoxItem Content="Lahan Kering (35s · Uji Stres)"/>
+                                        <ComboBoxItem x:Name="CustomVideoComboItem" Content="📁 Pilih Video Kustom..."/>
                                     </ComboBox>
+                                    <Button x:Name="ChangeVideoButton" Style="{StaticResource HarvestSecondaryButton}" Padding="8,4" Click="ChangeVideoButton_Click" ToolTipService.ToolTip="Pilih / Ganti File Video (Drag &amp; Drop atau Browse file)">
+                                        <StackPanel Orientation="Horizontal" Spacing="5">
+                                            <FontIcon Glyph="&#xE8E5;" FontSize="11" Foreground="#38BDF8"/>
+                                            <TextBlock Text="Ganti Video..." FontSize="11"/>
+                                        </StackPanel>
+                                    </Button>
                                     <Button x:Name="StartDemoButton" Style="{StaticResource HarvestPrimaryButton}" Padding="10,5" Click="StartDemoButton_Click">
                                         <StackPanel Orientation="Horizontal" Spacing="6">
                                             <FontIcon Glyph="&#xE768;" FontSize="11"/>
@@ -176,7 +195,11 @@
                             </Grid.ColumnDefinitions>
                             <!-- === Live Video with overlays === -->
                             <Border Grid.Column="0" CornerRadius="10" Background="#0F1F14" BorderBrush="#163021" BorderThickness="1">
-                                <Grid Height="260" x:Name="VideoRoot">
+                                <Grid Height="260" x:Name="VideoRoot"
+                                      AllowDrop="True"
+                                      DragOver="VideoRoot_DragOver"
+                                      DragLeave="VideoRoot_DragLeave"
+                                      Drop="VideoRoot_Drop">
                                     <!-- Actual live video (YOLO overlays drawn by VideoStreamControl) -->
                                     <controls:VideoStreamControl x:Name="DashboardVideoStream"/>
 
@@ -302,6 +325,15 @@
                                             <TextBlock x:Name="ImuLabelText" Text="P-5° R0° Y45°" Foreground="White" FontSize="8"/>
                                         </Border>
                                     </StackPanel>
+
+                                    <!-- Drop zone visual highlight when dragging a file over video -->
+                                    <Border x:Name="VideoDropOverlay" Background="#E6022C22" BorderBrush="#10B981" BorderThickness="2" CornerRadius="8" Visibility="Collapsed" IsHitTestVisible="False">
+                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+                                            <FontIcon Glyph="&#xE898;" FontSize="38" Foreground="#34D399"/>
+                                            <TextBlock Text="LEPASKAN FILE VIDIO DI SINI" FontSize="14" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="Simulasi penerbangan, waypoint, dan telemetri akan disinkronkan otomatis!" FontSize="11" Foreground="#A7F3D0" HorizontalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Border>
                                 </Grid>
                             </Border>
 

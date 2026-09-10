@@ -137,12 +137,17 @@ public sealed partial class DashboardPage : Page
     private double _demoBatteryStart = 95.0;   // randomized at demo start
     private int    _demoSatCount     = 15;     // randomized at demo start
     private double _demoBatteryVoltage = 12.6; // randomized at demo start
-    private const int DemoTicksPerSegment = 15; // 15s per segment x 4 segments = 60s one-way (synced 1:1 with 4 sectors of 60s video!)
+    private int _demoTicksPerSegment = 15; // Dynamically adapts to video duration (1:1 sync)
+    private double _demoVideoDurationSeconds = 60.0;
+    private double _demoGeofenceRadiusMeters = 650;
+    private (double Lat, double Lon)[] _demoWaypoints = GenerateDemoRiceFieldWaypoints();
+    private string? _customVideoPath;
+    private bool _isSwitchingScenario;
+    private readonly IFileService? _fileService;
     private readonly DispatcherTimer _demoTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     // Demo rice-field transect: Sukamerta, Rawamerta, Karawang (West Java rice belt).
     private const double DemoFieldLat = -6.24361;
     private const double DemoFieldLon = 107.36556;
-    private const double DemoGeofenceRadiusMeters = 650; // Safely encapsulates 600m transect (±300m from center)
     // Summary percentages from stream_v7c_final.mp4 HSV-ONNX fused pipeline (233 frames verified)
     // Healthy: 6.8%, Inconsistent Growth: 69.3%, Drought: ~0%, Bare Soil: 23.9%
     // FHI 81.6 avg (matches TEKNOFEST PPT controlled validation claim: mean FHI 81.6)
@@ -153,7 +158,6 @@ public sealed partial class DashboardPage : Page
     private const double DemoReportBareSoilPct   = 23.9;
     private const double DemoReportFhi           = 81.6; // verified avg FHI (PPT target: 81.6)
     private const int    DemoReportTotalDetections = 1638;
-    private static readonly (double Lat, double Lon)[] DemoWaypoints = GenerateDemoRiceFieldWaypoints();
     private const int DemoWaypointStartSequence = 1;
     private static readonly string[] DemoClassificationEvents =
     {
@@ -173,6 +177,7 @@ public sealed partial class DashboardPage : Page
         _mapViewModel = App.Current.Services.GetService<MapViewModel>();
         _cameraService = App.Current.Services.GetService<ICameraService>();
         _harvestFunctionalService = App.Current.Services.GetService<HarvestFunctionalService>();
+        _fileService = App.Current.Services.GetService<IFileService>();
         _videoRecorderService = App.Current.Services.GetService<IVideoRecorderService>();
         _offlineMapService = App.Current.Services.GetService<IOfflineMapService>();
         _geofenceService = App.Current.Services.GetService<IGeofenceService>();
@@ -471,7 +476,7 @@ public sealed partial class DashboardPage : Page
             telemetry,
             _mapViewModel?.Waypoints,
             _mapViewModel?.WaypointRadius ?? 2.0);
-        int demoCycleTicks = Math.Max(1, (DemoWaypoints.Length - 1) * 2 * DemoTicksPerSegment);
+        int demoCycleTicks = Math.Max(1, (_demoWaypoints.Length - 1) * 2 * _demoTicksPerSegment);
         var progress = _isDemoRunning
             ? Math.Clamp(((_demoStep % demoCycleTicks) * 100.0 / demoCycleTicks), 0, 100)
             : (connected ? missionProgress.ProgressPercent : 0.0);
@@ -1681,7 +1686,7 @@ public sealed partial class DashboardPage : Page
 
             // 3. Activate compact demo geofence around the Karawang rice-field transect.
             _geofenceService?.SetGeofenceCenter(DemoFieldLat, DemoFieldLon);
-            _geofenceService?.SetGeofenceRadius(DemoGeofenceRadiusMeters);
+            _geofenceService?.SetGeofenceRadius(_demoGeofenceRadiusMeters);
             _geofenceService?.SetGeofenceActive(true);
 
             // 4. Simulate connection — fires real MAVLink ConnectionStatusChanged so ALL pages respond
@@ -1692,9 +1697,9 @@ public sealed partial class DashboardPage : Page
             if (_mapViewModel != null)
             {
                 _mapViewModel.Waypoints.Clear();
-                for (int i = 0; i < DemoWaypoints.Length; i++)
+                for (int i = 0; i < _demoWaypoints.Length; i++)
                 {
-                    var (wpLat, wpLon) = DemoWaypoints[i];
+                    var (wpLat, wpLon) = _demoWaypoints[i];
                     _mapViewModel.Waypoints.Add(new WaypointData
                     {
                         Sequence    = DemoWaypointStartSequence + i,
@@ -1707,14 +1712,24 @@ public sealed partial class DashboardPage : Page
                 // Mirror the geofence into MapViewModel so MapPage draws the boundary
                 _mapViewModel.GeofenceCenterLat = DemoFieldLat;
                 _mapViewModel.GeofenceCenterLon = DemoFieldLon;
-                _mapViewModel.GeofenceRadius    = DemoGeofenceRadiusMeters;
+                _mapViewModel.GeofenceRadius    = _demoGeofenceRadiusMeters;
                 _mapViewModel.GeofenceType      = GeofenceType.Circular;
                 _mapViewModel.IsGeofenceActive  = true;
             }
 
             // 4b. Center map on Karawang rice-field demo area and follow UAV
-            DashboardMapControl?.SetCenter(DemoFieldLat, DemoFieldLon, 17);
-            DashboardMapControl?.SetFollowVehicle(true);
+            if (DashboardMapControl != null)
+            {
+                DashboardMapControl.ClearWaypoints();
+                for (int i = 0; i < _demoWaypoints.Length; i++)
+                {
+                    var (wpLat, wpLon) = _demoWaypoints[i];
+                    DashboardMapControl.AddWaypointMarker(DemoWaypointStartSequence + i, wpLat, wpLon, 60, "WAYPOINT");
+                }
+                DashboardMapControl.SetGeofence(true, DemoFieldLat, DemoFieldLon, _demoGeofenceRadiusMeters);
+                DashboardMapControl.SetCenter(DemoFieldLat, DemoFieldLon, 17);
+                DashboardMapControl.SetFollowVehicle(true);
+            }
 
             // 5. Initial telemetry
             InjectDemoTelemetry(0);
@@ -1723,7 +1738,8 @@ public sealed partial class DashboardPage : Page
             _timelineService?.Add("connected", "MAVLink connected · ",     "success");
             _timelineService?.Add("tlog",      "Auto TLOG recorder armed",                         "success");
             _timelineService?.Add("armed",     "Armed · AUTO mode · altitude 60m · survey active", "success");
-            _timelineService?.Add("waypoint",  "Survey route active · 600m E-W · WP 1-5 · Sukamerta, Karawang", "info");
+            double currentTransectMeters = _demoSpeedBase * (_demoTicksPerSegment * (_demoWaypoints.Length - 1));
+            _timelineService?.Add("waypoint",  $"Survey route active · {currentTransectMeters:F0}m E-W · WP 1-{_demoWaypoints.Length} · Sukamerta, Karawang", "info");
             RenderIncidentTimeline();
             UpdateAlertCenter(_flightViewModel?.Telemetry, true);
             UpdateDemoFieldReport();
@@ -1818,10 +1834,10 @@ public sealed partial class DashboardPage : Page
             UpdateAlertCenter(_flightViewModel.Telemetry, true);
         }
 
-        // Continuous round-trip survey loop (WP0 -> WP7 -> WP0 -> ...)
-        int oneWaySegs = DemoWaypoints.Length - 1;
+        // Continuous round-trip survey loop (WP0 -> WPN -> WP0 -> ...)
+        int oneWaySegs = Math.Max(1, _demoWaypoints.Length - 1);
         int totalCycleSegments = oneWaySegs * 2;
-        int _demoLoopPeriod = totalCycleSegments * DemoTicksPerSegment;
+        int _demoLoopPeriod = totalCycleSegments * _demoTicksPerSegment;
         if (_demoStep >= _demoLoopPeriod) _demoStep = 0;
     }
 
@@ -1833,11 +1849,11 @@ public sealed partial class DashboardPage : Page
         if (_flightViewModel == null) return;
 
         // --- Continuous ping-pong interpolation along survey transect ---
-        int oneWaySegs = DemoWaypoints.Length - 1;
+        int oneWaySegs = Math.Max(1, _demoWaypoints.Length - 1);
         int totalCycleSegments = oneWaySegs * 2;
-        int globalStep = step % (totalCycleSegments * DemoTicksPerSegment);
-        int cycleSeg = globalStep / DemoTicksPerSegment;
-        double t = (globalStep % DemoTicksPerSegment) / (double)DemoTicksPerSegment;
+        int globalStep = step % (totalCycleSegments * _demoTicksPerSegment);
+        int cycleSeg = globalStep / _demoTicksPerSegment;
+        double t = (globalStep % _demoTicksPerSegment) / (double)_demoTicksPerSegment;
 
         double lat0, lon0, lat1, lon1;
         if (cycleSeg < oneWaySegs)
@@ -1845,9 +1861,9 @@ public sealed partial class DashboardPage : Page
             // Outbound survey leg (West to East)
             int idx = cycleSeg;
             _currentDemoWaypointIndex = idx;
-            _nextDemoWaypointIndex = Math.Min(idx + 1, DemoWaypoints.Length - 1);
-            (lat0, lon0) = DemoWaypoints[idx];
-            (lat1, lon1) = DemoWaypoints[_nextDemoWaypointIndex];
+            _nextDemoWaypointIndex = Math.Min(idx + 1, _demoWaypoints.Length - 1);
+            (lat0, lon0) = _demoWaypoints[idx];
+            (lat1, lon1) = _demoWaypoints[_nextDemoWaypointIndex];
         }
         else
         {
@@ -1855,8 +1871,8 @@ public sealed partial class DashboardPage : Page
             int idx = oneWaySegs - (cycleSeg - oneWaySegs);
             _currentDemoWaypointIndex = idx;
             _nextDemoWaypointIndex = Math.Max(0, idx - 1);
-            (lat0, lon0) = DemoWaypoints[idx];
-            (lat1, lon1) = DemoWaypoints[_nextDemoWaypointIndex];
+            (lat0, lon0) = _demoWaypoints[idx];
+            (lat1, lon1) = _demoWaypoints[_nextDemoWaypointIndex];
         }
 
         // Linear interpolation — smooth continuous position without teleport
@@ -1969,26 +1985,47 @@ public sealed partial class DashboardPage : Page
 
     private void InjectDemoTimelineEvents(int step)
     {
-        int cycleStep = step % 120;
-        switch (cycleStep)
+        int oneWaySegs = Math.Max(1, _demoWaypoints.Length - 1);
+        int ticksPerSeg = Math.Max(1, _demoTicksPerSegment);
+        int totalCycleSegments = oneWaySegs * 2;
+        int totalCycleTicks = totalCycleSegments * ticksPerSeg;
+        int cycleStep = step % totalCycleTicks;
+
+        // Dynamic sector & waypoint events at segment transitions
+        if (cycleStep % ticksPerSeg == 0)
         {
-            case 2:   _timelineService?.Add("yolo",     "YOLO inference active · 60s multi-sector survey scan",       "success"); break;
-            case 4:   _timelineService?.Add("waypoint", "WP 1 → Sektor A (Vegetatif Subur) · Outbound aktif",        "success"); break;
-            case 8:   _timelineService?.Add("yolo",     "Lush Green (conf 0.94) · Kanopi optimal ~73%",               "info");    break;
-            case 15:  _timelineService?.Add("waypoint", "WP 2 → Memasuki Sektor B (Sawah 15 HST · PPT Baseline)",    "success"); break;
-            case 22:  _timelineService?.Add("yolo",     "Inconsistent Growth (conf 0.82) · FHI 81.6% terverifikasi",   "info");    break;
-            case 30:  _timelineService?.Add("waypoint", "WP 3 → Memasuki Sektor C (Anomali Stres & Kekeringan)",    "warning"); break;
-            case 35:  _timelineService?.Add("yolo",     "Drought / Severe Stress (conf 0.86) · Sektor C terdeteksi",  "critical"); break;
-            case 45:  _timelineService?.Add("waypoint", "WP 4 → Memasuki Sektor D (Zona Pemulihan & Irigasi)",      "success"); break;
-            case 52:  _timelineService?.Add("yolo",     "Crop Recovery (conf 0.88) · FHI meningkat ke 86%",           "info");    break;
-            case 58:  _timelineService?.Add("waypoint", "WP 5 → Titik putar balik tercapai · Banking initiated",     "success"); break;
-            case 62:  _timelineService?.Add("waypoint", "WP 5 → Inbound leg aktif · Sapuan balik dimulai",           "success"); break;
-            case 72:  _timelineService?.Add("tlog",     $"Telemetry batch flushed · {step * 2} packets saved",        "info");    break;
-            case 75:  _timelineService?.Add("waypoint", "WP 4 → Re-inspeksi Sektor D (Zona Pemulihan)",              "success"); break;
-            case 90:  _timelineService?.Add("waypoint", "WP 3 → Re-inspeksi Sektor C (Stres Area)",                  "warning"); break;
-            case 105: _timelineService?.Add("waypoint", "WP 2 → Re-inspeksi Sektor B (15 HST)",                      "info");    break;
-            case 118: _timelineService?.Add("waypoint", "WP 1 → Putaran survei selesai · Loop aktif",                 "success"); break;
+            int segIndex = cycleStep / ticksPerSeg;
+            if (segIndex < oneWaySegs)
+            {
+                int wpNum = segIndex + 1;
+                char sectorLetter = (char)('A' + segIndex);
+                _timelineService?.Add("waypoint", $"WP {wpNum} → Memasuki Sektor {sectorLetter} · Outbound aktif", "success");
+            }
+            else if (segIndex == oneWaySegs)
+            {
+                int wpEnd = oneWaySegs + 1;
+                _timelineService?.Add("waypoint", $"WP {wpEnd} → Titik putar balik tercapai · Banking turnaround", "warning");
+            }
+            else
+            {
+                int wpNum = oneWaySegs - (segIndex - oneWaySegs) + 1;
+                char sectorLetter = (char)('A' + Math.Max(0, wpNum - 1));
+                _timelineService?.Add("waypoint", $"WP {wpNum} → Re-inspeksi Sektor {sectorLetter} · Inbound sweep", "info");
+            }
         }
+        else if (cycleStep == 2)
+        {
+            _timelineService?.Add("yolo", $"YOLO inference active · {_demoVideoDurationSeconds:F0}s survey scan", "success");
+        }
+        else if (cycleStep == Math.Max(1, ticksPerSeg / 2))
+        {
+            _timelineService?.Add("yolo", "Kanopi kanvas terpindai · Status vegetasi real-time terdeteksi", "info");
+        }
+        else if (cycleStep == totalCycleTicks - 2)
+        {
+            _timelineService?.Add("waypoint", "WP 1 → Putaran survei selesai · Siklus loop berikutnya aktif", "success");
+        }
+
         if (step % 5 == 0 && step > 0) RenderIncidentTimeline();
     }
 
@@ -2465,7 +2502,331 @@ public sealed partial class DashboardPage : Page
 
     private async void DemoScenarioComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!_isDemoRunning) return;
+        if (_isSwitchingScenario) return;
+        var idx = DemoScenarioComboBox?.SelectedIndex ?? 0;
+        if (idx == 3)
+        {
+            // Custom video item
+            if (string.IsNullOrWhiteSpace(_customVideoPath) || !File.Exists(_customVideoPath))
+            {
+                await PromptAndLoadCustomVideoAsync();
+            }
+            else
+            {
+                await ApplyCustomDemoVideoAsync(_customVideoPath);
+            }
+            return;
+        }
+
+        var videoPath = ResolveDetectedVideoPath();
+        if (!string.IsNullOrWhiteSpace(videoPath) && File.Exists(videoPath))
+        {
+            await ApplyCustomDemoVideoAsync(videoPath);
+        }
+    }
+
+    private async Task PromptAndLoadCustomVideoAsync()
+    {
+        try
+        {
+            var selected = await (_fileService?.PickFileAsync(new[] { ".mp4", ".mkv", ".avi", ".mov" }) ?? Task.FromResult<string?>(null));
+            if (!string.IsNullOrWhiteSpace(selected) && File.Exists(selected))
+            {
+                await ApplyCustomDemoVideoAsync(selected);
+            }
+            else if (DemoScenarioComboBox != null && DemoScenarioComboBox.SelectedIndex == 3 && string.IsNullOrWhiteSpace(_customVideoPath))
+            {
+                _isSwitchingScenario = true;
+                try
+                {
+                    DemoScenarioComboBox.SelectedIndex = 0;
+                }
+                finally
+                {
+                    _isSwitchingScenario = false;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[DashboardPage] PromptAndLoadCustomVideoAsync error");
+        }
+    }
+
+    private async void ChangeVideoButton_Click(object sender, RoutedEventArgs e)
+    {
+        await PromptAndLoadCustomVideoAsync();
+    }
+
+    private void VideoRoot_DragOver(object sender, DragEventArgs e)
+    {
+        e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+        if (VideoDropOverlay != null)
+        {
+            VideoDropOverlay.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void VideoRoot_DragLeave(object sender, DragEventArgs e)
+    {
+        if (VideoDropOverlay != null)
+        {
+            VideoDropOverlay.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private async void VideoRoot_Drop(object sender, DragEventArgs e)
+    {
+        if (VideoDropOverlay != null)
+        {
+            VideoDropOverlay.Visibility = Visibility.Collapsed;
+        }
+
+        try
+        {
+            string? targetPath = null;
+            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            {
+                var items = await e.DataView.GetStorageItemsAsync();
+                var item = items.FirstOrDefault(i =>
+                {
+                    var ext = Path.GetExtension(i.Path).ToLowerInvariant();
+                    return ext == ".mp4" || ext == ".mkv" || ext == ".avi" || ext == ".mov";
+                });
+                if (item != null)
+                {
+                    targetPath = item.Path;
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(targetPath) && e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
+            {
+                var text = await e.DataView.GetTextAsync();
+                var cleaned = text.Trim().Trim('"', '\'', '\r', '\n');
+                if (cleaned.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (Uri.TryCreate(cleaned, UriKind.Absolute, out var uri))
+                        cleaned = uri.LocalPath;
+                }
+                if (File.Exists(cleaned))
+                {
+                    targetPath = cleaned;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(targetPath) && File.Exists(targetPath))
+            {
+                await ApplyCustomDemoVideoAsync(targetPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[DashboardPage] VideoRoot_Drop failed");
+        }
+    }
+
+    public static double ProbeVideoDuration(string videoPath, double fallbackSeconds = 60.0)
+    {
+        if (string.IsNullOrWhiteSpace(videoPath) || !File.Exists(videoPath))
+        {
+            return fallbackSeconds;
+        }
+
+        var fn = Path.GetFileName(videoPath);
+        if (fn.Equals("stream_multisector_60s.mp4", StringComparison.OrdinalIgnoreCase) ||
+            fn.Equals("stream_multisector_60s_detected.mp4", StringComparison.OrdinalIgnoreCase))
+            return 60.0;
+        if (fn.Equals("stream_v7c_final.mp4", StringComparison.OrdinalIgnoreCase) ||
+            fn.Equals("15d.mp4", StringComparison.OrdinalIgnoreCase))
+            return 15.5;
+        if (fn.Equals("YDXJ_fused_only_detected.mp4", StringComparison.OrdinalIgnoreCase))
+            return 35.0;
+
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "ffprobe",
+                Arguments = $"-v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"{videoPath}\"",
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var proc = Process.Start(psi);
+            if (proc != null)
+            {
+                if (proc.WaitForExit(3000))
+                {
+                    var output = proc.StandardOutput.ReadToEnd().Trim();
+                    if (double.TryParse(output, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var dur) && dur > 1.0)
+                    {
+                        return dur;
+                    }
+                }
+                else
+                {
+                    try { proc.Kill(); } catch { }
+                }
+            }
+        }
+        catch { }
+
+        try
+        {
+            var (yoloPy, _) = PythonCameraService.ResolvePythonCommand(".venv-yolo");
+            var (camPy, _)  = PythonCameraService.ResolvePythonCommand(null);
+            var pyCmd = yoloPy ?? camPy ?? "python3";
+            var pyCode = $"import cv2; c=cv2.VideoCapture('{videoPath}'); fps=c.get(cv2.CAP_PROP_FPS); fc=c.get(cv2.CAP_PROP_FRAME_COUNT); print(fc/max(1,fps))";
+            var psi = new ProcessStartInfo
+            {
+                FileName = pyCmd,
+                Arguments = $"-c \"{pyCode}\"",
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var proc = Process.Start(psi);
+            if (proc != null)
+            {
+                if (proc.WaitForExit(4000))
+                {
+                    var output = proc.StandardOutput.ReadToEnd().Trim();
+                    if (double.TryParse(output, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var dur) && dur > 1.0)
+                    {
+                        return dur;
+                    }
+                }
+                else
+                {
+                    try { proc.Kill(); } catch { }
+                }
+            }
+        }
+        catch { }
+
+        return fallbackSeconds;
+    }
+
+    public async Task ApplyCustomDemoVideoAsync(string videoPath)
+    {
+        if (string.IsNullOrWhiteSpace(videoPath) || !File.Exists(videoPath)) return;
+        _customVideoPath = videoPath;
+
+        // 1. Probe video duration & metadata
+        var duration = ProbeVideoDuration(videoPath, 60.0);
+        _demoVideoDurationSeconds = Math.Max(10.0, duration);
+
+        // 2. Dynamically calculate Waypoint count and timing
+        int wpCount;
+        if (_demoVideoDurationSeconds <= 20.0)      wpCount = 4;
+        else if (_demoVideoDurationSeconds <= 45.0) wpCount = 5;
+        else if (_demoVideoDurationSeconds <= 75.0) wpCount = 5;
+        else                                        wpCount = Math.Min(8, Math.Max(5, (int)Math.Round(_demoVideoDurationSeconds / 15.0) + 1));
+
+        _demoTicksPerSegment = Math.Max(1, (int)Math.Round(_demoVideoDurationSeconds / (wpCount - 1)));
+
+        // Flight speed ~10.0 m/s for standard agricultural cruise transect
+        _demoSpeedBase = 10.0;
+        double totalMeters = _demoSpeedBase * (_demoTicksPerSegment * (wpCount - 1));
+        _demoGeofenceRadiusMeters = Math.Max(300.0, (totalMeters / 2.0) + 100.0);
+
+        // 3. Generate dynamic straight-line survey waypoints matching the video transect
+        _demoWaypoints = GenerateStraightLineWaypoints(DemoFieldLat, DemoFieldLon, wpCount, totalMeters, bearingDeg: 90.0);
+
+        // 4. Update UI - ComboBox
+        _isSwitchingScenario = true;
+        try
+        {
+            var fn = Path.GetFileName(videoPath);
+            int targetIdx;
+            if (fn.Contains("60s", StringComparison.OrdinalIgnoreCase)) targetIdx = 0;
+            else if (fn.Contains("v7c", StringComparison.OrdinalIgnoreCase) || fn.Contains("15d", StringComparison.OrdinalIgnoreCase)) targetIdx = 1;
+            else if (fn.Contains("YDXJ", StringComparison.OrdinalIgnoreCase)) targetIdx = 2;
+            else targetIdx = 3;
+
+            if (CustomVideoComboItem != null)
+            {
+                CustomVideoComboItem.Content = $"📁 {fn} ({_demoVideoDurationSeconds:F0}s · {wpCount} WP)";
+            }
+            if (DemoScenarioComboBox != null)
+            {
+                DemoScenarioComboBox.SelectedIndex = targetIdx;
+            }
+        }
+        finally
+        {
+            _isSwitchingScenario = false;
+        }
+
+        // 5. Update MapViewModel so MapPage and MissionPlannerPage show the new grid & waypoints
+        if (_mapViewModel != null)
+        {
+            _mapViewModel.Waypoints.Clear();
+            for (int i = 0; i < _demoWaypoints.Length; i++)
+            {
+                var (wpLat, wpLon) = _demoWaypoints[i];
+                _mapViewModel.Waypoints.Add(new WaypointData
+                {
+                    Sequence  = DemoWaypointStartSequence + i,
+                    Latitude  = wpLat,
+                    Longitude = wpLon,
+                    Altitude  = 60,
+                    Command   = WaypointCommand.Waypoint,
+                });
+            }
+            _mapViewModel.GeofenceCenterLat = DemoFieldLat;
+            _mapViewModel.GeofenceCenterLon = DemoFieldLon;
+            _mapViewModel.GeofenceRadius    = _demoGeofenceRadiusMeters;
+            _mapViewModel.GeofenceType      = GeofenceType.Circular;
+            _mapViewModel.IsGeofenceActive  = true;
+        }
+
+        // 6. Update DashboardMapControl
+        if (DashboardMapControl != null)
+        {
+            DashboardMapControl.ClearWaypoints();
+            for (int i = 0; i < _demoWaypoints.Length; i++)
+            {
+                var (wpLat, wpLon) = _demoWaypoints[i];
+                DashboardMapControl.AddWaypointMarker(DemoWaypointStartSequence + i, wpLat, wpLon, 60, "WAYPOINT");
+            }
+            DashboardMapControl.SetGeofence(true, DemoFieldLat, DemoFieldLon, _demoGeofenceRadiusMeters);
+            DashboardMapControl.SetCenter(DemoFieldLat, DemoFieldLon, 17);
+            DashboardMapControl.SetFollowVehicle(true);
+        }
+
+        // 7. Update Geofence service
+        _geofenceService?.SetGeofenceCenter(DemoFieldLat, DemoFieldLon);
+        _geofenceService?.SetGeofenceRadius(_demoGeofenceRadiusMeters);
+        _geofenceService?.SetGeofenceActive(true);
+
+        // 8. Log comprehensive sync into Incident Timeline
+        var fileName = Path.GetFileName(videoPath);
+        _timelineService?.Add("camera",   $"Video disinkronkan: {fileName} ({_demoVideoDurationSeconds:F0}s)", "info");
+        _timelineService?.Add("waypoint", $"Rute survei diperbarui: {wpCount} Waypoint ({totalMeters:F0}m transek · {_demoTicksPerSegment}s/segmen)", "success");
+        _timelineService?.Add("geofence", $"Batas geofence disesuaikan: {_demoGeofenceRadiusMeters:F0}m", "info");
+        RenderIncidentTimeline();
+
+        // 9. Reset counters and start/restart video and simulation
+        _demoStep = 0;
+        _currentDemoWaypointIndex = 0;
+        _nextDemoWaypointIndex = 1;
+        _classifyRealData = null;
+        FpsHudText.Text = $"YDXJ · {fileName} ({_demoVideoDurationSeconds:F0}s)";
+
+        var isPreAnnotated = fileName.Contains("detected", StringComparison.OrdinalIgnoreCase) ||
+                             fileName.Contains("fused", StringComparison.OrdinalIgnoreCase);
+        _useFusedOnlyDemoSummary = isPreAnnotated;
+
+        // Video preview first frame
+        var previewFrame = await Task.Run(() => ExtractFirstFrameBytes(videoPath));
+        if (previewFrame.Length > 0)
+        {
+            _lastFrameData = previewFrame;
+            DashboardVideoStream?.UpdateFrame(previewFrame);
+            DashboardVideoStream?.HideOverlay();
+        }
+
 #if __ANDROID__
         if (_androidDemoDecoder != null)
         {
@@ -2474,24 +2835,14 @@ public sealed partial class DashboardPage : Page
             _androidDemoDecoder = null;
         }
         var androidContext = Android.App.Application.Context;
-        var assetName = DemoScenarioComboBox?.SelectedIndex switch
-        {
-            1 => "demo_videos/stream_v7c_final.mp4",
-            2 => "demo_videos/YDXJ_fused_only_detected.mp4",
-            _ => "demo_videos/stream_multisector_60s_detected.mp4"
-        };
-        _androidDemoDecoder = new HarvestmoonGCS.Platforms.Android.Services.AndroidDemoVideoDecoder(androidContext, assetName);
+        _androidDemoDecoder = new HarvestmoonGCS.Platforms.Android.Services.AndroidDemoVideoDecoder(androidContext, videoPath);
         _androidDemoDecoder.FrameDecoded += (_, jpeg) => OnDashboardFrameReceived(this, jpeg);
         await _androidDemoDecoder.StartAsync();
-        _timelineService?.Add("camera", $"Skenario beralih: {assetName} (Android)", "info");
 #else
-        if (_cameraService == null) return;
-        var videoPath = ResolveDetectedVideoPath();
-        if (!string.IsNullOrWhiteSpace(videoPath) && File.Exists(videoPath))
+        if (_cameraService != null)
         {
-            _useFusedOnlyDemoSummary = DemoScenarioComboBox?.SelectedIndex == 1;
-            var modelPath = PythonCameraService.ResolveHealthModelPath();
             await _cameraService.StopCameraAsync();
+            var modelPath = PythonCameraService.ResolveHealthModelPath();
             await _cameraService.StartHsvStreamAsync(
                 source: videoPath,
                 modelPath: modelPath,
@@ -2499,9 +2850,19 @@ public sealed partial class DashboardPage : Page
                 showOverlay: true,
                 demo: true,
                 playbackRate: 1.0f);
-            _timelineService?.Add("camera", $"Skenario beralih: {Path.GetFileName(videoPath)}", "info");
         }
 #endif
+
+        // 10. If demo mode was not running, start it; if running, inject initial step
+        if (!_isDemoRunning)
+        {
+            await StartDemoMode();
+        }
+        else
+        {
+            InjectDemoTelemetry(0);
+            UpdateDemoFieldReport();
+        }
     }
 
     private string? ResolveDetectedVideoPath()
@@ -2534,6 +2895,18 @@ public sealed partial class DashboardPage : Page
                     "/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/Assets/demo_videos/YDXJ_fused_only_detected.mp4");
                 if (p != null) return p;
             }
+            else if (idx == 3) // Custom Video
+            {
+                if (!string.IsNullOrWhiteSpace(_customVideoPath) && File.Exists(_customVideoPath))
+                {
+                    return _customVideoPath;
+                }
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(_customVideoPath) && File.Exists(_customVideoPath))
+        {
+            return _customVideoPath;
         }
 
         var envOverride = Environment.GetEnvironmentVariable("MOONHARVEST_DEMO_VIDEO");
