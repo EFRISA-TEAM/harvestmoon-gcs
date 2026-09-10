@@ -84,11 +84,14 @@
 
   <!-- Bundle the pre-annotated demo video as an Android asset so DemoVideoDecoder can play it -->
   <ItemGroup Condition="$(TargetFramework.Contains('android'))">
-    <AndroidAsset Include="Assets\demo_videos\YDXJ_fused_only_detected.mp4">
-      <Link>demo_videos/YDXJ_fused_only_detected.mp4</Link>
+    <AndroidAsset Include="Assets\demo_videos\stream_multisector_60s_detected.mp4">
+      <Link>demo_videos/stream_multisector_60s_detected.mp4</Link>
     </AndroidAsset>
     <AndroidAsset Include="Assets\demo_videos\stream_v7c_final.mp4">
       <Link>demo_videos/stream_v7c_final.mp4</Link>
+    </AndroidAsset>
+    <AndroidAsset Include="Assets\demo_videos\YDXJ_fused_only_detected.mp4">
+      <Link>demo_videos/YDXJ_fused_only_detected.mp4</Link>
     </AndroidAsset>
   </ItemGroup>
 

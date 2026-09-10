@@ -1614,17 +1614,23 @@ public sealed partial class DashboardPage : Page
             // 1. Video — use YOLO classify stream (Python annotates frames, C# skips double ONNX)
             //    On Android there is no local video file, so skip gracefully and run telemetry-only demo.
 #if __ANDROID__
-            // Wire the bundled stream_v7c_final.mp4 through AndroidDemoVideoDecoder → VideoStreamControl
+            // Wire the selected pre-annotated demo video through AndroidDemoVideoDecoder → VideoStreamControl
             _useFusedOnlyDemoSummary = true;
             var androidContext = Android.App.Application.Context;
-            _androidDemoDecoder = new HarvestmoonGCS.Platforms.Android.Services.AndroidDemoVideoDecoder(androidContext);
+            var assetName = DemoScenarioComboBox?.SelectedIndex switch
+            {
+                1 => "demo_videos/stream_v7c_final.mp4",
+                2 => "demo_videos/YDXJ_fused_only_detected.mp4",
+                _ => "demo_videos/stream_multisector_60s_detected.mp4"
+            };
+            _androidDemoDecoder = new HarvestmoonGCS.Platforms.Android.Services.AndroidDemoVideoDecoder(androidContext, assetName);
             _androidDemoDecoder.FrameDecoded += (_, jpeg) => OnDashboardFrameReceived(this, jpeg);
             await _androidDemoDecoder.StartAsync();
             DispatcherQueue.TryEnqueue(() =>
             {
                 try { DashboardVideoStream?.HideOverlay(); } catch { }
             });
-            _timelineService?.Add("camera", "Video: stream_v7c_final.mp4 (Android)", "success");
+            _timelineService?.Add("camera", $"Video: {assetName} (Android)", "success");
 #else
             var videoPath = ResolveDetectedVideoPath();
             _useFusedOnlyDemoSummary = !string.IsNullOrWhiteSpace(videoPath) &&
@@ -2459,7 +2465,27 @@ public sealed partial class DashboardPage : Page
 
     private async void DemoScenarioComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!_isDemoRunning || _cameraService == null) return;
+        if (!_isDemoRunning) return;
+#if __ANDROID__
+        if (_androidDemoDecoder != null)
+        {
+            await _androidDemoDecoder.StopAsync();
+            _androidDemoDecoder.Dispose();
+            _androidDemoDecoder = null;
+        }
+        var androidContext = Android.App.Application.Context;
+        var assetName = DemoScenarioComboBox?.SelectedIndex switch
+        {
+            1 => "demo_videos/stream_v7c_final.mp4",
+            2 => "demo_videos/YDXJ_fused_only_detected.mp4",
+            _ => "demo_videos/stream_multisector_60s_detected.mp4"
+        };
+        _androidDemoDecoder = new HarvestmoonGCS.Platforms.Android.Services.AndroidDemoVideoDecoder(androidContext, assetName);
+        _androidDemoDecoder.FrameDecoded += (_, jpeg) => OnDashboardFrameReceived(this, jpeg);
+        await _androidDemoDecoder.StartAsync();
+        _timelineService?.Add("camera", $"Skenario beralih: {assetName} (Android)", "info");
+#else
+        if (_cameraService == null) return;
         var videoPath = ResolveDetectedVideoPath();
         if (!string.IsNullOrWhiteSpace(videoPath) && File.Exists(videoPath))
         {
@@ -2475,6 +2501,7 @@ public sealed partial class DashboardPage : Page
                 playbackRate: 1.0f);
             _timelineService?.Add("camera", $"Skenario beralih: {Path.GetFileName(videoPath)}", "info");
         }
+#endif
     }
 
     private string? ResolveDetectedVideoPath()

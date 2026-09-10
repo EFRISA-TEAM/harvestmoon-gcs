@@ -25,7 +25,7 @@ public sealed class AndroidDemoVideoDecoder : IDisposable
     private const int MaxWidth = 640;
 
     private readonly Context _context;
-    private const string AssetPath = "demo_videos/YDXJ_fused_only_detected.mp4";
+    private readonly string _assetPath;
     private const int TargetFps = 10;
 
     private CancellationTokenSource? _cts;
@@ -37,9 +37,10 @@ public sealed class AndroidDemoVideoDecoder : IDisposable
     /// <summary>Fired on a background thread for each decoded JPEG frame.</summary>
     public event EventHandler<byte[]>? FrameDecoded;
 
-    public AndroidDemoVideoDecoder(Context context)
+    public AndroidDemoVideoDecoder(Context context, string assetPath = "demo_videos/stream_multisector_60s_detected.mp4")
     {
         _context = context;
+        _assetPath = assetPath;
     }
 
     /// <summary>
@@ -51,7 +52,8 @@ public sealed class AndroidDemoVideoDecoder : IDisposable
         try
         {
             var dir = _context.CacheDir?.AbsolutePath ?? System.IO.Path.GetTempPath();
-            var dest = System.IO.Path.Combine(dir, "stream_v7c_final.mp4");
+            var fileName = System.IO.Path.GetFileName(_assetPath);
+            var dest = System.IO.Path.Combine(dir, fileName);
 
             // Always refresh the cached copy so the app cannot keep replaying an older asset.
             if (File.Exists(dest))
@@ -59,10 +61,10 @@ public sealed class AndroidDemoVideoDecoder : IDisposable
                 File.Delete(dest);
             }
 
-            using var assetStream = _context.Assets?.Open(AssetPath);
+            using var assetStream = _context.Assets?.Open(_assetPath);
             if (assetStream == null)
             {
-                Serilog.Log.Warning("[DemoDecoder] Asset not found: {Path}", AssetPath);
+                Serilog.Log.Warning("[DemoDecoder] Asset not found: {Path}", _assetPath);
                 return null;
             }
 
