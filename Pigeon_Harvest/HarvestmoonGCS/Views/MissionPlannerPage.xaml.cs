@@ -166,18 +166,18 @@ public sealed partial class MissionPlannerPage : Page
             return;
         }
 
-        // Demo rice field transect in Sukamerta, Rawamerta, Karawang (1050m E-W, 8 WPs)
+        // Demo rice field transect in Sukamerta, Rawamerta, Karawang (600m E-W, 5 WPs matching 4 survey sectors)
         const double centerLat = -6.24361;
         const double centerLon = 107.36556;
         const double mPerDegLon = 111320.0 * 0.99407; // cos(-6.24361 deg)
-        double spacingLon = (1050.0 / 6.0) / mPerDegLon;
-        double startLon = centerLon - 3.0 * spacingLon;
+        double spacingLon = (600.0 / 4.0) / mPerDegLon;
+        double startLon = centerLon - 2.0 * spacingLon;
 
-        for (int i = 0; i < 7; i++)
+        for (int i = 0; i < 5; i++)
         {
             _waypoints.Add(new MissionWaypointItem
             {
-                Sequence = 6 + i,
+                Sequence = 1 + i,
                 Latitude = centerLat,
                 Longitude = startLon + i * spacingLon,
                 Altitude = 60

@@ -137,12 +137,12 @@ public sealed partial class DashboardPage : Page
     private double _demoBatteryStart = 95.0;   // randomized at demo start
     private int    _demoSatCount     = 15;     // randomized at demo start
     private double _demoBatteryVoltage = 12.6; // randomized at demo start
-    private const int DemoTicksPerSegment = 10; // ~4 m/s cruise × 10 ticks per segment
+    private const int DemoTicksPerSegment = 15; // 15s per segment x 4 segments = 60s one-way (synced 1:1 with 4 sectors of 60s video!)
     private readonly DispatcherTimer _demoTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     // Demo rice-field transect: Sukamerta, Rawamerta, Karawang (West Java rice belt).
     private const double DemoFieldLat = -6.24361;
     private const double DemoFieldLon = 107.36556;
-    private const double DemoGeofenceRadiusMeters = 650; // Safely encapsulates 1050m transect (±525m from center)
+    private const double DemoGeofenceRadiusMeters = 650; // Safely encapsulates 600m transect (±300m from center)
     // Summary percentages from stream_v7c_final.mp4 HSV-ONNX fused pipeline (233 frames verified)
     // Healthy: 6.8%, Inconsistent Growth: 69.3%, Drought: ~0%, Bare Soil: 23.9%
     // FHI 81.6 avg (matches TEKNOFEST PPT controlled validation claim: mean FHI 81.6)
@@ -154,7 +154,7 @@ public sealed partial class DashboardPage : Page
     private const double DemoReportFhi           = 81.6; // verified avg FHI (PPT target: 81.6)
     private const int    DemoReportTotalDetections = 1638;
     private static readonly (double Lat, double Lon)[] DemoWaypoints = GenerateDemoRiceFieldWaypoints();
-    private const int DemoWaypointStartSequence = 6;
+    private const int DemoWaypointStartSequence = 1;
     private static readonly string[] DemoClassificationEvents =
     {
         "Lush Green (conf 0.93) · Sector C",
@@ -1600,7 +1600,7 @@ public sealed partial class DashboardPage : Page
         // all within ranges a real agricultural survey flight would actually show.
         _demoRng = new Random();
         _demoAltitudeBase   = 59.5 + _demoRng.NextDouble() * 1.0;   // 59.5–60.5 m AGL — typical low-altitude crop survey
-        _demoSpeedBase      =  8.6 + _demoRng.NextDouble() * 2.0;   // 8.6–10.6 m/s
+        _demoSpeedBase      =  9.8 + (_demoRng.NextDouble() - 0.5) * 0.4; // 9.6–10.0 m/s (~10.0 m/s matches 150m / 15s transect cruise)
         _demoBatteryStart   = 93.0 + _demoRng.NextDouble() * 4.0;   // 93–97% at mission start (post-takeoff)
         _demoSatCount       = 13   + _demoRng.Next(0, 5);           // 13–17 sats
         _demoBatteryVoltage = 12.3 + _demoRng.NextDouble() * 0.6;   // 12.3–12.9 V
@@ -1717,12 +1717,12 @@ public sealed partial class DashboardPage : Page
             _timelineService?.Add("connected", "MAVLink connected · ",     "success");
             _timelineService?.Add("tlog",      "Auto TLOG recorder armed",                         "success");
             _timelineService?.Add("armed",     "Armed · AUTO mode · altitude 60m · survey active", "success");
-            _timelineService?.Add("waypoint",  "Survey route active · 900m E-W · WP 6-13 · Sukamerta, Karawang", "info");
+            _timelineService?.Add("waypoint",  "Survey route active · 600m E-W · WP 1-5 · Sukamerta, Karawang", "info");
             RenderIncidentTimeline();
             UpdateAlertCenter(_flightViewModel?.Telemetry, true);
             UpdateDemoFieldReport();
 
-        // 7. Reset UI counters — start from WP 6 (segment index 0)
+        // 7. Reset UI counters — start from WP 1 (segment index 0)
         _demoStep = 0;
         _currentDemoWaypointIndex = 0;
         _nextDemoWaypointIndex = 1;
@@ -1967,21 +1967,21 @@ public sealed partial class DashboardPage : Page
         switch (cycleStep)
         {
             case 2:   _timelineService?.Add("yolo",     "YOLO inference active · 60s multi-sector survey scan",       "success"); break;
-            case 5:   _timelineService?.Add("waypoint", "WP 6 → Sektor A (Vegetatif Subur) · Outbound aktif",        "success"); break;
-            case 10:  _timelineService?.Add("yolo",     "Lush Green (conf 0.94) · Kanopi optimal ~73%",               "info");    break;
-            case 15:  _timelineService?.Add("waypoint", "WP 7 → Memasuki Sektor B (Sawah 15 HST · PPT Baseline)",    "success"); break;
+            case 4:   _timelineService?.Add("waypoint", "WP 1 → Sektor A (Vegetatif Subur) · Outbound aktif",        "success"); break;
+            case 8:   _timelineService?.Add("yolo",     "Lush Green (conf 0.94) · Kanopi optimal ~73%",               "info");    break;
+            case 15:  _timelineService?.Add("waypoint", "WP 2 → Memasuki Sektor B (Sawah 15 HST · PPT Baseline)",    "success"); break;
             case 22:  _timelineService?.Add("yolo",     "Inconsistent Growth (conf 0.82) · FHI 81.6% terverifikasi",   "info");    break;
-            case 30:  _timelineService?.Add("waypoint", "WP 8 → Memasuki Sektor C (Anomali Stres & Kekeringan)",    "warning"); break;
+            case 30:  _timelineService?.Add("waypoint", "WP 3 → Memasuki Sektor C (Anomali Stres & Kekeringan)",    "warning"); break;
             case 35:  _timelineService?.Add("yolo",     "Drought / Severe Stress (conf 0.86) · Sektor C terdeteksi",  "critical"); break;
-            case 45:  _timelineService?.Add("waypoint", "WP 10 → Memasuki Sektor D (Zona Pemulihan & Irigasi)",      "success"); break;
+            case 45:  _timelineService?.Add("waypoint", "WP 4 → Memasuki Sektor D (Zona Pemulihan & Irigasi)",      "success"); break;
             case 52:  _timelineService?.Add("yolo",     "Crop Recovery (conf 0.88) · FHI meningkat ke 86%",           "info");    break;
-            case 58:  _timelineService?.Add("waypoint", "WP 12 → Titik putar balik tercapai · Banking initiated",     "success"); break;
-            case 62:  _timelineService?.Add("waypoint", "WP 12 → Inbound leg aktif · Sapuan balik dimulai",           "success"); break;
+            case 58:  _timelineService?.Add("waypoint", "WP 5 → Titik putar balik tercapai · Banking initiated",     "success"); break;
+            case 62:  _timelineService?.Add("waypoint", "WP 5 → Inbound leg aktif · Sapuan balik dimulai",           "success"); break;
             case 72:  _timelineService?.Add("tlog",     $"Telemetry batch flushed · {step * 2} packets saved",        "info");    break;
-            case 82:  _timelineService?.Add("waypoint", "WP 10 → Cross-verification Sektor D",                       "success"); break;
-            case 92:  _timelineService?.Add("waypoint", "WP 8 → Re-inspeksi Sektor C (Stres Area)",                  "warning"); break;
-            case 102: _timelineService?.Add("waypoint", "WP 7 → Re-inspeksi Sektor B (15 HST)",                      "info");    break;
-            case 115: _timelineService?.Add("waypoint", "WP 6 → Putaran survei selesai · Loop aktif",                 "success"); break;
+            case 75:  _timelineService?.Add("waypoint", "WP 4 → Re-inspeksi Sektor D (Zona Pemulihan)",              "success"); break;
+            case 90:  _timelineService?.Add("waypoint", "WP 3 → Re-inspeksi Sektor C (Stres Area)",                  "warning"); break;
+            case 105: _timelineService?.Add("waypoint", "WP 2 → Re-inspeksi Sektor B (15 HST)",                      "info");    break;
+            case 118: _timelineService?.Add("waypoint", "WP 1 → Putaran survei selesai · Loop aktif",                 "success"); break;
         }
         if (step % 5 == 0 && step > 0) RenderIncidentTimeline();
     }
@@ -2554,10 +2554,10 @@ public sealed partial class DashboardPage : Page
 
     private static (double Lat, double Lon)[] GenerateDemoRiceFieldWaypoints()
     {
-        // 7 titik (6 segmen @ 175m = 1050m transek E-W), tiap segmen 10 detik.
-        // 6 segmen x 10s = 60 detik tepat satu arah (sinkron 1:1 dengan video 60s!).
-        // Round-trip 12 segmen x 10s = 120 detik (2 menit).
-        return GenerateStraightLineWaypoints(DemoFieldLat, DemoFieldLon, count: 7, totalMeters: 1050, bearingDeg: 90.0);
+        // 5 titik (4 segmen @ 150m = 600m transek E-W), tiap segmen 15 detik.
+        // 4 segmen x 15s = 60 detik tepat satu arah (sinkron 1:1 dengan 4 sektor video 60s!).
+        // Round-trip 8 segmen x 15s = 120 detik (2 menit).
+        return GenerateStraightLineWaypoints(DemoFieldLat, DemoFieldLon, count: 5, totalMeters: 600, bearingDeg: 90.0);
     }
 
     private static (double Lat, double Lon) OffsetCoordinate(double latitude, double longitude, double distanceMeters, double bearingDeg)
