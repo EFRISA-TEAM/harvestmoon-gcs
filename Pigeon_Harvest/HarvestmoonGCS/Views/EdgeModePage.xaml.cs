@@ -93,15 +93,21 @@ public sealed partial class EdgeModePage : Page
         ExecutionProviderText.Text = useCuda ? "CUDA / GPU (TensorRT)" : "CPU (Optimized Runtime)";
 #endif
 
-        // YOLO status
-        bool yoloReady = _harvestService?.IsYoloRuntimeReady == true;
+        // YOLO status — saat demo aktif, tampilkan status demo yang jujur
+        // (sebelumnya halaman ini tidak pernah tahu demo sedang berjalan dan
+        // bisa menampilkan "Fallback / Idle" padahal sistem sedang demo).
+        bool demoActive = _harvestService?.IsDemoModeActive == true;
+        bool yoloReady  = _harvestService?.IsYoloRuntimeReady == true;
+        bool edgeOk     = yoloReady || demoActive;
         EdgeStatusDot.Fill = new SolidColorBrush(
-            yoloReady ? Windows.UI.Color.FromArgb(0xFF, 0x22, 0xC5, 0x5E)
-                      : Windows.UI.Color.FromArgb(0xFF, 0xEF, 0x44, 0x44));
-        EdgeStatusText.Text = yoloReady ? "Edge AI: Active" : "Edge AI: Fallback / Idle";
+            edgeOk ? Windows.UI.Color.FromArgb(0xFF, 0x22, 0xC5, 0x5E)
+                   : Windows.UI.Color.FromArgb(0xFF, 0xEF, 0x44, 0x44));
+        EdgeStatusText.Text = demoActive
+            ? (yoloReady ? "Edge AI: Active (Demo)" : "Edge AI: Demo Mode")
+            : (yoloReady ? "Edge AI: Active" : "Edge AI: Fallback / Idle");
         EdgeStatusText.Foreground = new SolidColorBrush(
-            yoloReady ? Windows.UI.Color.FromArgb(0xFF, 0x22, 0xC5, 0x5E)
-                      : Windows.UI.Color.FromArgb(0xFF, 0xEF, 0x44, 0x44));
+            edgeOk ? Windows.UI.Color.FromArgb(0xFF, 0x22, 0xC5, 0x5E)
+                   : Windows.UI.Color.FromArgb(0xFF, 0xEF, 0x44, 0x44));
 
         // Real transport status — was previously a hardcoded "UDP · 14550 · Listening" regardless
         // of how the vehicle is actually connected, which would visibly contradict a Serial/USB
@@ -265,13 +271,21 @@ public sealed partial class EdgeModePage : Page
             var baseDirectory = AppContext.BaseDirectory;
             var defaultModelPath = System.IO.Path.Combine(baseDirectory, "Assets", "models", selected);
 
-            string classFileName = selected.Contains("uav") 
-                ? "classes-moonharvest-uav-det.txt"
-                : selected.Contains("weed") 
-                    ? "classes-crop-weed.txt"
-                    : selected.Contains("320") || selected.Contains("coco")
-                        ? "classes-yolov8n-coco.txt"
-                        : "classes-moonharvest-health.txt";
+            string classFileName = selected switch
+            {
+                // The int8 detector is the older 416px crop/weed model — it needs its own labels,
+                // not the 4-class agronomy list used by moonharvest-uav-det.onnx.
+                var s when s.Contains("uav-det-int8", StringComparison.OrdinalIgnoreCase)
+                    => "classes-moonharvest-uav-det-legacy.txt",
+                var s when s.Contains("uav", StringComparison.OrdinalIgnoreCase)
+                    => "classes-moonharvest-uav-det.txt",
+                var s when s.Contains("weed", StringComparison.OrdinalIgnoreCase)
+                    => "classes-crop-weed.txt",
+                var s when s.Contains("320", StringComparison.OrdinalIgnoreCase)
+                        || s.Contains("coco", StringComparison.OrdinalIgnoreCase)
+                    => "classes-yolov8n-coco.txt",
+                _ => "classes-moonharvest-health.txt",
+            };
 
             var defaultClassPath = System.IO.Path.Combine(baseDirectory, "Assets", "models", classFileName);
             

@@ -33,9 +33,11 @@
                 <Setter Property="Background" Value="{ThemeResource MutedBrush}"/>
                 <Setter Property="Foreground" Value="{ThemeResource ForegroundBrush}"/>
                 <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="Padding" Value="12,8,16,8"/>
-                <Setter Property="CornerRadius" Value="12"/>
+                <Setter Property="Padding" Value="12,0,14,0"/>
+                <Setter Property="CornerRadius" Value="8"/>
+                <Setter Property="Height" Value="34"/>
                 <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                <Setter Property="VerticalContentAlignment" Value="Center"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
@@ -115,26 +117,26 @@
             <!-- CENTER: Status Pills (Wifi, Battery, GPS, AI) -->
             <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
                 <!-- Wifi/Connection Pill -->
-                <Border x:Name="WifiPill" Padding="10,6" CornerRadius="6" Background="{ThemeResource SuccessBrush20}" BorderBrush="{ThemeResource SuccessBrush40}" BorderThickness="1">
+                <Border x:Name="WifiPill" Padding="10,6" CornerRadius="6" Background="{ThemeResource ErrorBrush20}" BorderBrush="{ThemeResource ErrorBrush40}" BorderThickness="1">
                     <StackPanel Orientation="Horizontal" Spacing="6">
-                        <FontIcon x:Name="WifiIcon" Glyph="&#xE701;" FontSize="12" Foreground="{ThemeResource SuccessBrush}" VerticalAlignment="Center"/>
-                        <TextBlock x:Name="WifiLabel" Text="Connected" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource SuccessBrush}" VerticalAlignment="Center"/>
+                        <FontIcon x:Name="WifiIcon" Glyph="&#xE703;" FontSize="12" Foreground="{ThemeResource ErrorBrush}" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="WifiLabel" Text="Disconnected" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource ErrorBrush}" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Border>
 
                 <!-- Battery Pill -->
-                <Border x:Name="BatteryPill" Padding="10,6" CornerRadius="6" Background="{ThemeResource SuccessBrush20}" BorderBrush="{ThemeResource SuccessBrush40}" BorderThickness="1">
+                <Border x:Name="BatteryPill" Padding="10,6" CornerRadius="6" Background="{ThemeResource MutedBrush}" BorderBrush="{ThemeResource BorderBrush}" BorderThickness="1">
                     <StackPanel Orientation="Horizontal" Spacing="6">
-                        <FontIcon x:Name="BatteryIcon" Glyph="{StaticResource IconBattery}" FontSize="12" Foreground="{ThemeResource SuccessBrush}" VerticalAlignment="Center"/>
-                        <TextBlock x:Name="BatteryText" Text="78%" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource SuccessBrush}" VerticalAlignment="Center"/>
+                        <FontIcon x:Name="BatteryIcon" Glyph="{StaticResource IconBattery}" FontSize="12" Foreground="{ThemeResource MutedForegroundBrush}" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="BatteryText" Text="—" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource MutedForegroundBrush}" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Border>
 
                 <!-- GPS Pill -->
-                <Border x:Name="GpsPill" Padding="10,6" CornerRadius="6" Background="{ThemeResource SuccessBrush20}" BorderBrush="{ThemeResource SuccessBrush40}" BorderThickness="1">
+                <Border x:Name="GpsPill" Padding="10,6" CornerRadius="6" Background="{ThemeResource MutedBrush}" BorderBrush="{ThemeResource BorderBrush}" BorderThickness="1">
                     <StackPanel Orientation="Horizontal" Spacing="6">
-                        <FontIcon x:Name="GpsIcon" Glyph="{StaticResource IconSatellite}" FontSize="12" Foreground="{ThemeResource SuccessBrush}" VerticalAlignment="Center"/>
-                        <TextBlock x:Name="GpsText" Text="GPS 18" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource SuccessBrush}" VerticalAlignment="Center"/>
+                        <FontIcon x:Name="GpsIcon" Glyph="{StaticResource IconSatellite}" FontSize="12" Foreground="{ThemeResource MutedForegroundBrush}" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="GpsText" Text="—" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource MutedForegroundBrush}" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Border>
 
@@ -147,43 +149,57 @@
                 </Border>
             </StackPanel>
 
-            <!-- RIGHT: RTL + Mission Buttons + Connection + Status -->
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <!-- RTL Button (Quick Action) -->
-                <Button x:Name="RTLButton" 
-                        Padding="10,8" 
-                        CornerRadius="8"
-                        Background="#D32F2F" 
-                        BorderThickness="0"
-                        Click="RTLButton_Click">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <FontIcon Glyph="&#xE8B1;" FontSize="14" Foreground="White" VerticalAlignment="Center"/>
-                        <TextBlock Text="RTL" FontSize="12" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Button>
+            <!-- RIGHT: Quick Flight Operations + Vehicle Link -->
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <!-- Group 1: Quick Flight Operations -->
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <!-- Start/Stop Mission Button -->
+                    <Button x:Name="MissionButton" 
+                            Height="34"
+                            Padding="12,0" 
+                            CornerRadius="8"
+                            Background="{ThemeResource PrimaryBrush}" 
+                            BorderThickness="0"
+                            VerticalAlignment="Center"
+                            Click="MissionButton_Click"
+                            ToolTipService.ToolTip="Mulai / Pause Misi Autopilot (MAVLink MISSION_START)">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <FontIcon x:Name="MissionIcon" Glyph="&#xE768;" FontSize="12" Foreground="White" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="MissionLabel" Text="Start Mission" FontSize="12" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
 
-                <!-- Start/Stop Mission Button (Quick Action) -->
-                <Button x:Name="MissionButton" 
-                        Padding="10,8" 
-                        CornerRadius="8"
-                        Background="{ThemeResource PrimaryBrush}" 
-                        BorderThickness="0"
-                        Click="MissionButton_Click">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <FontIcon x:Name="MissionIcon" Glyph="&#xE768;" FontSize="14" Foreground="White" VerticalAlignment="Center"/>
-                        <TextBlock x:Name="MissionLabel" Text="Start Mission" FontSize="12" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Button>
+                    <!-- RTL Button (Return to Launch) -->
+                    <Button x:Name="RTLButton" 
+                            Height="34"
+                            Padding="10,0" 
+                            CornerRadius="8"
+                            Background="#D32F2F" 
+                            BorderThickness="0"
+                            VerticalAlignment="Center"
+                            Click="RTLButton_Click"
+                            ToolTipService.ToolTip="Return to Launch (Failsafe RTL UAV)">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <FontIcon Glyph="&#xE8B1;" FontSize="12" Foreground="White" VerticalAlignment="Center"/>
+                            <TextBlock Text="RTL" FontSize="12" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
 
-                <!-- Connection Button -->
+                <!-- Divider 2 -->
+                <Rectangle Width="1" Height="20" Fill="{ThemeResource BorderBrush}" Opacity="0.6" VerticalAlignment="Center" Margin="3,0"/>
+
+                <!-- Group 3: Hardware Connection Link -->
                 <Button x:Name="ConnectButton" 
+                        Height="34"
                         Style="{StaticResource ConnectionButtonStyle}"
                         VerticalAlignment="Center"
-                        Click="ConnectButton_Click">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon x:Name="ConnectionIcon" Glyph="&#xE912;" FontSize="14" VerticalAlignment="Center">
+                        Click="ConnectButton_Click"
+                        ToolTipService.ToolTip="Status Sambungan MAVLink UAV (Klik untuk Hubungkan / Putuskan)">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <FontIcon x:Name="ConnectionIcon" Glyph="&#xE912;" FontSize="13" VerticalAlignment="Center">
                             <FontIcon.RenderTransform>
-                                <RotateTransform CenterX="7" CenterY="7"/>
+                                <RotateTransform CenterX="6.5" CenterY="6.5"/>
                             </FontIcon.RenderTransform>
                         </FontIcon>
                         <TextBlock x:Name="ConnectionLabel" Text="DISCONNECTED" 

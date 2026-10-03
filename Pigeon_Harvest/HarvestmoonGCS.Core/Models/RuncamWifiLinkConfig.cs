@@ -53,8 +53,37 @@ public class RuncamWifiLinkConfig
     /// <summary>URL RTSP lengkap.</summary>
     public string RtspUrl => $"rtsp://{CameraIp}:{RtspPort}{RtspPath}";
 
-    /// <summary>URL MJPEG lengkap.</summary>
+    /// <summary>URL MJPEG lengkap (path default RunCam).</summary>
     public string MjpegUrl => $"http://{CameraIp}:{MjpegPort}{MjpegPath}";
+
+    /// <summary>
+    /// URL MJPEG alternatif untuk Orange Pi / MoonHarvest UAV yang memakai
+    /// endpoint /video_feed (bukan /?action=stream milik RunCam).
+    /// </summary>
+    public string MjpegUrlAlt => $"http://{CameraIp}:{MjpegPort}/video_feed";
+
+    /// <summary>
+    /// Semua kandidat URL MJPEG (didahulukan sesuai protokol yang dipilih),
+    /// dicoba berurutan sampai ada yang bisa dibuka.
+    /// </summary>
+    public List<string> MjpegUrls
+    {
+        get
+        {
+            var urls = new List<string>();
+            if (StreamProtocol == RuncamStreamProtocol.Mjpeg)
+            {
+                urls.Add(MjpegUrl);
+                urls.Add(MjpegUrlAlt);
+            }
+            else
+            {
+                urls.Add(MjpegUrlAlt);
+                urls.Add(MjpegUrl);
+            }
+            return urls;
+        }
+    }
 
     /// <summary>URL stream aktif sesuai protocol preference.</summary>
     public string ActiveStreamUrl => StreamProtocol == RuncamStreamProtocol.Mjpeg ? MjpegUrl : RtspUrl;

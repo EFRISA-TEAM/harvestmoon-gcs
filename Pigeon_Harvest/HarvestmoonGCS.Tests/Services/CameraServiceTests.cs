@@ -66,6 +66,11 @@ public class CameraServiceTests
             return Task.FromResult(true);
         }
 
+        public Task<bool> StartHsvStreamAsync(string source, string? modelPath = null,
+            float maxFps = 15f, bool showOverlay = true, bool demo = true, float playbackRate = 1.0f,
+            bool yoloEnabled = false)
+            => StartCameraAsync(source);
+
         public Task StopCameraAsync()
         {
             IsStreaming = false;

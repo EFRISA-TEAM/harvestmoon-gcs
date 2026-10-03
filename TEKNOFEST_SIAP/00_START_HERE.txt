@@ -11,10 +11,15 @@ TEKNOFEST_SIAP/
 │   ├── EFRISA - MOONHARVEST-1.pdf
 │   └── EFRISA TEKNO 26 - PROJECT PELIMINARY EVALUATION REPORT.pdf
 │
-├── demo_video/     ← Video demo hasil deteksi
-│   ├── stream_v7c_final.mp4       (video utama demo sawah 15 HST, FHI 81.7%)
-│   ├── stream_multisector_survey.mp4 (video survey gabungan multi-sektor, FHI 81.6%)
-│   ├── YDXJ_fused_only_detected.mp4
+├── JALANKAN_DEMO.sh  ← Skrip 1-Klik Jalankan GCS untuk Demo Teknofest
+├── 00_persiapan.sh   ← Verifikasi kesiapan sistem & video
+│
+├── demo_video/     ← Video demo hasil rekaman drone & deteksi
+│   ├── stream_multisector_60s.mp4 (Subang 60s, 4 sektor, 5 WP, FHI 85.4%)
+│   ├── stream_v7c_final.mp4       (Sawah 15 HST Karawang, 4 WP, FHI 81.6% baseline PPT)
+│   ├── YDXJ_fused_only_detected.mp4 (Irigasi Majalengka, 5 WP, FHI 94.2% prima)
+│   ├── YDX_burned.mp4             (Lahan Kering & Terbakar Bogor, 4 WP, FHI 42.5%)
+│   ├── stream_multisector_survey.mp4
 │   └── test_deteksi.mp4
 │
 ├── model/          ← Model ONNX untuk deteksi
@@ -61,8 +66,16 @@ python3 TEKNOFEST_SIAP/skrip/run_detection_video.py \
   --out TEKNOFEST_SIAP/demo_video/stream_v7c_final.mp4
 ```
 
-### 3. Jalankan GCS untuk Demo
+### 3. Jalankan GCS untuk Demo (Satu Perintah Langsung Jalan)
 
+Cara paling mudah dan cepat:
+```bash
+./JALANKAN_DEMO.sh
+# Atau dari dalam folder TEKNOFEST_SIAP:
+cd TEKNOFEST_SIAP && ./JALANKAN_DEMO.sh
+```
+
+Atau manual:
 ```bash
 cd /home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest
 ./HarvestmoonGCS/bin/Release/net9.0-desktop/HarvestmoonGCS

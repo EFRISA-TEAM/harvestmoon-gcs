@@ -48,3 +48,9 @@ image copy.png
 test_program/moonharvest_output/
 test_program/moonharvest_hsv_detector/moonharvest_package/fusion_out/
 *.apk
+Pigeon_Harvest/HarvestmoonGCS/PortableRuntime/
+
+*.exe
+*.zip
+*.tar.gz
+

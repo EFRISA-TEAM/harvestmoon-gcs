@@ -11,7 +11,7 @@ Usage:
   python train_hsv_det.py --finetune   # fine-tune dari best.pt
 """
 
-import argparse, sys
+import argparse, os, sys
 from pathlib import Path
 import torch
 from ultralytics import YOLO
@@ -20,7 +20,11 @@ TRAINING_DIR = Path(__file__).parent
 DATA_YAML    = TRAINING_DIR / "datasets/moonharvest-uav/hsv_det_4cls/data.yaml"
 PRETRAIN_PT  = TRAINING_DIR / "yolov8n.pt"
 OUTPUT_NAME  = "moonharvest_hsv_det_v1"
-EXPORT_DIR   = Path("/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/model")
+# TEKNOFEST_SIAP sits next to Pigeon_Harvest/; override with MOONHARVEST_EXPORT_DIR.
+EXPORT_DIR   = Path(os.environ.get(
+    "MOONHARVEST_EXPORT_DIR",
+    TRAINING_DIR.parent.parent / "TEKNOFEST_SIAP" / "model",
+))
 
 TRAIN_ARGS = dict(
     data        = str(DATA_YAML),

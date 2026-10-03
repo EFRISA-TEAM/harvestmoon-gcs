@@ -44,6 +44,8 @@ public sealed partial class FlightPage : Page, INotifyPropertyChanged
     private FlightViewModel? _viewModel;
     private MapViewModel? _mapViewModel;
     private IMavLinkService? _mavLinkService;
+    private IVideoScenarioService? _videoScenarioService;
+    private IWaypointService? _waypointService;
     private RealTimeDataService? _realTimeDataService;
     private DispatcherTimer? _uiRefreshTimer;
     private readonly object _telemetrySync = new();
@@ -164,6 +166,13 @@ public sealed partial class FlightPage : Page, INotifyPropertyChanged
         _viewModel = App.Current.Services.GetService<FlightViewModel>();
         _mapViewModel = App.Current.Services.GetService<MapViewModel>();
         _mavLinkService = App.Current.Services.GetService<IMavLinkService>();
+        _videoScenarioService = App.Current.Services.GetService<IVideoScenarioService>();
+        if (_videoScenarioService != null)
+        {
+            _videoScenarioService.ScenarioChanged -= OnScenarioChanged;
+            _videoScenarioService.ScenarioChanged += OnScenarioChanged;
+        }
+        _waypointService = App.Current.Services.GetService<IWaypointService>();
         _optimizedTelemetryHandler = App.Current.Services.GetService<IOptimizedTelemetryHandler>();
         _optimizedRenderer = App.Current.Services.GetService<IOptimizedRenderer>();
         _benchmarkStartedUtc = DateTime.UtcNow;
@@ -252,6 +261,14 @@ public sealed partial class FlightPage : Page, INotifyPropertyChanged
             cameraService.FrameReceived += OnCameraFrameReceived;
             cameraService.StreamingStatusChanged += OnStreamingStatusChanged;
         }
+
+        // RunCam WiFi Link 2: frame & status masuk otomatis setelah Connect.
+        var runcamService = App.Current.Services.GetService<IRuncamWifiLinkService>();
+        if (runcamService != null)
+        {
+            runcamService.FrameReceived += OnCameraFrameReceived;
+            runcamService.StatusChanged += OnRuncamStatusChanged;
+        }
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
@@ -308,6 +325,11 @@ public sealed partial class FlightPage : Page, INotifyPropertyChanged
         if (btn_console_filter != null) btn_console_filter.Click -= OnConsoleFilterButtonClicked;
         if (btn_console_autoscroll != null) btn_console_autoscroll.Click -= OnAutoScrollToggle;
 
+        if (_videoScenarioService != null)
+        {
+            _videoScenarioService.ScenarioChanged -= OnScenarioChanged;
+        }
+
         var cameraService = App.Current.Services.GetService<ICameraService>();
         if (cameraService != null)
         {
@@ -315,8 +337,22 @@ public sealed partial class FlightPage : Page, INotifyPropertyChanged
             cameraService.StreamingStatusChanged -= OnStreamingStatusChanged;
         }
 
+        var runcamService = App.Current.Services.GetService<IRuncamWifiLinkService>();
+        if (runcamService != null)
+        {
+            runcamService.FrameReceived -= OnCameraFrameReceived;
+            runcamService.StatusChanged -= OnRuncamStatusChanged;
+        }
+
         Loaded += OnLoaded;
 
+    }
+
+    /// <summary>RunCam connect/disconnect → sinkronkan indikator live cam flight page.</summary>
+    private void OnRuncamStatusChanged(object? sender, RuncamConnectionStatus status)
+    {
+        bool live = status is RuncamConnectionStatus.CameraOnly or RuncamConnectionStatus.FullyConnected;
+        OnStreamingStatusChanged(this, live || (App.Current.Services.GetService<ICameraService>()?.IsStreaming ?? false));
     }
 
     private void OnFlightPageSizeChanged(object sender, SizeChangedEventArgs e)
@@ -430,20 +466,65 @@ public sealed partial class FlightPage : Page, INotifyPropertyChanged
         }
     }
 
+    private void OnScenarioChanged(object? sender, VideoScenarioProfile scenario)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (scenario != null)
+            {
+                AddConsoleMessage("SCENARIO", $"Switched to: {scenario.Name} ({scenario.RegionName})", "INFO");
+                if (_mapViewModel != null && scenario.Waypoints.Count > 0)
+                {
+                    _mapViewModel.Waypoints.Clear();
+                    foreach (var wp in scenario.Waypoints) _mapViewModel.Waypoints.Add(wp);
+                    _mapViewModel.GeofenceCenterLat = scenario.FieldCenterLat;
+                    _mapViewModel.GeofenceCenterLon = scenario.FieldCenterLon;
+                    _mapViewModel.GeofenceRadius = scenario.GeofenceRadiusMeters;
+                }
+                if (_waypointService != null && scenario.Waypoints.Count > 0)
+                {
+                    _ = _waypointService.ReplaceWaypointsAsync(scenario.Waypoints);
+                }
+                if (mapControl != null)
+                {
+                    mapControl.SetCenter(scenario.FieldCenterLat, scenario.FieldCenterLon, scenario.MapZoomLevel);
+                    SyncMapFromViewModel();
+                }
+            }
+        });
+    }
+
     public void OnPageActivated()
     {
+        var scenario = _videoScenarioService?.CurrentScenario;
+        if (scenario != null)
+        {
+            if (_mapViewModel != null)
+            {
+                _mapViewModel.Waypoints.Clear();
+                foreach (var wp in scenario.Waypoints) _mapViewModel.Waypoints.Add(wp);
+                _mapViewModel.GeofenceCenterLat = scenario.FieldCenterLat;
+                _mapViewModel.GeofenceCenterLon = scenario.FieldCenterLon;
+                _mapViewModel.GeofenceRadius = scenario.GeofenceRadiusMeters;
+            }
+            if (mapControl != null)
+            {
+                mapControl.SetCenter(scenario.FieldCenterLat, scenario.FieldCenterLon, scenario.MapZoomLevel);
+            }
+        }
         SyncMapFromViewModel();
     }
 
     private void InitializeMapControl()
     {
         if (mapControl == null) return;
+        var scenario = _videoScenarioService?.CurrentScenario;
         double initLat = (_viewModel?.Telemetry?.Latitude != null && _viewModel.Telemetry.Latitude != 0)
             ? _viewModel.Telemetry.Latitude
-            : -6.24361;
+            : (scenario?.FieldCenterLat ?? -6.24361);
         double initLon = (_viewModel?.Telemetry?.Longitude != null && _viewModel.Telemetry.Longitude != 0)
             ? _viewModel.Telemetry.Longitude
-            : 107.36556;
+            : (scenario?.FieldCenterLon ?? 107.36556);
         mapControl.SetCenter(initLat, initLon, 15);
         mapControl.SetFollowVehicle(true);
         mapControl.SetMapControlsVisible(false);
@@ -1511,8 +1592,15 @@ public sealed partial class FlightPage : Page, INotifyPropertyChanged
         }
     }
 
+    // Bundled assets come first so demo playback works on any machine/OS; the absolute
+    // /home/... entries are a convenience fallback for the developer's own checkout.
     private static readonly string[] _demoVideoCandidates = new[]
     {
+        Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "stream_multisector_60s.mp4"),
+        Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "stream_v7c_final.mp4"),
+        Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "YDXJ_fused_only_detected.mp4"),
+        "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/stream_multisector_60s.mp4",
+        "/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/Assets/demo_videos/stream_multisector_60s.mp4",
         "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/stream_v7c_final.mp4",
         "/home/fawwazfa/Program/Harvestmoon/vidio/15d.mp4",
         "/home/fawwazfa/Program/Harvestmoon/vidio/YDXJ0012_demo(1).mp4",
@@ -1520,13 +1608,14 @@ public sealed partial class FlightPage : Page, INotifyPropertyChanged
         "/home/fawwazfa/Program/Harvestmoon/vid/15d.mp4",
         "/home/fawwazfa/Program/Harvestmoon/vid/YDXJ0012_demo.mp4",
         "/home/fawwazfa/Program/Harvestmoon/vid/YDX_burned.mp4",
-        Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "stream_v7c_final.mp4"),
     };
 
     private async void OnStartStopStream(object sender, RoutedEventArgs e)
     {
-        var cameraService = App.Current.Services.GetService<ICameraService>();
-        if (cameraService == null) return;
+        try
+        {
+            var cameraService = App.Current.Services.GetService<ICameraService>();
+            if (cameraService == null) return;
 
         if (cameraService.IsStreaming)
         {
@@ -1535,11 +1624,53 @@ public sealed partial class FlightPage : Page, INotifyPropertyChanged
         }
         else
         {
-            var videoPath = Array.Find(_demoVideoCandidates, File.Exists);
+            var scenario = _videoScenarioService?.CurrentScenario;
+            string? videoPath = null;
+            if (scenario != null && _videoScenarioService != null)
+            {
+                videoPath = _videoScenarioService.ResolveVideoFilePath(scenario);
+            }
+            if (string.IsNullOrEmpty(videoPath) || !File.Exists(videoPath))
+            {
+                videoPath = Array.Find(_demoVideoCandidates, File.Exists);
+            }
+
             if (videoPath == null)
             {
-                AddConsoleMessage("CAMERA", "Tidak ada video deteksi ditemukan (hsvv_fused.mp4 / derr_detected.mp4)", "ERROR");
+                AddConsoleMessage("CAMERA", "Tidak ada video deteksi ditemukan", "ERROR");
                 return;
+            }
+
+            // Sync scenario if not matching
+            if (_videoScenarioService != null && (scenario == null || !string.Equals(scenario.VideoFileName, Path.GetFileName(videoPath), StringComparison.OrdinalIgnoreCase)))
+            {
+                scenario = _videoScenarioService.LoadScenarioForVideo(videoPath);
+                _videoScenarioService.SetCurrentScenario(scenario);
+            }
+
+            if (scenario != null)
+            {
+                AddConsoleMessage("MISSION", $"Active Scenario: {scenario.Name} ({scenario.RegionName})", "INFO");
+                AddConsoleMessage("NAV", $"Field: {scenario.FieldCenterLat:F5}, {scenario.FieldCenterLon:F5} | Bear {scenario.BearingDeg:F0}° | Target FHI: {scenario.TargetFhi:F1}%", "INFO");
+
+                // Sync waypoints and map
+                if (_mapViewModel != null && scenario.Waypoints.Count > 0)
+                {
+                    _mapViewModel.Waypoints.Clear();
+                    foreach (var wp in scenario.Waypoints) _mapViewModel.Waypoints.Add(wp);
+                    _mapViewModel.GeofenceCenterLat = scenario.FieldCenterLat;
+                    _mapViewModel.GeofenceCenterLon = scenario.FieldCenterLon;
+                    _mapViewModel.GeofenceRadius = scenario.GeofenceRadiusMeters;
+                }
+                if (_waypointService != null && scenario.Waypoints.Count > 0)
+                {
+                    _ = _waypointService.ReplaceWaypointsAsync(scenario.Waypoints);
+                }
+                if (mapControl != null)
+                {
+                    mapControl.SetCenter(scenario.FieldCenterLat, scenario.FieldCenterLon, 15);
+                    SyncMapFromViewModel();
+                }
             }
 
             AddConsoleMessage("CAMERA", $"Playing: {Path.GetFileName(videoPath)}");
@@ -1547,22 +1678,41 @@ public sealed partial class FlightPage : Page, INotifyPropertyChanged
             if (!success)
                 AddConsoleMessage("CAMERA", $"Gagal membuka {Path.GetFileName(videoPath)}", "ERROR");
         }
+        }
+        catch (Exception ex)
+        {
+            // Unhandled exceptions in async void terminate the process on Windows.
+            Serilog.Log.Error(ex, "[FlightPage] Start/stop stream failed");
+            AddConsoleMessage("CAMERA", $"Stream error: {ex.Message}", "ERROR");
+        }
     }
     
     private async void OnCameraFrameReceived(object? sender, byte[] frameData)
     {
-        _observabilityService?.Track("flight.camera.ingest");
-
-        // Run YOLO inference asynchronously (same pattern as CameraPage)
-        var yoloResult = _yoloReady
-            ? await _yoloProcessor.ProcessAsync(frameData)
-            : null;
-
-        lock (_cameraFrameSync)
+        try
         {
-            _pendingFrameData = frameData;
-            _pendingYoloResult = yoloResult;
-            _hasPendingFrameData = true;
+            _observabilityService?.Track("flight.camera.ingest");
+
+            // Run YOLO inference asynchronously (same pattern as CameraPage).
+            // Gated on the live YOLO toggle so a disabled switch never runs inference.
+            var yoloEnabled = App.Current.Services
+                .GetService<HarvestFunctionalService>()?.IsYoloOptionEnabled == true;
+            var yoloResult = (_yoloReady && yoloEnabled)
+                ? await _yoloProcessor.ProcessAsync(frameData)
+                : null;
+
+            lock (_cameraFrameSync)
+            {
+                _pendingFrameData = frameData;
+                _pendingYoloResult = yoloResult;
+                _hasPendingFrameData = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            // An unhandled exception in an async void frame handler terminates the process,
+            // which was the main "force close" path on Windows. Swallow and log instead.
+            Serilog.Log.Error(ex, "[FlightPage] Camera frame handling failed");
         }
     }
     

@@ -200,19 +200,75 @@ public class MissionService : IMissionService
         {
             var waypoints = new List<MissionWaypoint>();
             var lines = await File.ReadAllLinesAsync(filePath);
-            
-            foreach (var line in lines.Skip(1)) // Skip header
+            if (lines.Length == 0) return waypoints;
+
+            var firstLine = lines[0].Trim();
+            if (firstLine.StartsWith("QGC WPL 110", StringComparison.OrdinalIgnoreCase))
             {
-                var parts = line.Split(',');
-                if (parts.Length >= 4)
+                // Standard ArduPilot / QGroundControl Waypoint File format
+                foreach (var rawLine in lines.Skip(1))
                 {
+                    var line = rawLine.Trim();
+                    if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#")) continue;
+                    var parts = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length >= 12)
+                    {
+                        int.TryParse(parts[0], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int seq);
+                        bool isCurrent = parts[1] == "1";
+                        int.TryParse(parts[2], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int frameId);
+                        int.TryParse(parts[3], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int cmdId);
+                        float.TryParse(parts[4], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float p1);
+                        float.TryParse(parts[5], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float p2);
+                        float.TryParse(parts[6], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float p3);
+                        float.TryParse(parts[7], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float p4);
+                        double.TryParse(parts[8], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double lat);
+                        double.TryParse(parts[9], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double lon);
+                        double.TryParse(parts[10], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double alt);
+                        bool autoContinue = parts[11] == "1";
+
+                        waypoints.Add(new MissionWaypoint
+                        {
+                            Sequence = seq,
+                            Command = Enum.IsDefined(typeof(MavCommand), cmdId) ? (MavCommand)cmdId : MavCommand.NavWaypoint,
+                            Latitude = lat,
+                            Longitude = lon,
+                            Altitude = alt,
+                            Frame = (HarvestmoonGCS.Core.Models.MavFrame)frameId,
+                            IsCurrent = isCurrent,
+                            IsAutoContinue = autoContinue,
+                            Param1 = p1,
+                            Param2 = p2,
+                            Param3 = p3,
+                            Param4 = p4
+                        });
+                    }
+                }
+                return waypoints;
+            }
+
+            // Fallback: CSV format (Latitude,Longitude,Altitude,Command)
+            foreach (var line in lines.Skip(1))
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                var parts = line.Split(',');
+                if (parts.Length >= 3)
+                {
+                    double.TryParse(parts[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double lat);
+                    double.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double lon);
+                    double.TryParse(parts[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double alt);
+                    var cmd = MavCommand.NavWaypoint;
+                    if (parts.Length >= 4 && Enum.TryParse<MavCommand>(parts[3], true, out var parsedCmd))
+                    {
+                        cmd = parsedCmd;
+                    }
+
                     waypoints.Add(new MissionWaypoint
                     {
                         Sequence = waypoints.Count,
-                        Command = MavCommand.NavWaypoint,
-                        Latitude = double.Parse(parts[0]),
-                        Longitude = double.Parse(parts[1]),
-                        Altitude = double.Parse(parts[2]),
+                        Command = cmd,
+                        Latitude = lat,
+                        Longitude = lon,
+                        Altitude = alt,
                         Frame = HarvestmoonGCS.Core.Models.MavFrame.GlobalRelativeAlt,
                         IsAutoContinue = true
                     });
@@ -232,11 +288,36 @@ public class MissionService : IMissionService
     {
         try
         {
-            var lines = new List<string> { "Latitude,Longitude,Altitude,Command" };
-            
-            foreach (var wp in waypoints)
+            var wps = waypoints.ToList();
+            var ext = Path.GetExtension(filePath).ToLowerInvariant();
+            if (ext == ".csv")
             {
-                lines.Add($"{wp.Latitude},{wp.Longitude},{wp.Altitude},{wp.Command}");
+                var csvLines = new List<string> { "Latitude,Longitude,Altitude,Command" };
+                foreach (var wp in wps)
+                {
+                    csvLines.Add(string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0:F7},{1:F7},{2:F2},{3}", wp.Latitude, wp.Longitude, wp.Altitude, wp.Command));
+                }
+                await File.WriteAllLinesAsync(filePath, csvLines);
+                return true;
+            }
+
+            // Standard ArduPilot / QGroundControl QGC WPL 110 format
+            var lines = new List<string> { "QGC WPL 110" };
+            for (int i = 0; i < wps.Count; i++)
+            {
+                var wp = wps[i];
+                int isCurrent = wp.IsCurrent ? 1 : 0;
+                int frame = (int)wp.Frame;
+                if (frame == 0 && i > 0) frame = 3; // MAV_FRAME_GLOBAL_RELATIVE_ALT
+                int cmd = (int)wp.Command;
+                int autocont = wp.IsAutoContinue ? 1 : 0;
+                // INDEX CURRENT FRAME CMD P1 P2 P3 P4 LAT LON ALT AUTOCONTINUE
+                string line = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "{0}\t{1}\t{2}\t{3}\t{4:F6}\t{5:F6}\t{6:F6}\t{7:F6}\t{8:F7}\t{9:F7}\t{10:F6}\t{11}",
+                    wp.Sequence, isCurrent, frame, cmd,
+                    wp.Param1, wp.Param2, wp.Param3, wp.Param4,
+                    wp.Latitude, wp.Longitude, wp.Altitude, autocont);
+                lines.Add(line);
             }
 
             await File.WriteAllLinesAsync(filePath, lines);

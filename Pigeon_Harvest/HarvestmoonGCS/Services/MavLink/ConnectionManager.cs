@@ -98,8 +98,34 @@ internal class ConnectionManager
         {
             System.Diagnostics.Debug.WriteLine($"[ConnectionManager] Creating UDP transport to {address}:{port}");
             Console.WriteLine($"[ConnectionManager] Creating UDP transport to {address}:{port}");
-            
-            var transport = new MavLinkUdpClientTransport();
+
+            int bindPort = port > 0 ? port : 14550;
+            var transport = new MavLinkUdpClientTransport
+            {
+                LocalPort = bindPort,
+                TargetPort = bindPort
+            };
+
+            // ── Listen mode ────────────────────────────────────────────────────
+            // UAV yang mendorong telemetri ke GCS (Orange Pi drone companion →
+            // GCS:14550) tidak punya IP tetap di setup router/hotspot. Dengan
+            // alamat kosong / 0.0.0.0 / any / listen, GCS hanya mendengarkan di
+            // port tersebut dan mempelajari IP UAV dari paket pertama.
+            bool listenRequested = string.IsNullOrWhiteSpace(address)
+                || address == "0.0.0.0"
+                || address.Equals("any", StringComparison.OrdinalIgnoreCase)
+                || address.Equals("listen", StringComparison.OrdinalIgnoreCase)
+                || address.Equals("*", StringComparison.Ordinal);
+
+            if (listenRequested)
+            {
+                transport.ListenMode = true;
+                await Task.Run(() => transport.Initialize());
+
+                Console.WriteLine($"[ConnectionManager] UDP LISTEN mode aktif di port {bindPort} (menunggu UAV mengirim)");
+                return transport;
+            }
+            // ───────────────────────────────────────────────────────────────────
 
             // H-2 fix: IPAddress.Parse gagal untuk hostname (misalnya "localhost").
             // Gunakan Dns.GetHostAddresses sebagai fallback.
@@ -111,13 +137,12 @@ internal class ConnectionManager
             }
 
             transport.TargetIpAddress = ip;
-            transport.TargetPort = port;
             
             // Initialize the transport (this starts threads and connects)
             await Task.Run(() => transport.Initialize());
             
-            System.Diagnostics.Debug.WriteLine($"[ConnectionManager] UDP transport initialized");
-            Console.WriteLine($"[ConnectionManager] UDP transport initialized successfully");
+            System.Diagnostics.Debug.WriteLine($"[ConnectionManager] UDP transport initialized (target={ip}:{bindPort}, local={bindPort})");
+            Console.WriteLine($"[ConnectionManager] UDP transport initialized successfully (target={ip}:{bindPort}, local={bindPort})");
             return transport;
         }
         catch (Exception ex)

@@ -130,10 +130,10 @@
                         <TextBlock Text="MODEL CONFIG" Style="{StaticResource SectionLabelStyle}"/>
 
                         <ComboBox x:Name="ModelCombo" HorizontalAlignment="Stretch" FontSize="11" SelectedIndex="0" Height="32">
-                            <ComboBoxItem Content="moonharvest-health-cls.onnx"/>
-                            <ComboBoxItem Content="moonharvest-health-cls-int8.onnx"/>
                             <ComboBoxItem Content="moonharvest-uav-det.onnx"/>
                             <ComboBoxItem Content="moonharvest-uav-det-int8.onnx"/>
+                            <ComboBoxItem Content="moonharvest-health-cls-v5.onnx"/>
+                            <ComboBoxItem Content="moonharvest-health-cls-int8.onnx"/>
                             <ComboBoxItem Content="yolov8n-crop-weed-416.onnx"/>
                             <ComboBoxItem Content="yolov8n-320.onnx"/>
                         </ComboBox>
@@ -195,7 +195,7 @@
                                     <TextBlock Text="YOLO Detection" FontSize="11" FontWeight="Medium" Foreground="{ThemeResource ForegroundBrush}"/>
                                     <TextBlock Text="Bounding box overlay on live feed" FontSize="9" Foreground="{ThemeResource MutedForegroundBrush}"/>
                                 </StackPanel>
-                                <ToggleSwitch x:Name="YoloToggle" Grid.Column="1" IsOn="True" Toggled="YoloToggle_Toggled" VerticalAlignment="Center" Margin="0" MinWidth="0"/>
+                                <ToggleSwitch x:Name="YoloToggle" Grid.Column="1" IsOn="False" Toggled="YoloToggle_Toggled" VerticalAlignment="Center" Margin="0" MinWidth="0"/>
                             </Grid>
                         </Border>
 

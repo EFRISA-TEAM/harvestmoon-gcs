@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Media;
 using HarvestmoonGCS.ViewModels;
 using HarvestmoonGCS.Views;
 using HarvestmoonGCS.Core.Services;
+using HarvestmoonGCS.Core.Models;
 using HarvestmoonGCS.Helpers;
 using HarvestmoonGCS.Services;
 using HarvestmoonGCS.Controls;
@@ -30,6 +31,8 @@ public sealed partial class MainPage_Modern : Page
     private readonly IMavLinkService? _mavLinkService;
     private readonly ILocalizationService? _localizationService;
     private readonly PageCacheManager? _pageCacheManager;
+    private readonly IVideoScenarioService? _videoScenarioService;
+    private readonly HarvestFunctionalService? _harvestFunctionalService;
     private DateTime _lastTopBarTelemetryUpdate = DateTime.MinValue;
     private const int TopBarUpdateIntervalMs = 200;
     private (double Battery, int Sats, string Mode, bool IsArmed)? _lastTopBarState;
@@ -67,11 +70,17 @@ public sealed partial class MainPage_Modern : Page
             _pageCacheManager = App.Current.Services.GetService<PageCacheManager>();
             _mavLinkService = App.Current.Services.GetService<IMavLinkService>();
             _observabilityService = App.Current.Services.GetService<ObservabilityService>();
+            _videoScenarioService = App.Current.Services.GetService<IVideoScenarioService>();
+            _harvestFunctionalService = App.Current.Services.GetService<HarvestFunctionalService>();
             App.Current.Services.GetService<MissionLoggingService>();
             if (_mavLinkService != null)
             {
                 _mavLinkService.TelemetryReceived += OnTelemetryReceived;
                 _mavLinkService.ConnectionStatusChanged += OnConnectionStatusChanged;
+            }
+            if (_videoScenarioService != null)
+            {
+                _videoScenarioService.ScenarioChanged += OnScenarioChanged;
             }
 
 #if !__WASM__
@@ -93,6 +102,7 @@ public sealed partial class MainPage_Modern : Page
         DispatcherQueue.TryEnqueue(() =>
         {
             ApplyResponsiveLayout();
+            SynchronizeTopBarConnection();
             NavigateToPage("Dashboard");
             UpdateTopBarForTarget("Dashboard");
             StartNavigationPreload();
@@ -105,10 +115,14 @@ public sealed partial class MainPage_Modern : Page
         this.SizeChanged += MainPage_Modern_SizeChanged;
 
         ApplyResponsiveLayout();
+        SynchronizeTopBarConnection();
         // Navigate to initial page
         NavigateToPage("Dashboard");
         UpdateTopBarForTarget("Dashboard");
         StartNavigationPreload();
+
+        // Auto-connect saat startup DIMATIKAN (sesuai permintaan): koneksi hanya
+        // dibuat ketika pengguna menekan Connect di dialog.
 
 #if !__WASM__
         // Subscribe to PIA button click from sidebar
@@ -122,14 +136,50 @@ public sealed partial class MainPage_Modern : Page
 #endif
     }
 
-    private void MainPage_Modern_Unloaded(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Auto-connect saat aplikasi dibuka: telemetri MAVLink dari UAV (Orange Pi)
+    /// langsung masuk tanpa perlu klik Connect.
+    /// </summary>
+    private async Task TryAutoConnectOnStartupAsync()
     {
-        this.SizeChanged -= MainPage_Modern_SizeChanged;
+        try
+        {
+            // Beri jeda singkat agar UI + service siap.
+            await Task.Delay(1500);
+
+            var connected = await Views.ConnectDialog.TryAutoConnectAsync(
+                _mavLinkService,
+                App.Current.Services.GetService<IRuncamWifiLinkService>(),
+                App.Current.Services.GetService<ISettingsService>());
+
+            if (connected)
+            {
+                Serilog.Log.Information("[MainPage] Auto-connect berhasil (UAV terhubung).");
+                DispatcherQueue.TryEnqueue(SynchronizeTopBarConnection);
+            }
+            else
+            {
+                Serilog.Log.Information("[MainPage] Auto-connect tidak menemukan UAV (bisa connect manual).");
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "[MainPage] Auto-connect gagal");
+        }
+    }
+
+    private void MainPage_Modern_Unloaded(object sender, RoutedEventArgs e)
+    {        this.SizeChanged -= MainPage_Modern_SizeChanged;
 
         if (_mavLinkService != null)
         {
             _mavLinkService.TelemetryReceived -= OnTelemetryReceived;
             _mavLinkService.ConnectionStatusChanged -= OnConnectionStatusChanged;
+        }
+
+        if (_videoScenarioService != null)
+        {
+            _videoScenarioService.ScenarioChanged -= OnScenarioChanged;
         }
 
         if (_observabilityOverlayTimer != null)
@@ -636,31 +686,42 @@ public sealed partial class MainPage_Modern : Page
             dashboardPage.OnPageDeactivated();
     }
 
+    private void OnScenarioChanged(object? sender, VideoScenarioProfile e)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            UpdateTopBarForTarget(_currentTarget ?? "Dashboard");
+        });
+    }
+
     private void UpdateTopBarForTarget(string target)
     {
+        var scenario = _videoScenarioService?.CurrentScenario;
+        var locationText = scenario != null ? $"{scenario.AreaName}, {scenario.RegionName}" : "Sukamerta, Karawang";
+
         switch (target)
         {
             case "Dashboard":
             case "Flight":
-                TopBar.UpdatePageTitle("Dashboard", "/ Live Operations · Sukamerta, Karawang", "\uE80F");
+                TopBar.UpdatePageTitle("Dashboard", $"/ Live Operations · {locationText}", "\uE80F");
                 break;
             case "Map":
-                TopBar.UpdatePageTitle("Map", "/ Full Map · Waypoints · Geofence · Offline Tiles", "\uE707");
+                TopBar.UpdatePageTitle("Map", $"/ Full Map · Waypoints · Geofence · {scenario?.AreaName ?? "Offline Tiles"}", "\uE707");
                 break;
             case "MissionPlanner":
-                TopBar.UpdatePageTitle("Mission Planner", "/ Sukamerta, Karawang · 1050m Transect", "\uE707");
+                TopBar.UpdatePageTitle("Mission Planner", $"/ {locationText} · 1050m Transect", "\uE707");
                 break;
             case "Camera":
-                TopBar.UpdatePageTitle("Camera", "/ Live UAV Capture", "\uE714");
+                TopBar.UpdatePageTitle("Camera", $"/ Live UAV Capture · {locationText}", "\uE714");
                 break;
             case "Stats":
-                TopBar.UpdatePageTitle("Crop Analysis", "/ AI Monitoring · Real-time", "\uE9D9");
+                TopBar.UpdatePageTitle("Crop Analysis", $"/ AI Monitoring · {locationText}", "\uE9D9");
                 break;
             case "AISettings":
                 TopBar.UpdatePageTitle("AI Settings", "/ Diagnostics & Models", "\uE7C1");
                 break;
             case "Tlog":
-                TopBar.UpdatePageTitle("Reports", "/ Mission History & Evidence · Karawang", "\uE8A5");
+                TopBar.UpdatePageTitle("Reports", $"/ Mission History & Evidence · {scenario?.RegionName ?? "Karawang"}", "\uE8A5");
                 break;
             case "Settings":
                 TopBar.UpdatePageTitle("Settings", "/ System Preferences", "\uE713");
@@ -669,7 +730,7 @@ public sealed partial class MainPage_Modern : Page
                 TopBar.UpdatePageTitle("Edge Mode", "/ Offline AI · Zero-Internet YOLO Inference", "\uE950");
                 break;
             default:
-                TopBar.UpdatePageTitle("Dashboard", "/ Live Operations", "\uE80F");
+                TopBar.UpdatePageTitle("Dashboard", $"/ Live Operations · {locationText}", "\uE80F");
                 break;
         }
     }
@@ -814,6 +875,23 @@ public sealed partial class MainPage_Modern : Page
             Log.Error(ex, "Failed to show ConnectDialog");
         }
     }
+    private void SynchronizeTopBarConnection()
+    {
+        bool isConnected = _mavLinkService?.IsConnected == true;
+        _lastConnectionStatus = isConnected;
+        TopBar.Status = isConnected ? ConnectionStatus.Connected : ConnectionStatus.Disconnected;
+        if (!isConnected)
+        {
+            _lastTopBarState = null;
+            TopBar.Battery = 0;
+            TopBar.GpsSats = 0;
+            TopBar.Mode = "—";
+            TopBar.IsArmed = false;
+            TopBar.SetMissionRunning(false);
+            TopBar.Endpoint = null;
+        }
+    }
+
     private void OnConnectionStatusChanged(object? sender, bool isConnected)
     {
         if (_lastConnectionStatus.HasValue && _lastConnectionStatus.Value == isConnected)
@@ -829,11 +907,27 @@ public sealed partial class MainPage_Modern : Page
                 TopBar.Status = nextStatus;
                 _observabilityService?.Track("topbar.status.update");
             }
+
+            if (!isConnected)
+            {
+                _lastTopBarState = null;
+                TopBar.Battery = 0;
+                TopBar.GpsSats = 0;
+                TopBar.Mode = "—";
+                TopBar.IsArmed = false;
+                TopBar.SetMissionRunning(false);
+                TopBar.Endpoint = null;
+            }
         });
     }
 
     private void OnTelemetryReceived(object? sender, HarvestmoonGCS.Models.FlightData data)
     {
+        if (_mavLinkService?.IsConnected != true)
+        {
+            return;
+        }
+
         var now = DateTime.UtcNow;
         if ((now - _lastTopBarTelemetryUpdate).TotalMilliseconds < TopBarUpdateIntervalMs)
         {

@@ -428,13 +428,13 @@ public class FlightViewModel : ViewModelBase
             case "ALT HOLD":
             case "POSITION HOLD":
             case "BRAKE":
-                SendCommand(Command.PAUSE);
-                AppendStreamOutput($"Sent: {selected}");
+            case "AUTO":
+                _ = SetFlightModeAsync(selected);
+                AppendStreamOutput($"Flight mode command sent: {selected}");
                 break;
             case "START MISSION":
-            case "AUTO":
                 SendCommand(Command.CONTINUE);
-                AppendStreamOutput($"Sent: {selected}");
+                AppendStreamOutput("Sent: Start Mission");
                 break;
             case "GET PARAM":
                 RequestParams();

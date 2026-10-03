@@ -53,10 +53,13 @@
                 </Border>
             </StackPanel>
 
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                <Button x:Name="AddWaypointButton" Content="Add WP" Click="AddWaypointButton_Click" Style="{StaticResource OutlineButtonStyle}"/>
-                <Button x:Name="ClearWaypointButton" Content="Clear" Click="ClearWaypointButton_Click" Style="{StaticResource OutlineButtonStyle}"/>
-                <Button x:Name="UploadMissionButton" Content="Upload Mission" Click="UploadMissionButton_Click" Style="{StaticResource PrimaryButtonStyle}"/>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                <Button x:Name="AddWaypointButton" Content="+ WP" Click="AddWaypointButton_Click" Style="{StaticResource OutlineButtonStyle}" ToolTipService.ToolTip="Add waypoint"/>
+                <Button x:Name="ImportMissionButton" Content="Import .wpl" Click="ImportMissionButton_Click" Style="{StaticResource OutlineButtonStyle}" ToolTipService.ToolTip="Import standard ArduPilot/QGC .waypoints file"/>
+                <Button x:Name="ExportMissionButton" Content="Export .wpl" Click="ExportMissionButton_Click" Style="{StaticResource OutlineButtonStyle}" ToolTipService.ToolTip="Export standard QGC WPL 110 mission file"/>
+                <Button x:Name="DownloadMissionButton" Content="Read UAV" Click="DownloadMissionButton_Click" Style="{StaticResource OutlineButtonStyle}" ToolTipService.ToolTip="Download mission currently loaded on UAV"/>
+                <Button x:Name="ClearWaypointButton" Content="Clear" Click="ClearWaypointButton_Click" Style="{StaticResource OutlineButtonStyle}" ToolTipService.ToolTip="Clear all waypoints"/>
+                <Button x:Name="UploadMissionButton" Content="Upload Mission" Click="UploadMissionButton_Click" Style="{StaticResource PrimaryButtonStyle}" ToolTipService.ToolTip="Upload mission to connected vehicle"/>
             </StackPanel>
         </Grid>
 
@@ -138,12 +141,20 @@
                                         <TextBlock Text="{Binding AltitudeText}" Foreground="{ThemeResource MutedForegroundBrush}" FontSize="12"/>
                                     </StackPanel>
 
-                                    <Button Grid.Column="2"
-                                            Content="✕"
-                                            Tag="{Binding Sequence}"
-                                            Click="RemoveWaypointButton_Click"
-                                            Style="{StaticResource OutlineButtonStyle}"
-                                            Padding="8,2"/>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
+                                        <Button Content="✎"
+                                                Tag="{Binding Sequence}"
+                                                Click="EditWaypointButton_Click"
+                                                Style="{StaticResource OutlineButtonStyle}"
+                                                ToolTipService.ToolTip="Edit Waypoint Altitude &amp; Coords"
+                                                Padding="7,2"/>
+                                        <Button Content="✕"
+                                                Tag="{Binding Sequence}"
+                                                Click="RemoveWaypointButton_Click"
+                                                Style="{StaticResource OutlineButtonStyle}"
+                                                ToolTipService.ToolTip="Remove Waypoint"
+                                                Padding="7,2"/>
+                                    </StackPanel>
                                 </Grid>
                             </DataTemplate>
                         </ListView.ItemTemplate>

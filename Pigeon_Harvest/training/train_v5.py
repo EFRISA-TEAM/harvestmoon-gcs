@@ -13,9 +13,12 @@ from pathlib import Path
 from ultralytics import YOLO
 
 # ── Config ────────────────────────────────────────────────────────────────────
-DATASET = Path("/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/training/datasets/moonharvest-uav/classifier_v4_teknofest")
-OUT_DIR = Path("/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/training/runs/moonharvest_v5_nano_fp32")
-ASSETS  = Path("/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/Assets/models")
+# Resolved relative to this file so the script runs from any checkout location.
+TRAINING_DIR = Path(__file__).resolve().parent
+REPO_ROOT    = TRAINING_DIR.parent
+DATASET = TRAINING_DIR / "datasets/moonharvest-uav/classifier_v4_teknofest"
+OUT_DIR = TRAINING_DIR / "runs/moonharvest_v5_nano_fp32"
+ASSETS  = REPO_ROOT / "HarvestmoonGCS/Assets/models"
 
 def main():
     print("=" * 60)

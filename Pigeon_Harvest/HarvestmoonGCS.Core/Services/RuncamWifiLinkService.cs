@@ -89,17 +89,40 @@ public class RuncamWifiLinkService : IRuncamWifiLinkService
         {
             _capture = await Task.Run(() =>
             {
-                var cap = new VideoCapture();
-                // Set timeout buffer supaya tidak hang selamanya jika URL tidak valid
-                cap.Set(VideoCaptureProperties.BufferSize, 3);
-                cap.Open(config.ActiveStreamUrl);
-
-                // Jika RTSP gagal dan protocol = Auto, coba MJPEG
-                if (!cap.IsOpened() && config.StreamProtocol == RuncamStreamProtocol.Auto)
+                // Kandidat URL: RTSP → MJPEG (path RunCam) → MJPEG (path Orange Pi /video_feed).
+                // Setup UAV lewat router (TP-Link) memakai Orange Pi, jadi /video_feed harus dicoba.
+                var candidates = new List<string>();
+                if (config.StreamProtocol == RuncamStreamProtocol.Rtsp)
                 {
-                    Log.Warning("[RuncamWifiLinkService] RTSP gagal, fallback ke MJPEG: {Url}", config.MjpegUrl);
-                    cap.Dispose();
-                    cap = new VideoCapture(config.MjpegUrl);
+                    candidates.Add(config.RtspUrl);
+                    candidates.AddRange(config.MjpegUrls);
+                }
+                else
+                {
+                    candidates.AddRange(config.MjpegUrls);
+                    candidates.Add(config.RtspUrl);
+                }
+
+                VideoCapture? cap = null;
+                foreach (var url in candidates)
+                {
+                    try
+                    {
+                        var candidate = new VideoCapture();
+                        candidate.Set(VideoCaptureProperties.BufferSize, 3);
+                        candidate.Open(url);
+                        if (candidate.IsOpened())
+                        {
+                            Log.Information("[RuncamWifiLinkService] Stream terbuka: {Url}", url);
+                            cap = candidate;
+                            break;
+                        }
+                        candidate.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warning(ex, "[RuncamWifiLinkService] Gagal membuka {Url}", url);
+                    }
                 }
 
                 return cap;

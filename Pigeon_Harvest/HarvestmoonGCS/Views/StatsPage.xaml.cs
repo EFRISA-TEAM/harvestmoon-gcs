@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using HarvestmoonGCS.ViewModels;
+using HarvestmoonGCS.Core.Models;
 using HarvestmoonGCS.Core.Services;
 using HarvestmoonGCS.Services;
 
@@ -28,6 +29,7 @@ public sealed partial class StatsPage : Page
     private readonly IFileService? _fileService;
     private readonly RecommendationService? _recommendationService;
     private readonly MapViewModel? _mapViewModel;
+    private readonly IVideoScenarioService? _videoScenarioService;
     private HarvestFunctionalService.HarvestAnalysisResult? _lastAnalysis;
 
     public StatsPage()
@@ -38,10 +40,19 @@ public sealed partial class StatsPage : Page
         _fileService = App.Current.Services.GetService<IFileService>();
         _recommendationService = App.Current.Services.GetService<RecommendationService>();
         _mapViewModel = App.Current.Services.GetService<MapViewModel>();
+        _videoScenarioService = App.Current.Services.GetService<IVideoScenarioService>();
 
         // Subscribe ke RecommendationsUpdated untuk real-time update saat Python stream selesai
         if (_recommendationService != null)
             _recommendationService.RecommendationsUpdated += OnRecommendationsUpdated;
+
+        if (_videoScenarioService != null)
+            _videoScenarioService.ScenarioChanged += OnScenarioChanged;
+
+        // Demo mode: refresh analysis saat demo mulai/berhenti supaya halaman ini
+        // tidak menampilkan data basi (frozen) selama sesi demo berjalan.
+        if (_harvestFunctionalService != null)
+            _harvestFunctionalService.DemoModeChanged += OnDemoModeChanged;
 
         this.Loaded += (_, _) => { if (_lastAnalysis == null) RenderDemoAnalysis(); };
         this.Unloaded += OnUnloaded;
@@ -49,6 +60,7 @@ public sealed partial class StatsPage : Page
 
     public void OnPageActivated()
     {
+        _lastAnalysis = null;
         RenderDemoAnalysis();
     }
 
@@ -56,6 +68,43 @@ public sealed partial class StatsPage : Page
     {
         if (_recommendationService != null)
             _recommendationService.RecommendationsUpdated -= OnRecommendationsUpdated;
+        if (_videoScenarioService != null)
+            _videoScenarioService.ScenarioChanged -= OnScenarioChanged;
+        if (_harvestFunctionalService != null)
+            _harvestFunctionalService.DemoModeChanged -= OnDemoModeChanged;
+    }
+
+    private void OnDemoModeChanged(object? sender, bool active)
+    {
+        // Saat demo mulai/berhenti, paksa render ulang agar data tidak basi.
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            try
+            {
+                _lastAnalysis = null;
+                RenderDemoAnalysis();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[StatsPage] OnDemoModeChanged error: {ex.Message}");
+            }
+        });
+    }
+
+    private void OnScenarioChanged(object? sender, VideoScenarioProfile profile)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            try 
+            { 
+                _lastAnalysis = null; 
+                RenderDemoAnalysis(); 
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[StatsPage] OnScenarioChanged error: {ex.Message}");
+            }
+        });
     }
 
     private void OnRecommendationsUpdated(object? sender, RecommendationService.RecommendationResult result)
@@ -206,7 +255,7 @@ public sealed partial class StatsPage : Page
         // Load real aggregate from reports_index.json
         var (totalDet, highCount, healthy, stress, disease, avgConfidence, impactAreaHa, reportCount) = LoadReportsAggregate();
         var hasConfidence = avgConfidence > 0;
-        // If no persisted reports yet, use live recommendation data if available
+        // If no persisted reports yet, use live recommendation or active scenario data
         if (totalDet == 0 && liveRec != null)
         {
             healthy  = liveRec.HealthyPct;
@@ -219,6 +268,19 @@ public sealed partial class StatsPage : Page
             // rather than fabricate one.
             hasConfidence = false;
             impactAreaHa = 0;
+        }
+        else if (totalDet == 0 && _videoScenarioService?.CurrentScenario != null)
+        {
+            var sc = _videoScenarioService.CurrentScenario;
+            healthy = sc.LushGreenPct;
+            stress = sc.InconsistentGrowthPct;
+            disease = sc.DroughtPct + sc.BareSoilPct;
+            totalDet = sc.Waypoints.Count * 360;
+            highCount = (sc.PriorityLevel.Equals("Action Needed", StringComparison.OrdinalIgnoreCase) ||
+                         sc.PriorityLevel.Equals("Caution", StringComparison.OrdinalIgnoreCase)) ? 1 : 0;
+            avgConfidence = 91.5;
+            hasConfidence = true;
+            impactAreaHa = Math.Round(sc.Waypoints.Count * 0.85, 2);
         }
         else if (totalDet == 0)
         {
@@ -277,6 +339,13 @@ public sealed partial class StatsPage : Page
             RecommendationTwoText.Text   = liveRec.TopRecommendations.ElementAtOrDefault(1) ?? "—";
             RecommendationThreeText.Text = liveRec.TopRecommendations.ElementAtOrDefault(2) ?? "—";
         }
+        else if (_videoScenarioService?.CurrentScenario != null)
+        {
+            var sc = _videoScenarioService.CurrentScenario;
+            RecommendationOneText.Text   = sc.FarmerStatusText;
+            RecommendationTwoText.Text   = sc.FarmerRecommendation;
+            RecommendationThreeText.Text = $"Wilayah {sc.RegionName} ({sc.AreaName}) — monitoring UAV tersinkronisasi.";
+        }
         else
         {
             // Fallback: generate contextual text from actual percentages (no hardcoded "west sector")
@@ -290,29 +359,106 @@ public sealed partial class StatsPage : Page
         // Show real priority zones (genuine GPS coordinates) from the most recent persisted
         // report instead of fabricating pins offset from a fixed Bandung-area constant.
         var zones = LoadLatestRealPriorityZones();
+        if (zones.Count == 0 && _videoScenarioService?.CurrentScenario != null)
+        {
+            var sc = _videoScenarioService.CurrentScenario;
+            zones = sc.Waypoints.Select((wp, idx) => new PriorityZoneItem
+            {
+                PriorityText = $"P{idx + 1}",
+                ZoneText = sc.SectorNames.Count > idx ? sc.SectorNames[idx] : $"Sektor {(char)('A' + idx)}",
+                CoordinateText = $"{wp.Latitude:F6}, {wp.Longitude:F6}",
+                Severity = idx == 0 ? "Healthy" : (sc.PriorityLevel == "Action Needed" ? "Severe Stress" : "Mild Stress")
+            }).ToList();
+        }
 
         PriorityZonesItemsControl.ItemsSource = zones.Count > 0 ? zones : null;
         PriorityZonesEmptyText.Visibility = zones.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
-        var missionCount = reportCount == 1 ? "1 riwayat misi" : $"{reportCount} riwayat misi";
-        AnalysisStatusText.Text = totalDet > 0
-            ? $"{totalDet} deteksi · {missionCount} · Klik Run Analysis untuk analisis baru"
-            : "Klik Run Analysis untuk memulai analisis citra UAV";
+        if (_videoScenarioService?.CurrentScenario != null && totalDet > 0)
+        {
+            var sc = _videoScenarioService.CurrentScenario;
+            AnalysisStatusText.Text = $"Skenario Aktif: {sc.Name} ({sc.RegionName}) · {totalDet} deteksi terdata";
+        }
+        else
+        {
+            var missionCount = reportCount == 1 ? "1 riwayat misi" : $"{reportCount} riwayat misi";
+            AnalysisStatusText.Text = totalDet > 0
+                ? $"{totalDet} deteksi · {missionCount} · Klik Run Analysis untuk analisis baru"
+                : "Klik Run Analysis untuk memulai analisis citra UAV";
+        }
         ValidationStatusText.Text = "Masukkan sampel kelembaban tanah lalu klik Validate.";
+
+        // Publish the values we just rendered as a real analysis result so the
+        // export buttons work in demo mode. Without this, _lastAnalysis stays null
+        // and Export JSON/CSV is dead outside the Run Analysis flow.
+        _lastAnalysis = BuildAnalysisFromRenderedValues(
+            totalDet, highCount, healthy, stress, disease, avgConfidence, impactAreaHa, zones);
+    }
+
+    /// <summary>
+    /// Packages the aggregates already shown on screen into a HarvestAnalysisResult so the
+    /// Stats page can export exactly what the user sees, in demo mode as well as after a
+    /// manual Run Analysis. Percentages here are the *rendered* (normalized) figures.
+    /// </summary>
+    private HarvestFunctionalService.HarvestAnalysisResult BuildAnalysisFromRenderedValues(
+        int totalDet,
+        int highCount,
+        double healthy,
+        double stress,
+        double disease,
+        double avgConfidence,
+        double impactAreaHa,
+        IReadOnlyList<PriorityZoneItem> zones)
+    {
+        var sc = _videoScenarioService?.CurrentScenario;
+        var result = new HarvestFunctionalService.HarvestAnalysisResult
+        {
+            SourceImagePath = ImagePathTextBox?.Text?.Trim() ?? string.Empty,
+            Timestamp = DateTime.Now,
+            Area = sc?.AreaName ?? "Dashboard Session",
+            Latitude = sc?.FieldCenterLat ?? 0,
+            Longitude = sc?.FieldCenterLon ?? 0,
+            TotalZones = zones?.Count ?? 0,
+            HealthyPercentage = healthy,
+            StressedPercentage = stress,
+            DroughtPercentage = disease,
+            DetectionCount = totalDet,
+            HighPriorityCount = highCount,
+            AverageConfidence = avgConfidence,
+            ImpactAreaHa = impactAreaHa,
+            OverallSeverity = highCount > 0
+                ? (stress + disease > 40 ? "critical" : "moderate")
+                : "none"
+        };
+
+        result.Recommendations.Add(RecommendationOneText?.Text ?? string.Empty);
+        result.Recommendations.Add(RecommendationTwoText?.Text ?? string.Empty);
+        result.Recommendations.Add(RecommendationThreeText?.Text ?? string.Empty);
+        result.Recommendations.RemoveAll(string.IsNullOrWhiteSpace);
+
+        return result;
     }
 
     private async void BrowseImageButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
     {
-        if (_fileService == null)
+        try
         {
-            AnalysisStatusText.Text = "File service not available.";
-            return;
-        }
+            if (_fileService == null)
+            {
+                AnalysisStatusText.Text = "File service not available.";
+                return;
+            }
 
-        var path = await _fileService.PickFileAsync(new[] { ".jpg", ".jpeg", ".png", ".bmp" });
-        if (!string.IsNullOrWhiteSpace(path))
+            var path = await _fileService.PickFileAsync(new[] { ".jpg", ".jpeg", ".png", ".bmp" });
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                ImagePathTextBox.Text = path;
+            }
+        }
+        catch (Exception ex)
         {
-            ImagePathTextBox.Text = path;
+            Serilog.Log.Error(ex, "[StatsPage] Browse image failed");
+            AnalysisStatusText.Text = $"Gagal memilih citra: {ex.Message}";
         }
     }
 
@@ -383,26 +529,70 @@ public sealed partial class StatsPage : Page
 
     private async void ExportJsonButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
     {
-        if (_harvestFunctionalService == null || _lastAnalysis == null)
+        if (_harvestFunctionalService == null)
         {
-            AnalysisStatusText.Text = "Run analysis first.";
+            AnalysisStatusText.Text = "Harvest analysis service not available.";
             return;
         }
 
-        var path = await _harvestFunctionalService.ExportAnalysisJsonAsync(_lastAnalysis, $"harvest-analysis-{System.DateTime.Now:yyyyMMdd-HHmmss}");
-        AnalysisStatusText.Text = $"JSON saved: {path}";
+        if (_lastAnalysis == null)
+        {
+            AnalysisStatusText.Text = "Belum ada data untuk diekspor. Jalankan analisis atau buka halaman ini sekali lagi.";
+            return;
+        }
+
+        try
+        {
+            var path = await _harvestFunctionalService.ExportAnalysisJsonAsync(_lastAnalysis, $"harvest-analysis-{System.DateTime.Now:yyyyMMdd-HHmmss}");
+            AnalysisStatusText.Text = ReportExportOutcome("JSON", path);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[StatsPage] Export JSON failed");
+            AnalysisStatusText.Text = $"Gagal ekspor JSON: {ex.Message}";
+        }
     }
 
     private async void ExportCsvButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
     {
-        if (_harvestFunctionalService == null || _lastAnalysis == null)
+        if (_harvestFunctionalService == null)
         {
-            AnalysisStatusText.Text = "Run analysis first.";
+            AnalysisStatusText.Text = "Harvest analysis service not available.";
             return;
         }
 
-        var path = await _harvestFunctionalService.ExportAnalysisCsvAsync(_lastAnalysis, $"harvest-analysis-{System.DateTime.Now:yyyyMMdd-HHmmss}");
-        AnalysisStatusText.Text = $"CSV saved: {path}";
+        if (_lastAnalysis == null)
+        {
+            AnalysisStatusText.Text = "Belum ada data untuk diekspor. Jalankan analisis atau buka halaman ini sekali lagi.";
+            return;
+        }
+
+        try
+        {
+            var path = await _harvestFunctionalService.ExportAnalysisCsvAsync(_lastAnalysis, $"harvest-analysis-{System.DateTime.Now:yyyyMMdd-HHmmss}");
+            AnalysisStatusText.Text = ReportExportOutcome("CSV", path);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[StatsPage] Export CSV failed");
+            AnalysisStatusText.Text = $"Gagal ekspor CSV: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// The file service signals failure by returning an "EXPORT_FAILED: ..." string instead of
+    /// throwing. Never report that as a successful save.
+    /// </summary>
+    private static string ReportExportOutcome(string label, string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return $"Gagal menyimpan {label}: tidak ada lokasi file.";
+        }
+
+        return path.StartsWith("EXPORT_FAILED", StringComparison.OrdinalIgnoreCase)
+            ? $"Gagal menyimpan {label}: {path}"
+            : $"{label} tersimpan: {path}";
     }
 
     private void RenderAnalysis(HarvestFunctionalService.HarvestAnalysisResult result)

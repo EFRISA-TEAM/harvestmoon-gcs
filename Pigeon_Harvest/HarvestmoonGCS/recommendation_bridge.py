@@ -37,7 +37,9 @@ from pathlib import Path
 
 # Resolve recommendation engine path
 _THIS_DIR = Path(__file__).parent
-_REC_DIR = _THIS_DIR.parent / "recommendations"
+_REC_DIR = _THIS_DIR / "recommendations"
+if not _REC_DIR.is_dir():
+    _REC_DIR = _THIS_DIR.parent / "recommendations"
 if str(_REC_DIR) not in sys.path:
     sys.path.insert(0, str(_REC_DIR))
 

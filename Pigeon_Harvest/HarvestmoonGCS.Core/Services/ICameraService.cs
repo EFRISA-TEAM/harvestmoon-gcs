@@ -30,7 +30,8 @@ public interface ICameraService
         float maxFps = 15f,
         bool showOverlay = true,
         bool demo = true,
-        float playbackRate = 1.0f);
+        float playbackRate = 1.0f,
+        bool yoloEnabled = false);
 
     Task StopCameraAsync();
     Task<bool> TakePictureAsync(string filename = null);

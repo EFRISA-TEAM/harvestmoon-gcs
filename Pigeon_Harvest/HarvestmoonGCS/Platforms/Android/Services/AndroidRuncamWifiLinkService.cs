@@ -104,11 +104,12 @@ public class AndroidRuncamWifiLinkService : IRuncamWifiLinkService
 
             if (!opened)
             {
-                // Fallback: coba MJPEG jika RTSP gagal
-                if (config.StreamProtocol == RuncamStreamProtocol.Auto || config.StreamProtocol == RuncamStreamProtocol.Rtsp)
+                // Fallback: coba semua kandidat MJPEG (path RunCam dan Orange Pi /video_feed)
+                foreach (var mjpegUrl in config.MjpegUrls)
                 {
-                    Log.Warning("[AndroidRuncamWifi] RTSP gagal, fallback ke MJPEG");
-                    opened = await Task.Run(() => OpenMediaExtractor(config.MjpegUrl), ct);
+                    Log.Warning("[AndroidRuncamWifi] Gagal, fallback ke {Url}", mjpegUrl);
+                    opened = await Task.Run(() => OpenMediaExtractor(mjpegUrl), ct);
+                    if (opened) break;
                 }
 
                 if (!opened)

@@ -26,14 +26,14 @@ namespace HarvestmoonGCS.Core.Services;
 /// </summary>
 public class RuncamWifiLinkDetector
 {
-    private const int ProbeTimeoutMs = 800;
-    private const int MaxParallelProbes = 16;
+    private const int ProbeTimeoutMs = 400;
+    private const int MaxParallelProbes = 64;
 
-    // Subnet-subnet yang biasa digunakan RunCam sebagai hotspot
+    // Subnet-subnet yang biasa digunakan RunCam / UAV sebagai hotspot
     private static readonly string[] PrioritySubnets =
     {
-        "192.168.0.", // default RunCam WiFi Link 2
-        "192.168.1.", // beberapa variant
+        "192.168.1.", // TP-Link router bridge (TL-MR3020 default LAN)
+        "192.168.0.", // default RunCam WiFi Link 2 / hotspot
         "10.0.0."     // varian lain
     };
 
@@ -120,15 +120,24 @@ public class RuncamWifiLinkDetector
     private static List<string> GetCandidateIps()
     {
         var result = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
 
-        // Priority: subnet yang paling umum digunakan RunCam
+        void Add(string ip)
+        {
+            if (seen.Add(ip)) result.Add(ip);
+        }
+
+        // 1) Verified RunCam/UAV hosts first (kept for instant hit)
         foreach (var subnet in PrioritySubnets)
         {
             for (int i = 1; i <= 10; i++)
-                result.Add($"{subnet}{i}");
+                Add($"{subnet}{i}");
         }
 
-        // Tambah subnet dari interface aktif di mesin ini
+        // 2) Subnet dari interface aktif di mesin ini.
+        //    UAV lewat TP-Link dapat DHCP di .100+, jadi sapu seluruh /24 —
+        //    bukan hanya .1-.10 seperti sebelumnya (penyebab "tidak ditemukan").
+        var subnets = new List<string>();
         try
         {
             foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
@@ -143,17 +152,30 @@ public class RuncamWifiLinkDetector
                     if (parts.Length != 4) continue;
 
                     var subnet = $"{parts[0]}.{parts[1]}.{parts[2]}.";
-                    // Hindari duplikat dengan priority list
-                    if (Array.IndexOf(PrioritySubnets, subnet) >= 0) continue;
-
-                    for (int i = 1; i <= 10; i++)
-                        result.Add($"{subnet}{i}");
+                    if (!subnets.Contains(subnet)) subnets.Add(subnet);
                 }
             }
         }
         catch (Exception ex)
         {
             Log.Warning("[RuncamDetector] Gagal enum network interfaces: {Err}", ex.Message);
+        }
+
+        // Prioritaskan subnet LAN router (TP-Link) lebih dulu, lalu sisanya
+        foreach (var preferred in PrioritySubnets)
+        {
+            if (subnets.Remove(preferred)) subnets.Insert(0, preferred);
+        }
+
+        foreach (var subnet in subnets)
+        {
+            // Gateway + kandidat DHCP umum lebih dulu supaya cepat ketemu
+            foreach (var last in new[] { 1, 100, 101, 102, 127, 10, 2 })
+                Add($"{subnet}{last}");
+
+            // Sisanya: seluruh /24
+            for (int i = 1; i <= 254; i++)
+                Add($"{subnet}{i}");
         }
 
         return result;

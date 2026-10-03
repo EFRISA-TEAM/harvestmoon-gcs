@@ -43,6 +43,16 @@ namespace MavLinkNet
         public IPAddress TargetIpAddress = new IPAddress(new byte[] { 127, 0, 0, 1 });
         public int HeartBeatUpdateRateMs = 1000;
 
+        /// <summary>
+        /// Listen mode: bind LocalPort and accept MAVLink from ANY sender, learning the
+        /// peer endpoint from the first packet.
+        ///
+        /// Wajib untuk UAV yang MENDORONG telemetri ke GCS (mis. Orange Pi drone
+        /// companion -> GCS:14550). Di setup router/hotspot, IP UAV ditentukan DHCP
+        /// sehingga GCS tidak bisa tahu IP/port tujuan lebih dulu.
+        /// </summary>
+        public bool ListenMode = false;
+
         private ConcurrentQueue<byte[]> mReceiveQueue = new ConcurrentQueue<byte[]>();
         private ConcurrentQueue<UasMessage> mSendQueue = new ConcurrentQueue<UasMessage>();
         private AutoResetEvent mReceiveSignal = new AutoResetEvent(true);
@@ -85,25 +95,31 @@ namespace MavLinkNet
 
         private void InitializeUdpClient()
         {
-            // Create UDP client bound to local port
-            if (LocalPort > 0)
+            int bindPort = LocalPort > 0 ? LocalPort : TargetPort;
+            try
             {
-                mUdpClient = new UdpClient(LocalPort);
+                mUdpClient = new UdpClient(bindPort);
+                mUdpClient.EnableBroadcast = true;
             }
-            else
+            catch (Exception ex)
             {
+                Debug.WriteLine($"[UDP Client] Bind to port {bindPort} failed ({ex.Message}), fallback to ephemeral port");
                 mUdpClient = new UdpClient();
+                mUdpClient.EnableBroadcast = true;
+            }
+
+            if (ListenMode || TargetIpAddress == null || TargetIpAddress.Equals(IPAddress.Any))
+            {
+                ListenMode = true;
+                mRemoteEndPoint = null;
+                Debug.WriteLine($"[UDP Client] Listen mode di port {bindPort} (menerima dari pengirim mana pun)");
+                return;
             }
 
             // Set up the remote endpoint we want to communicate with
             mRemoteEndPoint = new IPEndPoint(TargetIpAddress, TargetPort);
 
-            // Connect the UDP client to the remote endpoint
-            // This doesn't actually establish a connection (UDP is connectionless)
-            // but it sets the default remote endpoint for Send/Receive operations
-            mUdpClient.Connect(mRemoteEndPoint);
-
-            Debug.WriteLine($"[UDP Client] Initialized - Target: {mRemoteEndPoint}");
+            Debug.WriteLine($"[UDP Client] Initialized - Target: {mRemoteEndPoint}, LocalPort: {bindPort}");
         }
 
         private void StartReceiveThread()
@@ -131,9 +147,14 @@ namespace MavLinkNet
             {
                 try
                 {
-                    // Receive data from any endpoint (since we're connected, it should be from our target)
                     IPEndPoint remoteEp = null;
                     byte[] data = mUdpClient.Receive(ref remoteEp);
+
+                    if (remoteEp != null)
+                    {
+                        // Pelajari/perbarui endpoint UAV dari paket yang masuk
+                        mRemoteEndPoint = remoteEp;
+                    }
 
                     if (data != null && data.Length > 0)
                     {
@@ -212,8 +233,13 @@ namespace MavLinkNet
         {
             try
             {
+                if (mRemoteEndPoint == null)
+                {
+                    return;
+                }
+
                 byte[] buffer = mMavLink.SerializeMessage(msg, MavlinkSystemId, MavlinkComponentId, true);
-                mUdpClient.Send(buffer, buffer.Length);
+                mUdpClient.Send(buffer, buffer.Length, mRemoteEndPoint);
             }
             catch (Exception ex)
             {
@@ -267,7 +293,18 @@ namespace MavLinkNet
             {
                 try
                 {
-                    return mUdpClient != null && mUdpClient.Client != null && mUdpClient.Client.Connected;
+                    if (mUdpClient == null || mUdpClient.Client == null)
+                    {
+                        return false;
+                    }
+
+                    // Listen mode tidak pernah "Connected" secara socket, tapi tetap aktif.
+                    if (ListenMode)
+                    {
+                        return true;
+                    }
+
+                    return mUdpClient.Client.Connected;
                 }
                 catch
                 {

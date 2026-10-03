@@ -27,28 +27,34 @@ public sealed partial class DashboardPage : Page
 {
     private static readonly string[] DemoVideoPathCandidates =
     {
-        // Prioritas 1: Video utama Teknofest (Sawah asli 15 HST, 2.7MB, 15 FPS)
-        "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/stream_v7c_final.mp4",
-        "/home/fawwazfa/Program/Harvestmoon/vidio/15d.mp4",
-        "/home/fawwazfa/Program/Harvestmoon/vid/15d.mp4",
+        // Single-file EXE: AppContext.BaseDirectory resolves to extraction temp folder
+        Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "stream_multisector_60s_detected.mp4"),
+        Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "stream_multisector_60s.mp4"),
         Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "stream_v7c_final.mp4"),
-        Path.Combine(Directory.GetCurrentDirectory(), "Assets", "demo_videos", "stream_v7c_final.mp4"),
-
-        // Video survey multi-sektor gabungan (Lush Green + Inconsistent Growth + Gaps, 32s, FHI ~81-87%)
-        "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/stream_multisector_survey.mp4",
+        Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "YDXJ_fused_only_detected.mp4"),
+        Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "YDX_burned.mp4"),
         Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "stream_multisector_survey.mp4"),
 
-        // Prioritas 2: Video sekunder Teknofest (Variasi vegetasi & tanah)
-        "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/YDXJ_fused_only_detected.mp4",
-        "/home/fawwazfa/Program/Harvestmoon/vidio/YDXJ0012_demo(1).mp4",
-        "/home/fawwazfa/Program/Harvestmoon/vidio/YDX_burned.mp4",
-        "/home/fawwazfa/Program/Harvestmoon/vid/YDXJ0012_demo.mp4",
-        Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "YDXJ_fused_only_detected.mp4"),
+        // Normal deployment: EXE folder/Assets/demo_videos
+        Path.Combine(Directory.GetCurrentDirectory(), "Assets", "demo_videos", "stream_multisector_60s_detected.mp4"),
+        Path.Combine(Directory.GetCurrentDirectory(), "Assets", "demo_videos", "stream_multisector_60s.mp4"),
+        Path.Combine(Directory.GetCurrentDirectory(), "Assets", "demo_videos", "stream_v7c_final.mp4"),
         Path.Combine(Directory.GetCurrentDirectory(), "Assets", "demo_videos", "YDXJ_fused_only_detected.mp4"),
+        Path.Combine(Directory.GetCurrentDirectory(), "Assets", "demo_videos", "YDX_burned.mp4"),
+        Path.Combine(Directory.GetCurrentDirectory(), "Assets", "demo_videos", "stream_multisector_survey.mp4"),
+
+        // Dev machine Linux paths
+        "/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/Assets/demo_videos/stream_multisector_60s_detected.mp4",
+        "/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/Assets/demo_videos/stream_v7c_final.mp4",
+        "/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/Assets/demo_videos/YDXJ_fused_only_detected.mp4",
+        "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/stream_multisector_60s.mp4",
+        "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/stream_v7c_final.mp4",
+        "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/YDXJ_fused_only_detected.mp4",
     };
     private readonly FlightViewModel? _flightViewModel;
     private readonly MapViewModel? _mapViewModel;
     private readonly ICameraService? _cameraService;
+    private readonly IRuncamWifiLinkService? _runcamService;
     private readonly HarvestFunctionalService? _harvestFunctionalService;
     private readonly IVideoRecorderService? _videoRecorderService;
     private readonly IOfflineMapService? _offlineMapService;
@@ -85,7 +91,7 @@ public sealed partial class DashboardPage : Page
 
     // UI state
     private bool _isRecording;
-    private bool _aiOn = true;
+    private bool _aiOn;
     private bool _showImuHud = true;
     private int _confThreshold = 40;
     private double _pitch = -5.0;  // slight nose-down pitch for realistic forward flight
@@ -120,6 +126,7 @@ public sealed partial class DashboardPage : Page
 
     // Demo mode state
     private bool _isDemoRunning;
+    private readonly object _modeLock = new();
     private bool _useFusedOnlyDemoSummary;
     private int _demoStep;
     private double _demoBattery = 95.0;
@@ -139,26 +146,27 @@ public sealed partial class DashboardPage : Page
     private double _demoBatteryVoltage = 12.6; // randomized at demo start
     private int _demoTicksPerSegment = 15; // Dynamically adapts to video duration (1:1 sync)
     private double _demoVideoDurationSeconds = 60.0;
-    private double _demoGeofenceRadiusMeters = 650;
-    private (double Lat, double Lon)[] _demoWaypoints = GenerateDemoRiceFieldWaypoints();
+    private double _demoGeofenceRadiusMeters = 550;
+    private (double Lat, double Lon)[] _demoWaypoints = Array.Empty<(double, double)>();
     private string? _customVideoPath;
     private bool _isSwitchingScenario;
     private readonly IFileService? _fileService;
+    private readonly IVideoScenarioService? _videoScenarioService;
+    private readonly IWaypointService? _waypointService;
+    private VideoScenarioProfile _currentScenario;
+    private double DemoFieldLat => _currentScenario?.FieldCenterLat ?? -6.42580;
+    private double DemoFieldLon => _currentScenario?.FieldCenterLon ?? 107.61890;
     private readonly DispatcherTimer _demoTimer = new() { Interval = TimeSpan.FromSeconds(1) };
-    // Demo rice-field transect: Sukamerta, Rawamerta, Karawang (West Java rice belt).
-    private const double DemoFieldLat = -6.24361;
-    private const double DemoFieldLon = 107.36556;
-    // Summary percentages from stream_v7c_final.mp4 HSV-ONNX fused pipeline (233 frames verified)
-    // Healthy: 6.8%, Inconsistent Growth: 69.3%, Drought: ~0%, Bare Soil: 23.9%
-    // FHI 81.6 avg (matches TEKNOFEST PPT controlled validation claim: mean FHI 81.6)
-    // SEVERITY weights: Lush=0.00, IncGrowth=0.23 (77% tillering vitality), Drought=0.80, Soil=0.10
-    private const double DemoReportLushGreenPct  =  6.8;
-    private const double DemoReportStressPct     = 69.3;
-    private const double DemoReportDroughtPct    =  0.0;  // nominal trace
-    private const double DemoReportBareSoilPct   = 23.9;
-    private const double DemoReportFhi           = 81.6; // verified avg FHI (PPT target: 81.6)
-    private const int    DemoReportTotalDetections = 1638;
     private const int DemoWaypointStartSequence = 1;
+
+    // Current HSV stream configuration (for restarting when YOLO toggle changes)
+    private string? _currentHsvSource;
+    private string? _currentHsvModelPath;
+    private bool _currentHsvDemo;
+    private float _currentHsvPlaybackRate;
+    private float _currentHsvMaxFps;
+    private bool _currentHsvShowOverlay;
+
     private static readonly string[] DemoClassificationEvents =
     {
         "Lush Green (conf 0.93) · Sector C",
@@ -184,6 +192,23 @@ public sealed partial class DashboardPage : Page
         _geofenceMonitor = App.Current.Services.GetService<GeofenceMonitor>();
         _timelineService = App.Current.Services.GetService<IncidentTimelineService>();
         _mavLinkService  = App.Current.Services.GetService<IMavLinkService>();
+        _runcamService   = App.Current.Services.GetService<IRuncamWifiLinkService>();
+        _videoScenarioService = App.Current.Services.GetService<IVideoScenarioService>();
+        _waypointService = App.Current.Services.GetService<IWaypointService>();
+
+        _currentScenario = _videoScenarioService?.CurrentScenario ?? new VideoScenarioService().CurrentScenario;
+        _demoWaypoints = _currentScenario.Waypoints.Select(w => (w.Latitude, w.Longitude)).ToArray();
+        _demoAltitudeBase = _currentScenario.CruiseAltitudeMeters;
+        _demoSpeedBase = _currentScenario.CruiseSpeedMps;
+        _demoHeading = _currentScenario.BearingDeg;
+        _demoBattery = _currentScenario.InitialBatteryPct;
+        _demoSatCount = _currentScenario.SatelliteCount;
+        _demoGeofenceRadiusMeters = _currentScenario.GeofenceRadiusMeters;
+        _centerLat = _currentScenario.FieldCenterLat;
+        _centerLon = _currentScenario.FieldCenterLon;
+        _demoVideoDurationSeconds = _currentScenario.VideoDurationSeconds;
+        int wpCount = Math.Max(2, _currentScenario.Waypoints.Count);
+        _demoTicksPerSegment = Math.Max(1, (int)Math.Round(_demoVideoDurationSeconds / (wpCount - 1)));
 
         _imuTimer.Tick += OnImuTick;
         _missionTimer.Tick += OnMissionTick;
@@ -240,10 +265,29 @@ public sealed partial class DashboardPage : Page
         if (!_missionTimerStarted)
         {
             _missionStart = DateTime.Now;
-            MissionIdText.Text = $"MH-{DateTime.Now:yyyyMMdd-HHmm}";
+            MissionIdText.Text = string.IsNullOrEmpty(_currentScenario?.MissionId) ? $"MH-{DateTime.Now:yyyyMMdd-HHmm}" : _currentScenario.MissionId;
             MissionStartedText.Text = DateTime.Now.ToString("HH:mm:ss");
             _missionTimerStarted = true;
         }
+
+        if (_currentScenario != null)
+        {
+            if (_waypointService != null && _currentScenario.Waypoints.Count > 0)
+            {
+                _ = _waypointService.ReplaceWaypointsAsync(new List<HarvestmoonGCS.Core.Models.WaypointData>());
+            }
+            if (_mapViewModel != null)
+            {
+                _mapViewModel.Waypoints.Clear();
+                _mapViewModel.IsGeofenceActive = false;
+            }
+            if (DashboardMapControl != null)
+            {
+                DashboardMapControl.ClearWaypoints();
+                DashboardMapControl.SetCenter(_currentScenario.FieldCenterLat, _currentScenario.FieldCenterLon, _currentScenario.MapZoomLevel);
+            }
+        }
+
         _imuTimer.Start();
         _missionTimer.Start();
 
@@ -264,10 +308,7 @@ public sealed partial class DashboardPage : Page
             _ = DispatcherQueue.TryEnqueue(async () =>
             {
                 await Task.Delay(600);
-                if (!_isDemoRunning)
-                {
-                    await StartDemoMode();
-                }
+                await StartDemoMode();
             });
         }
     }
@@ -354,7 +395,7 @@ public sealed partial class DashboardPage : Page
         if (e.PropertyName == nameof(FlightViewModel.IsConnected))
         {
             var connected = _flightViewModel?.IsConnected == true;
-            if (connected && !_isLiveRunning && !_isDemoRunning)
+            if (connected && !_isLiveRunning)
             {
                 _ = StartLiveModeAsync();
             }
@@ -453,20 +494,36 @@ public sealed partial class DashboardPage : Page
             _lastConnected = connected;
         }
 
-        SetTextIfChanged(TelemetryAltitudeText, $"{altitude:F1} m", ref _lastAltitudeText);
-        SetTextIfChanged(TelemetrySpeedText, $"{speed:F1} m/s", ref _lastSpeedText);
-        SetTextIfChanged(TelemetryHeadingText, $"{heading:F0}°", ref _lastHeadingText);
-        SetTextIfChanged(TelemetryGpsText, $"RTK fix · {satCount} sats · HDOP {(hdop > 0 ? hdop : 0.4):F1}", ref _lastGpsText);
-        SetTextIfChanged(TelemetryBatteryText,
-            _isDemoRunning
-                ? $"{(int)_demoBattery}% · {_demoBatteryVoltage:F1}V"
-                : $"{(int)battery}% · {(voltage > 0 ? voltage : 12.6):F1}V",
-            ref _lastBatteryText);
-        SetTextIfChanged(TelemetryModeText, flightMode, ref _lastModeText);
+        if (!connected && !_isDemoRunning)
+        {
+            SetTextIfChanged(TelemetryAltitudeText, "-- m", ref _lastAltitudeText);
+            SetTextIfChanged(TelemetrySpeedText, "-- m/s", ref _lastSpeedText);
+            SetTextIfChanged(TelemetryHeadingText, "--°", ref _lastHeadingText);
+            SetTextIfChanged(TelemetryGpsText, "No Fix · 0 sats", ref _lastGpsText);
+            SetTextIfChanged(TelemetryBatteryText, "--% · --V", ref _lastBatteryText);
+            SetTextIfChanged(TelemetryModeText, "STANDBY", ref _lastModeText);
 
-        SetTextIfChanged(AltSpdHudText, $"ALT {altitude:F0} m · SPD {speed:F1} m/s", ref _lastAltSpdHudText);
-        SetTextIfChanged(HdgModeText, $"HDG {heading:F0}° · MODE {flightMode}", ref _lastHdgModeText);
-        SetTextIfChanged(HeadingPillText, $"HDG {heading:F0}°", ref _lastHeadingPillText);
+            SetTextIfChanged(AltSpdHudText, "ALT -- m · SPD -- m/s", ref _lastAltSpdHudText);
+            SetTextIfChanged(HdgModeText, "HDG --° · MODE STANDBY", ref _lastHdgModeText);
+            SetTextIfChanged(HeadingPillText, "HDG --°", ref _lastHeadingPillText);
+        }
+        else
+        {
+            SetTextIfChanged(TelemetryAltitudeText, $"{altitude:F1} m", ref _lastAltitudeText);
+            SetTextIfChanged(TelemetrySpeedText, $"{speed:F1} m/s", ref _lastSpeedText);
+            SetTextIfChanged(TelemetryHeadingText, $"{heading:F0}°", ref _lastHeadingText);
+            SetTextIfChanged(TelemetryGpsText, $"RTK fix · {satCount} sats · HDOP {hdop:F1}", ref _lastGpsText);
+            SetTextIfChanged(TelemetryBatteryText,
+                _isDemoRunning
+                    ? $"{(int)_demoBattery}% · {_demoBatteryVoltage:F1}V"
+                    : $"{(int)battery}% · {voltage:F1}V",
+                ref _lastBatteryText);
+            SetTextIfChanged(TelemetryModeText, flightMode, ref _lastModeText);
+
+            SetTextIfChanged(AltSpdHudText, $"ALT {altitude:F0} m · SPD {speed:F1} m/s", ref _lastAltSpdHudText);
+            SetTextIfChanged(HdgModeText, $"HDG {heading:F0}° · MODE {flightMode}", ref _lastHdgModeText);
+            SetTextIfChanged(HeadingPillText, $"HDG {heading:F0}°", ref _lastHeadingPillText);
+        }
         // During demo, FpsHudText is owned by InjectDemoDetectionUI.
         // Skip the override here so it doesn't revert to "active/standby" on each telemetry tick.
         if (!_isDemoRunning)
@@ -492,14 +549,13 @@ public sealed partial class DashboardPage : Page
             int nextSeq = DemoWaypointStartSequence + _nextDemoWaypointIndex;
             SetTextIfChanged(WaypointProgressText, $"WP {currentSeq} → {nextSeq}", ref _lastWaypointProgressText);
         }
+        else if (connected)
+        {
+            SetTextIfChanged(WaypointProgressText, $"WP {missionProgress.CurrentWaypoint}/{missionProgress.TotalWaypoints}", ref _lastWaypointProgressText);
+        }
         else
         {
-            SetTextIfChanged(
-                WaypointProgressText,
-                missionProgress.TotalWaypoints > 0
-                    ? $"{(connected ? missionProgress.CurrentWaypoint : 0)}/{missionProgress.TotalWaypoints}"
-                    : "0/0",
-                ref _lastWaypointProgressText);
+            SetTextIfChanged(WaypointProgressText, "WP - → -", ref _lastWaypointProgressText);
         }
 
         // Frames counter updates roughly once per telemetry packet, OK to always write since it changes.
@@ -542,12 +598,22 @@ public sealed partial class DashboardPage : Page
 
     private void OnGeofenceViolated(object? sender, GeofenceViolationEventArgs e)
     {
-        // Geofence alert display suppressed
+        // Surface the breach to the operator instead of swallowing it. Geofence enforcement
+        // is only meaningful if the dashboard actually tells the operator they left the fence.
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            AddAlertRow($"GEOFENCE BREACH: {e.Message}", "critical");
+            _timelineService?.Add("geofence", $"Geofence breach: {e.Message}", "critical");
+        });
     }
 
     private void OnGeofenceRestored(object? sender, GeofenceViolationEventArgs e)
     {
-        // Geofence alert display suppressed
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            AddAlertRow("Geofence restored - vehicle back inside boundary", "info");
+            _timelineService?.Add("geofence", "Vehicle re-entered geofence", "success");
+        });
     }
 
     private async Task CheckGeofenceMonitorAsync(TelemetryData? telemetry, bool connected)
@@ -765,6 +831,11 @@ public sealed partial class DashboardPage : Page
         _cameraService.ConnectionError += OnDashboardCameraError;
         if (_cameraService is PythonCameraService pcs)
             pcs.ClassificationSummaryChanged += OnClassifyDetectionData;
+        if (_runcamService != null)
+        {
+            _runcamService.FrameReceived += OnDashboardFrameReceived;
+            _runcamService.StatusChanged += OnRuncamStatusChanged;
+        }
         _cameraHandlersAttached = true;
     }
 
@@ -776,7 +847,20 @@ public sealed partial class DashboardPage : Page
         _cameraService.ConnectionError -= OnDashboardCameraError;
         if (_cameraService is PythonCameraService pcs)
             pcs.ClassificationSummaryChanged -= OnClassifyDetectionData;
+        if (_runcamService != null)
+        {
+            _runcamService.FrameReceived -= OnDashboardFrameReceived;
+            _runcamService.StatusChanged -= OnRuncamStatusChanged;
+        }
         _cameraHandlersAttached = false;
+    }
+
+    /// <summary>RunCam connect/disconnect → samakan indikator video dashboard.</summary>
+    private void OnRuncamStatusChanged(object? sender, Core.Services.RuncamConnectionStatus status)
+    {
+        bool live = status is Core.Services.RuncamConnectionStatus.CameraOnly
+            or Core.Services.RuncamConnectionStatus.FullyConnected;
+        OnDashboardCameraStreamingChanged(this, live || (_cameraService?.IsStreaming ?? false));
     }
 
     private void OnClassifyDetectionData(object? sender, string dataJson)
@@ -907,11 +991,15 @@ public sealed partial class DashboardPage : Page
         {
             _videoRecorderService.WriteFrame(frameData);
         }
-        if (_isDemoRunning && _useFusedOnlyDemoSummary)
+
+        // When demo is playing a pre-annotated video (already has detection boxes baked in),
+        // skip all HSV/YOLO analysis to avoid double overlay on top of existing annotations
+        if (_useFusedOnlyDemoSummary)
         {
             DashboardVideoStream?.SetDetectionOverlays(Array.Empty<VideoDetectionOverlay>());
             return;
         }
+
         bool shouldAnalyze = _aiOn || (VegToggleSwitch?.IsOn == true);
         if (!classifyActive && shouldAnalyze && !_analysisRunning)
         {
@@ -1422,6 +1510,44 @@ public sealed partial class DashboardPage : Page
                 Foreground = new SolidColorBrush(Color.FromArgb(255, 148, 163, 184))
             });
         }
+
+        // If an HSV stream is currently running, restart it with the new YOLO setting
+        var pcs = _cameraService as PythonCameraService;
+        if (pcs?.IsClassificationStream == true && !string.IsNullOrWhiteSpace(_currentHsvSource))
+        {
+            _ = RestartHsvStreamWithYoloAsync(_aiOn);
+        }
+    }
+
+    private async Task RestartHsvStreamWithYoloAsync(bool yoloEnabled)
+    {
+        if (_cameraService == null || string.IsNullOrWhiteSpace(_currentHsvSource)) return;
+
+        try
+        {
+            Serilog.Log.Information("[DashboardPage] Restarting HSV stream with YOLO={Enabled}", yoloEnabled);
+            await _cameraService.StopCameraAsync();
+            bool started = await _cameraService.StartHsvStreamAsync(
+                source: _currentHsvSource!,
+                modelPath: _currentHsvModelPath,
+                maxFps: _currentHsvMaxFps,
+                showOverlay: _currentHsvShowOverlay,
+                demo: _currentHsvDemo,
+                playbackRate: _currentHsvPlaybackRate,
+                yoloEnabled: yoloEnabled);
+            if (!started)
+            {
+                Serilog.Log.Warning("[DashboardPage] Failed to restart HSV stream with YOLO={Enabled}", yoloEnabled);
+            }
+            else
+            {
+                Serilog.Log.Information("[DashboardPage] HSV stream restarted successfully with YOLO={Enabled}", yoloEnabled);
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[DashboardPage] Error restarting HSV stream with YOLO={Enabled}", yoloEnabled);
+        }
     }
 
     private void VegToggle_Toggled(object sender, RoutedEventArgs e)
@@ -1536,11 +1662,30 @@ public sealed partial class DashboardPage : Page
         {
             try
             {
-                var path = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
-                    $"harvest_{DateTime.Now:yyyyMMdd_HHmmss}.mp4");
+                // MyVideos is empty on some Linux desktops and on Android, which produced a
+                // path rooted at an empty string and made the recorder fail. Fall back to a
+                // directory that is guaranteed to exist.
+                var videoRoot = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
+                if (string.IsNullOrWhiteSpace(videoRoot))
+                {
+                    videoRoot = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                }
+                if (string.IsNullOrWhiteSpace(videoRoot))
+                {
+                    videoRoot = Path.Combine(Path.GetTempPath(), "HarvestmoonGCS");
+                }
+
+                Directory.CreateDirectory(videoRoot);
+                var path = Path.Combine(videoRoot, $"harvest_{DateTime.Now:yyyyMMdd_HHmmss}.mp4");
                 var started = _videoRecorderService != null && await _videoRecorderService.StartRecordingAsync(path);
                 _timelineService?.Add("recording", started ? $"Video recording started: {path}" : "Video recording failed to start", started ? "success" : "warning");
+                if (!started)
+                {
+                    // Roll the button state back so the next tap retries instead of trying to stop.
+                    _isRecording = false;
+                    RecordLabel.Text = "Record";
+                    RecStatusText.Text = "IDLE";
+                }
             }
             catch (Exception ex)
             {
@@ -1574,12 +1719,20 @@ public sealed partial class DashboardPage : Page
 
     private async void SnapshotButton_Click(object sender, RoutedEventArgs e)
     {
-        var path = Path.Combine(Path.GetTempPath(), $"harvest_snapshot_{DateTime.Now:yyyyMMdd_HHmmss}.png");
-        DashboardVideoStream?.SaveCurrentFrame(path);
-        if (_lastFrameData != null && _harvestFunctionalService != null)
+        try
         {
-            var saved = await _harvestFunctionalService.SaveLatestYoloScreenshotAsync(_lastFrameData);
-            _timelineService?.Add("snapshot", $"YOLO screenshot saved: {saved}", "success");
+            var path = Path.Combine(Path.GetTempPath(), $"harvest_snapshot_{DateTime.Now:yyyyMMdd_HHmmss}.png");
+            DashboardVideoStream?.SaveCurrentFrame(path);
+            if (_lastFrameData != null && _harvestFunctionalService != null)
+            {
+                var saved = await _harvestFunctionalService.SaveLatestYoloScreenshotAsync(_lastFrameData);
+                _timelineService?.Add("snapshot", $"YOLO screenshot saved: {saved}", "success");
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[DashboardPage] Snapshot failed");
+            AddAlertRow($"Snapshot failed: {ex.Message}", "error");
         }
     }
 
@@ -1588,91 +1741,193 @@ public sealed partial class DashboardPage : Page
         YoloToggleSwitch.IsOn = !YoloToggleSwitch.IsOn;
     }
 
-    private async void StartDemoButton_Click(object sender, RoutedEventArgs e)
+    public async void ToggleDemoMode()
     {
-        if (_isDemoRunning) { StopDemoMode(); return; }
-        await StartDemoMode();
+        try
+        {
+            bool shouldStart;
+            lock (_modeLock)
+            {
+                if (_isDemoRunning) { shouldStart = false; }
+                else { shouldStart = true; }
+            }
+            if (!shouldStart) { await StopDemoModeAsync(); return; }
+            await StartDemoMode();
+        }
+        catch (Exception ex)
+        {
+            // Public async void entry point — an escaping exception would kill the process.
+            Serilog.Log.Error(ex, "[DashboardPage] ToggleDemoMode failed");
+            AddAlertRow($"Demo mode error: {ex.Message}", "error");
+        }
+    }
+
+    private void StartDemoButton_Click(object sender, RoutedEventArgs e)
+    {
+        ToggleDemoMode();
     }
 
     private async Task StartDemoMode()
     {
-        if (_isDemoRunning || _harvestFunctionalService == null) return;
-        _isDemoRunning = true;
+        bool shouldStart;
+        lock (_modeLock)
+        {
+            if (_isDemoRunning || _harvestFunctionalService == null) { shouldStart = false; }
+            else { _isDemoRunning = true; shouldStart = true; }
+        }
+        if (!shouldStart) return;
+        
         _demoStep = 0;
         ReadinessChecklistPanel.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
         MissionMetadataPanel.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
-        // Randomize per-run demo values so each session shows slightly different numbers,
-        // all within ranges a real agricultural survey flight would actually show.
+        if (VegetationOverlayLayer != null)
+        {
+            VegetationOverlayLayer.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
+        }
+
         _demoRng = new Random();
-        _demoAltitudeBase   = 59.5 + _demoRng.NextDouble() * 1.0;   // 59.5–60.5 m AGL — typical low-altitude crop survey
-        _demoSpeedBase      =  9.8 + (_demoRng.NextDouble() - 0.5) * 0.4; // 9.6–10.0 m/s (~10.0 m/s matches 150m / 15s transect cruise)
-        _demoBatteryStart   = 93.0 + _demoRng.NextDouble() * 4.0;   // 93–97% at mission start (post-takeoff)
-        _demoSatCount       = 13   + _demoRng.Next(0, 5);           // 13–17 sats
-        _demoBatteryVoltage = 12.3 + _demoRng.NextDouble() * 0.6;   // 12.3–12.9 V
+        _demoAltitudeBase   = _currentScenario.CruiseAltitudeMeters + (_demoRng.NextDouble() - 0.5) * 1.0;
+        _demoSpeedBase      = _currentScenario.CruiseSpeedMps + (_demoRng.NextDouble() - 0.5) * 0.4;
+        _demoBatteryStart   = _currentScenario.InitialBatteryPct - _demoRng.NextDouble() * 2.0;
+        _demoSatCount       = _currentScenario.SatelliteCount;
+        _demoBatteryVoltage = 12.3 + _demoRng.NextDouble() * 0.6;
         _demoBattery = _demoBatteryStart;
-        _demoHeading = 45.0;  // Start demo with 45° heading (northeast)
+        _demoHeading = _currentScenario.BearingDeg;
         SetDemoButtonState(running: true);
-        _harvestFunctionalService.SetDemoModeActive(true);  // Show YOLO as Active, suppress geofence alerts
+        _harvestFunctionalService.SetDemoModeActive(true);
+
+        if (_currentScenario != null)
+        {
+            if (_mapViewModel != null)
+            {
+                _mapViewModel.Waypoints.Clear();
+                foreach (var wp in _currentScenario.Waypoints) _mapViewModel.Waypoints.Add(wp);
+                _mapViewModel.GeofenceCenterLat = _currentScenario.FieldCenterLat;
+                _mapViewModel.GeofenceCenterLon = _currentScenario.FieldCenterLon;
+                _mapViewModel.GeofenceRadius    = _currentScenario.GeofenceRadiusMeters;
+                _mapViewModel.GeofenceType      = GeofenceType.Circular;
+                _mapViewModel.IsGeofenceActive  = true;
+            }
+            if (_waypointService != null && _currentScenario.Waypoints.Count > 0)
+            {
+                _ = _waypointService.ReplaceWaypointsAsync(_currentScenario.Waypoints);
+            }
+            if (DashboardMapControl != null)
+            {
+                DashboardMapControl.ClearWaypoints();
+                foreach (var wp in _currentScenario.Waypoints)
+                {
+                    DashboardMapControl.AddWaypointMarker(wp.Sequence, wp.Latitude, wp.Longitude, wp.Altitude, "WAYPOINT");
+                }
+                DashboardMapControl.SetGeofence(true, _currentScenario.FieldCenterLat, _currentScenario.FieldCenterLon, _currentScenario.GeofenceRadiusMeters);
+                DashboardMapControl.SetFollowVehicle(true);
+            }
+            _geofenceService?.SetGeofenceCenter(_currentScenario.FieldCenterLat, _currentScenario.FieldCenterLon);
+            _geofenceService?.SetGeofenceRadius(_currentScenario.GeofenceRadiusMeters);
+            _geofenceService?.SetGeofenceActive(true);
+        }
 
         try
         {
-            // 1. Video — use YOLO classify stream (Python annotates frames, C# skips double ONNX)
-            //    On Android there is no local video file, so skip gracefully and run telemetry-only demo.
-#if __ANDROID__
-            // Wire the selected pre-annotated demo video through AndroidDemoVideoDecoder → VideoStreamControl
-            _useFusedOnlyDemoSummary = true;
-            var androidContext = Android.App.Application.Context;
-            var assetName = DemoScenarioComboBox?.SelectedIndex switch
-            {
-                1 => "demo_videos/stream_v7c_final.mp4",
-                2 => "demo_videos/YDXJ_fused_only_detected.mp4",
-                _ => "demo_videos/stream_multisector_60s_detected.mp4"
-            };
-            _androidDemoDecoder = new HarvestmoonGCS.Platforms.Android.Services.AndroidDemoVideoDecoder(androidContext, assetName);
-            _androidDemoDecoder.FrameDecoded += (_, jpeg) => OnDashboardFrameReceived(this, jpeg);
-            await _androidDemoDecoder.StartAsync();
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                try { DashboardVideoStream?.HideOverlay(); } catch { }
-            });
-            _timelineService?.Add("camera", $"Video: {assetName} (Android)", "success");
-#else
             var videoPath = ResolveDetectedVideoPath();
-            _useFusedOnlyDemoSummary = !string.IsNullOrWhiteSpace(videoPath) &&
-                Path.GetFileName(videoPath).Contains("fused_only", StringComparison.OrdinalIgnoreCase);
+            var videoName = Path.GetFileName(videoPath ?? _currentScenario?.VideoFileName ?? "");
+            _useFusedOnlyDemoSummary = (!string.IsNullOrWhiteSpace(videoName) &&
+                (videoName.Contains("detected", StringComparison.OrdinalIgnoreCase) ||
+                 videoName.Contains("fused", StringComparison.OrdinalIgnoreCase)))
+#if __ANDROID__
+                || true
+#endif
+                ;
+
+#if __ANDROID__
+            if (VegetationOverlayLayer != null)
+            {
+                VegetationOverlayLayer.Visibility = Visibility.Collapsed;
+            }
+
+            if (_androidDemoDecoder == null || !_androidDemoDecoder.IsRunning)
+            {
+                if (_androidDemoDecoder != null)
+                {
+                    await _androidDemoDecoder.StopAsync();
+                    try { _androidDemoDecoder.Dispose(); } catch { }
+                    _androidDemoDecoder = null;
+                }
+
+                var androidContext = Android.App.Application.Context;
+                var assetName = _currentScenario?.Id switch
+                {
+                    "scenario-15hst"     => "demo_videos/stream_v7c_final_detected.mp4",
+                    "scenario-irrigated" => "demo_videos/YDXJ_fused_only_detected.mp4",
+                    "scenario-drought"   => "demo_videos/YDX_burned_detected.mp4",
+                    _                    => "demo_videos/stream_multisector_60s_detected.mp4"
+                };
+                string videoSource = (!string.IsNullOrWhiteSpace(_customVideoPath) && File.Exists(_customVideoPath)) ? _customVideoPath : assetName;
+
+                DashboardVideoStream?.SetHighQualityMode(true);
+                DashboardVideoStream?.HideOverlay();
+
+                _androidDemoDecoder = new HarvestmoonGCS.Platforms.Android.Services.AndroidDemoVideoDecoder(androidContext, videoSource);
+                _androidDemoDecoder.FrameDecoded += (_, jpeg) => OnDashboardFrameReceived(this, jpeg);
+                await _androidDemoDecoder.StartAsync();
+                _timelineService?.Add("camera", $"Video: {Path.GetFileName(videoSource)} (Android)", "success");
+            }
+            else
+            {
+                DashboardVideoStream?.SetHighQualityMode(true);
+                DashboardVideoStream?.HideOverlay();
+            }
+#else
             if (!string.IsNullOrWhiteSpace(videoPath) && File.Exists(videoPath) && _cameraService != null)
             {
                 var previewFrame = await Task.Run(() => ExtractFirstFrameBytes(videoPath));
                 if (previewFrame.Length > 0)
                 {
                     _lastFrameData = previewFrame;
+                    // Enable high-quality bilinear rendering for demo video (crisp, no blur/pixelation)
+                    DashboardVideoStream?.SetHighQualityMode(true);
                     DashboardVideoStream?.UpdateFrame(previewFrame);
                     DashboardVideoStream?.HideOverlay();
-                    FpsHudText.Text = "YDXJ · loading detection...";
+                    FpsHudText.Text = $"{_currentScenario.ShortDescription} · loading detection...";
                 }
 
-                await _cameraService.StopCameraAsync();
+                // Determine if video is pre-annotated (already has detection boxes drawn on it)
+                var videoFileName = Path.GetFileName(videoPath);
+                bool isPreAnnotated = videoFileName.Contains("detected", StringComparison.OrdinalIgnoreCase) ||
+                                      videoFileName.Contains("fused", StringComparison.OrdinalIgnoreCase);
 
-                // Gunakan HSV stream (Python moonharvest_detect_stream.py) agar:
-                // 1. Video loop selamanya (--demo flag aktif)
-                // 2. Bounding box + overlay deteksi ditampilkan real-time dari model v5 (88.5% acc)
-                // 3. Target 15 FPS meskipun source video hanya 10-30 FPS
-                // Prioritas model: v5 (baru, 4 kelas Teknofest) → runtime model → fallback
+                // For pre-annotated videos: play as-is WITHOUT adding HSV/YOLO overlay on top
+                // For raw videos: add YOLO/HSV overlay as normal
+                bool yoloEnabled = isPreAnnotated ? false : (_harvestFunctionalService?.IsYoloOptionEnabled ?? false);
+                bool showOverlay = !isPreAnnotated; // don't overlay on pre-annotated video
+
+                await _cameraService.StopCameraAsync();
                 var modelPath = PythonCameraService.ResolveHealthModelPath();
                 bool started = await _cameraService.StartHsvStreamAsync(
                     source: videoPath,
                     modelPath: modelPath,
                     maxFps: 15f,
-                    showOverlay: true,
+                    showOverlay: showOverlay,
                     demo: true,
-                    playbackRate: 1.0f);
+                    playbackRate: 1.0f,
+                    yoloEnabled: yoloEnabled);
+
+                if (started)
+                {
+                    // Save HSV stream config for potential restart on YOLO toggle
+                    _currentHsvSource = videoPath;
+                    _currentHsvModelPath = modelPath;
+                    _currentHsvDemo = true;
+                    _currentHsvPlaybackRate = 1.0f;
+                    _currentHsvMaxFps = 15f;
+                    _currentHsvShowOverlay = showOverlay;
+                }
 
                 if (!started)
                 {
-                    // Fallback ke raw stream jika HSV stream gagal
                     await _cameraService.StartCameraAsync(videoPath);
                 }
-                _timelineService?.Add("camera", $"Video: {System.IO.Path.GetFileName(videoPath)} · HSV+YOLO · 15 FPS loop", "success");
+                _timelineService?.Add("camera", $"Video: {Path.GetFileName(videoPath)} · HSV{(yoloEnabled ? "+YOLO" : "")} · 15 FPS loop", "success");
             }
             else
             {
@@ -1680,54 +1935,48 @@ public sealed partial class DashboardPage : Page
             }
 #endif
 
-            // 2. AI on (C# ONNX skipped when classify stream is active — Python already annotates frames)
-            _aiOn = true;
-            if (YoloToggleSwitch != null) YoloToggleSwitch.IsOn = true;
+            // 2. AI state: respect current toggle (don't force on)
+            _aiOn = _harvestFunctionalService?.IsYoloOptionEnabled ?? false;
+            if (YoloToggleSwitch != null) YoloToggleSwitch.IsOn = _aiOn;
 
-            // 3. Activate compact demo geofence around the Karawang rice-field transect.
-            _geofenceService?.SetGeofenceCenter(DemoFieldLat, DemoFieldLon);
-            _geofenceService?.SetGeofenceRadius(_demoGeofenceRadiusMeters);
+            // 3. Geofence around current scenario field
+            _geofenceService?.SetGeofenceCenter(_currentScenario.FieldCenterLat, _currentScenario.FieldCenterLon);
+            _geofenceService?.SetGeofenceRadius(_currentScenario.GeofenceRadiusMeters);
             _geofenceService?.SetGeofenceActive(true);
 
-            // 4. Simulate connection — fires real MAVLink ConnectionStatusChanged so ALL pages respond
+            // 4. MAVLink connection
             _mavLinkService?.SimulateConnection(true);
             if (_flightViewModel != null) _flightViewModel.IsConnected = true;
 
-            // 4a. Seed demo survey waypoints into MapViewModel so Map / Mission pages show the grid
+            // 4a. Seed scenario waypoints into IWaypointService and MapViewModel
+            if (_waypointService != null && _currentScenario.Waypoints.Count > 0)
+            {
+                await _waypointService.ReplaceWaypointsAsync(_currentScenario.Waypoints);
+            }
             if (_mapViewModel != null)
             {
                 _mapViewModel.Waypoints.Clear();
-                for (int i = 0; i < _demoWaypoints.Length; i++)
+                foreach (var wp in _currentScenario.Waypoints)
                 {
-                    var (wpLat, wpLon) = _demoWaypoints[i];
-                    _mapViewModel.Waypoints.Add(new WaypointData
-                    {
-                        Sequence    = DemoWaypointStartSequence + i,
-                        Latitude    = wpLat,
-                        Longitude   = wpLon,
-                        Altitude    = 60,
-                        Command     = WaypointCommand.Waypoint,
-                    });
+                    _mapViewModel.Waypoints.Add(wp);
                 }
-                // Mirror the geofence into MapViewModel so MapPage draws the boundary
-                _mapViewModel.GeofenceCenterLat = DemoFieldLat;
-                _mapViewModel.GeofenceCenterLon = DemoFieldLon;
-                _mapViewModel.GeofenceRadius    = _demoGeofenceRadiusMeters;
+                _mapViewModel.GeofenceCenterLat = _currentScenario.FieldCenterLat;
+                _mapViewModel.GeofenceCenterLon = _currentScenario.FieldCenterLon;
+                _mapViewModel.GeofenceRadius    = _currentScenario.GeofenceRadiusMeters;
                 _mapViewModel.GeofenceType      = GeofenceType.Circular;
                 _mapViewModel.IsGeofenceActive  = true;
             }
 
-            // 4b. Center map on Karawang rice-field demo area and follow UAV
+            // 4b. Center map on scenario field and follow UAV
             if (DashboardMapControl != null)
             {
                 DashboardMapControl.ClearWaypoints();
-                for (int i = 0; i < _demoWaypoints.Length; i++)
+                foreach (var wp in _currentScenario.Waypoints)
                 {
-                    var (wpLat, wpLon) = _demoWaypoints[i];
-                    DashboardMapControl.AddWaypointMarker(DemoWaypointStartSequence + i, wpLat, wpLon, 60, "WAYPOINT");
+                    DashboardMapControl.AddWaypointMarker(wp.Sequence, wp.Latitude, wp.Longitude, wp.Altitude, "WAYPOINT");
                 }
-                DashboardMapControl.SetGeofence(true, DemoFieldLat, DemoFieldLon, _demoGeofenceRadiusMeters);
-                DashboardMapControl.SetCenter(DemoFieldLat, DemoFieldLon, 17);
+                DashboardMapControl.SetGeofence(true, _currentScenario.FieldCenterLat, _currentScenario.FieldCenterLon, _currentScenario.GeofenceRadiusMeters);
+                DashboardMapControl.SetCenter(_currentScenario.FieldCenterLat, _currentScenario.FieldCenterLon, _currentScenario.MapZoomLevel);
                 DashboardMapControl.SetFollowVehicle(true);
             }
 
@@ -1737,28 +1986,27 @@ public sealed partial class DashboardPage : Page
             // 6. Seed timeline
             _timelineService?.Add("connected", "MAVLink connected · ",     "success");
             _timelineService?.Add("tlog",      "Auto TLOG recorder armed",                         "success");
-            _timelineService?.Add("armed",     "Armed · AUTO mode · altitude 60m · survey active", "success");
-            double currentTransectMeters = _demoSpeedBase * (_demoTicksPerSegment * (_demoWaypoints.Length - 1));
-            _timelineService?.Add("waypoint",  $"Survey route active · {currentTransectMeters:F0}m E-W · WP 1-{_demoWaypoints.Length} · Sukamerta, Karawang", "info");
+            _timelineService?.Add("armed",     $"Armed · AUTO mode · alt {_currentScenario.CruiseAltitudeMeters:F0}m · survey {_currentScenario.MissionId}", "success");
+            _timelineService?.Add("waypoint",  $"Survey aktif · {_currentScenario.Waypoints.Count} WP · Bearing {_currentScenario.BearingDeg:F0}° · {_currentScenario.AreaName}", "info");
             RenderIncidentTimeline();
             UpdateAlertCenter(_flightViewModel?.Telemetry, true);
             UpdateDemoFieldReport();
 
-        // 7. Reset UI counters — start from WP 1 (segment index 0)
-        _demoStep = 0;
-        _currentDemoWaypointIndex = 0;
-        _nextDemoWaypointIndex = 1;
-        _lastDetectionCount = 0;
-        _lastConfidence = 0;
-        DetectionCountText.Text = "0 det";
-        int initialFps = 15;
-        FpsHudText.Text = $"YOLOv8 · {initialFps} FPS";
-        _useFusedOnlyDemoSummary = DemoScenarioComboBox?.SelectedIndex == 1;
-        if (_useFusedOnlyDemoSummary)
-        {
-            ApplyDemoVideoAnalysisSummary();
-        }
-        AddAlertRow("UAV survey active · Sukamerta rice field · AUTO mode", "info");
+            // 7. Reset UI counters
+            _demoStep = 0;
+            _currentDemoWaypointIndex = 0;
+            _nextDemoWaypointIndex = 1;
+            _lastDetectionCount = 0;
+            _lastConfidence = 0;
+            DetectionCountText.Text = "0 det";
+            int initialFps = 15;
+            FpsHudText.Text = $"{_currentScenario.ShortDescription} · {initialFps} FPS";
+            if (MissionIdText != null) MissionIdText.Text = _currentScenario.MissionId;
+            if (_useFusedOnlyDemoSummary)
+            {
+                ApplyDemoVideoAnalysisSummary();
+            }
+            AddAlertRow($"UAV survey active · {_currentScenario.AreaName} · AUTO mode", "info");
 
             // 8. Start tick timer (1 s interval)
             _demoTimer.Tick -= OnDemoTick;
@@ -1769,21 +2017,22 @@ public sealed partial class DashboardPage : Page
         {
             Serilog.Log.Error(ex, "[DashboardPage] StartDemoMode failed");
             _timelineService?.Add("error", $"Error: {ex.Message}", "critical");
-            StopDemoMode();
+            await StopDemoModeAsync();
         }
     }
 
-    private void StopDemoMode()
+    private async Task StopDemoModeAsync()
     {
         _isDemoRunning = false;
 
         // Stop Python HSV stream process
-        _ = (_cameraService?.StopCameraAsync());
+        if (_cameraService != null) await _cameraService.StopCameraAsync();
 
 #if __ANDROID__
         if (_androidDemoDecoder != null)
         {
-            _ = _androidDemoDecoder.StopAsync().ContinueWith(_ => { try { _androidDemoDecoder?.Dispose(); } catch { } });
+            await _androidDemoDecoder.StopAsync();
+            try { _androidDemoDecoder?.Dispose(); } catch { }
             _androidDemoDecoder = null;
         }
 #endif
@@ -1793,6 +2042,8 @@ public sealed partial class DashboardPage : Page
         _classifyRealData = null;
         _classifyFirstFrameReceived = false;
         _useFusedOnlyDemoSummary = false;
+        // Restore fast nearest-neighbour rendering for live camera stream
+        DashboardVideoStream?.SetHighQualityMode(false);
         _classifyFps = 0;
         _classifyFrameCount = 0;
         _classifyFrameStart = DateTime.MinValue;
@@ -1858,19 +2109,19 @@ public sealed partial class DashboardPage : Page
         double lat0, lon0, lat1, lon1;
         if (cycleSeg < oneWaySegs)
         {
-            // Outbound survey leg (West to East)
-            int idx = cycleSeg;
-            _currentDemoWaypointIndex = idx;
-            _nextDemoWaypointIndex = Math.Min(idx + 1, _demoWaypoints.Length - 1);
-            (lat0, lon0) = _demoWaypoints[idx];
-            (lat1, lon1) = _demoWaypoints[_nextDemoWaypointIndex];
-        }
-        else
-        {
-            // Inbound return leg (East to West)
-            int idx = oneWaySegs - (cycleSeg - oneWaySegs);
-            _currentDemoWaypointIndex = idx;
-            _nextDemoWaypointIndex = Math.Max(0, idx - 1);
+                // Outbound survey leg (West to East)
+                int idx = cycleSeg;
+                _currentDemoWaypointIndex = idx;
+                _nextDemoWaypointIndex = Math.Min(idx + 1, _demoWaypoints.Length - 1);
+                (lat0, lon0) = _demoWaypoints[idx];
+                (lat1, lon1) = _demoWaypoints[_nextDemoWaypointIndex];
+            }
+            else
+            {
+                // Inbound return leg (East to West)
+                int idx = oneWaySegs - (cycleSeg - oneWaySegs);
+                _currentDemoWaypointIndex = idx;
+                _nextDemoWaypointIndex = Math.Max(0, idx - 1);
             (lat0, lon0) = _demoWaypoints[idx];
             (lat1, lon1) = _demoWaypoints[_nextDemoWaypointIndex];
         }
@@ -1991,20 +2242,27 @@ public sealed partial class DashboardPage : Page
         int totalCycleTicks = totalCycleSegments * ticksPerSeg;
         int cycleStep = step % totalCycleTicks;
 
-        // Dynamic sector & waypoint events at segment transitions
+         // Dynamic sector & waypoint events at segment transitions
         if (cycleStep % ticksPerSeg == 0)
         {
             int segIndex = cycleStep / ticksPerSeg;
             if (segIndex < oneWaySegs)
             {
-                int wpNum = segIndex + 1;
-                char sectorLetter = (char)('A' + segIndex);
-                _timelineService?.Add("waypoint", $"WP {wpNum} → Memasuki Sektor {sectorLetter} · Outbound aktif", "success");
+                if (segIndex < _currentScenario.TimelineSectorEvents.Count)
+                {
+                    _timelineService?.Add("waypoint", _currentScenario.TimelineSectorEvents[segIndex], "success");
+                }
+                else
+                {
+                    int wpNum = segIndex + 1;
+                    char sectorLetter = (char)('A' + segIndex);
+                    _timelineService?.Add("waypoint", $"WP {wpNum} → Memasuki Sektor {sectorLetter} · Outbound aktif", "success");
+                }
             }
             else if (segIndex == oneWaySegs)
             {
                 int wpEnd = oneWaySegs + 1;
-                _timelineService?.Add("waypoint", $"WP {wpEnd} → Titik putar balik tercapai · Banking turnaround", "warning");
+                _timelineService?.Add("waypoint", $"WP {wpEnd} → Titik putar balik {_currentScenario.AreaName} tercapai · Banking turnaround", "warning");
             }
             else
             {
@@ -2015,15 +2273,15 @@ public sealed partial class DashboardPage : Page
         }
         else if (cycleStep == 2)
         {
-            _timelineService?.Add("yolo", $"YOLO inference active · {_demoVideoDurationSeconds:F0}s survey scan", "success");
+            _timelineService?.Add("yolo", $"YOLO inference aktif · Survei {_currentScenario.MissionId} ({_demoVideoDurationSeconds:F0}s)", "success");
         }
         else if (cycleStep == Math.Max(1, ticksPerSeg / 2))
         {
-            _timelineService?.Add("yolo", "Kanopi kanvas terpindai · Status vegetasi real-time terdeteksi", "info");
+            _timelineService?.Add("yolo", $"Status kanopi {_currentScenario.AreaName} terpindai real-time (Target FHI {_currentScenario.TargetFhi:F0}%)", "info");
         }
         else if (cycleStep == totalCycleTicks - 2)
         {
-            _timelineService?.Add("waypoint", "WP 1 → Putaran survei selesai · Siklus loop berikutnya aktif", "success");
+            _timelineService?.Add("waypoint", $"WP 1 → Putaran survei {_currentScenario.MissionId} selesai · Siklus loop aktif", "success");
         }
 
         if (step % 5 == 0 && step > 0) RenderIncidentTimeline();
@@ -2068,21 +2326,21 @@ public sealed partial class DashboardPage : Page
         }
         else
         {
-            // Fall back to fake cyclic data while Python model is loading
-            var frame = DemoDetectionFrames[step % DemoDetectionFrames.Length];
+            // Fall back to scenario detection frames
+            var frames = _currentScenario.DetectionFrames;
+            var frame = (frames != null && frames.Length > 0)
+                ? frames[step % frames.Length]
+                : DemoDetectionFrames[step % DemoDetectionFrames.Length];
+
             count   = frame.Length;
-            avgConf = 0.85; // fixed confidence avg 85% for demo fallback
-            // Fallback cyclic data calibrated to Sukamerta Karawang survey transect
-            double jitter   = Math.Sin(step * 0.7) * 1.5;
-            double rawH = Math.Max(0, 81.6 + jitter * 0.5);
-            double rawS = Math.Max(0, 12.8 - jitter * 0.4);
-            double rawD = Math.Max(0,  3.4 + jitter * 0.1);
-            double rawB = Math.Max(0,  2.2 + Math.Cos(step * 0.4) * 0.3);
-            double rawT = Math.Max(1, rawH + rawS + rawD + rawB);
-            dLushGreen = rawH * 100 / rawT;
-            dStress    = rawS * 100 / rawT;
-            dDrought   = rawD * 100 / rawT;
-            dBareSoil  = rawB * 100 / rawT;
+            avgConf = 0.85;
+
+            double jitter = Math.Sin(step * 0.7) * 1.5;
+            dLushGreen = Math.Clamp(_currentScenario.LushGreenPct + jitter * 0.5, 0, 100);
+            dStress    = Math.Clamp(_currentScenario.InconsistentGrowthPct - jitter * 0.4, 0, 100);
+            dDrought   = Math.Clamp(_currentScenario.DroughtPct + jitter * 0.1, 0, 100);
+            dBareSoil  = Math.Clamp(_currentScenario.BareSoilPct + Math.Cos(step * 0.4) * 0.3, 0, 100);
+
             DetectionsListStack.Children.Clear();
             foreach (var (cls, conf) in frame)
                 DetectionsListStack.Children.Add(BuildCropDetectionRow(cls, NormalizeDemoConfidence(conf)));
@@ -2097,17 +2355,16 @@ public sealed partial class DashboardPage : Page
         SummaryConfidenceText.Text = $"{avgConf * 100:F0}%";
         DetectionsListTitle.Text = $"Live Detections ({Math.Min(count, 4)})";
 
-        // Keep HUD steady at 15–16 FPS and make the Android playback follow the same tempo.
         int[] _fpsTable = { 15, 16, 15, 16, 15, 16, 15, 16, 15, 16 };
         int demofps = _fpsTable[step % _fpsTable.Length];
-        FpsHudText.Text = $"YOLOv8 · {demofps} FPS";
+        FpsHudText.Text = $"{_currentScenario.ShortDescription} · {demofps} FPS";
 
         if (_useFusedOnlyDemoSummary)
         {
-            dLushGreen = DemoReportLushGreenPct;
-            dStress = DemoReportStressPct;
-            dDrought = DemoReportDroughtPct;
-            dBareSoil = DemoReportBareSoilPct;
+            dLushGreen = _currentScenario.LushGreenPct;
+            dStress = _currentScenario.InconsistentGrowthPct;
+            dDrought = _currentScenario.DroughtPct;
+            dBareSoil = _currentScenario.BareSoilPct;
         }
 
         if (SummaryHealthyCount       != null) SummaryHealthyCount.Text       = $"{dLushGreen:F0}%";
@@ -2133,7 +2390,7 @@ public sealed partial class DashboardPage : Page
         {
             var liveFhi = (_classifyRealData.HasValue && _classifyRealData.Value.Fhi > 0)
                 ? _classifyRealData.Value.Fhi
-                : -1;
+                : _currentScenario.TargetFhi;
             UpdateFarmerReport(dLushGreen, dStress, dDrought, dBareSoil, 0, overrideFhi: liveFhi);
         }
         UpdateVegetationOverlay(dLushGreen, dStress, dDrought, dBareSoil);
@@ -2142,37 +2399,50 @@ public sealed partial class DashboardPage : Page
 
     private void ApplyDemoVideoAnalysisSummary()
     {
-        if (SummaryHealthyCount       != null) SummaryHealthyCount.Text       = $"{DemoReportLushGreenPct:F0}%";
+        var sc = _currentScenario;
+        if (SummaryHealthyCount       != null) SummaryHealthyCount.Text       = $"{sc.LushGreenPct:F0}%";
         if (SummaryWellIrrigatedCount != null) SummaryWellIrrigatedCount.Text = "0%";
-        if (SummaryStressCount        != null) SummaryStressCount.Text        = $"{DemoReportStressPct:F0}%";
+        if (SummaryStressCount        != null) SummaryStressCount.Text        = $"{sc.InconsistentGrowthPct:F0}%";
         if (SummarySoilIssuesCount    != null) SummarySoilIssuesCount.Text    = "0%";
-        if (SummaryDiseaseCount       != null) SummaryDiseaseCount.Text       = $"{DemoReportDroughtPct:F0}%";
-        if (SummaryPestCount          != null) SummaryPestCount.Text          = $"{DemoReportBareSoilPct:F0}%";
-        if (SummaryHealthyBar         != null) SummaryHealthyBar.Value        = DemoReportLushGreenPct;
+        if (SummaryDiseaseCount       != null) SummaryDiseaseCount.Text       = $"{sc.DroughtPct:F0}%";
+        if (SummaryPestCount          != null) SummaryPestCount.Text          = $"{sc.BareSoilPct:F0}%";
+        if (SummaryHealthyBar         != null) SummaryHealthyBar.Value        = sc.LushGreenPct;
         if (SummaryWellIrrigatedBar   != null) SummaryWellIrrigatedBar.Value  = 0;
-        if (SummaryStressBar          != null) SummaryStressBar.Value         = DemoReportStressPct;
+        if (SummaryStressBar          != null) SummaryStressBar.Value         = sc.InconsistentGrowthPct;
         if (SummarySoilIssuesBar      != null) SummarySoilIssuesBar.Value     = 0;
-        if (SummaryDiseaseBar         != null) SummaryDiseaseBar.Value        = DemoReportDroughtPct;
-        if (SummaryPestBar            != null) SummaryPestBar.Value           = DemoReportBareSoilPct;
+        if (SummaryDiseaseBar         != null) SummaryDiseaseBar.Value        = sc.DroughtPct;
+        if (SummaryPestBar            != null) SummaryPestBar.Value           = sc.BareSoilPct;
         if (SummaryDominantText       != null) SummaryDominantText.Text       = DominantV5Label(
-            DemoReportLushGreenPct,
-            DemoReportStressPct,
-            DemoReportDroughtPct,
-            DemoReportBareSoilPct);
+            sc.LushGreenPct,
+            sc.InconsistentGrowthPct,
+            sc.DroughtPct,
+            sc.BareSoilPct);
         if (SummaryPriorityText != null)
         {
-            SummaryPriorityText.Text = "Caution";
-            SummaryPriorityText.Foreground = new SolidColorBrush(Color.FromArgb(255, 178, 107, 0));
+            SummaryPriorityText.Text = sc.PriorityLevel;
+            SummaryPriorityText.Foreground = new SolidColorBrush(sc.PriorityLevel switch
+            {
+                "Optimal"       => Color.FromArgb(255, 6, 95, 70),
+                "Good"          => Color.FromArgb(255, 22, 101, 52),
+                "Caution"       => Color.FromArgb(255, 178, 107, 0),
+                "Action Needed" => Color.FromArgb(255, 185, 28, 28),
+                _               => Color.FromArgb(255, 178, 107, 0)
+            });
         }
         if (SummaryPriorityPill != null)
         {
-            SummaryPriorityPill.Style = (Style)Resources["PillWarningStyle"];
+            SummaryPriorityPill.Style = (Style)(sc.PriorityLevel switch
+            {
+                "Optimal" or "Good" => Resources["PillSuccessStyle"],
+                "Action Needed"     => Resources["PillCriticalStyle"],
+                _                   => Resources["PillWarningStyle"]
+            });
         }
         UpdateVegetationOverlay(
-            DemoReportLushGreenPct,
-            DemoReportStressPct,
-            DemoReportDroughtPct,
-            DemoReportBareSoilPct);
+            sc.LushGreenPct,
+            sc.InconsistentGrowthPct,
+            sc.DroughtPct,
+            sc.BareSoilPct);
     }
 
     private static double NormalizeDemoConfidence(double confidence)
@@ -2189,13 +2459,13 @@ public sealed partial class DashboardPage : Page
 
         var liveFhi = (_classifyRealData.HasValue && _classifyRealData.Value.Fhi > 0)
             ? _classifyRealData.Value.Fhi
-            : DemoReportFhi;
+            : _currentScenario.TargetFhi;
 
         UpdateFarmerReport(
-            DemoReportLushGreenPct,
-            DemoReportStressPct,
-            DemoReportDroughtPct,
-            DemoReportBareSoilPct,
+            _currentScenario.LushGreenPct,
+            _currentScenario.InconsistentGrowthPct,
+            _currentScenario.DroughtPct,
+            _currentScenario.BareSoilPct,
             0,
             overrideFhi: liveFhi);
     }
@@ -2354,12 +2624,17 @@ public sealed partial class DashboardPage : Page
         {
             Orientation = Orientation.Horizontal,
             Spacing = 6,
+            VerticalAlignment = VerticalAlignment.Center,
             Children =
             {
-                new FontIcon { Glyph = running ? "" : "", FontSize = 11 },
-                new TextBlock { Text = running ? "Stop Demo" : "Start Demo" }
+                new FontIcon { Glyph = running ? "\uE71A" : "\uE768", FontSize = 11, Foreground = new SolidColorBrush(Microsoft.UI.Colors.White), VerticalAlignment = VerticalAlignment.Center },
+                new TextBlock { Text = running ? "Stop Demo" : "Start Demo", FontSize = 11, FontWeight = Microsoft.UI.Text.FontWeights.Bold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.White), VerticalAlignment = VerticalAlignment.Center }
             }
         };
+        StartDemoButton.Background = running
+            ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 234, 88, 12)) // #EA580C
+            : new SolidColorBrush(Windows.UI.Color.FromArgb(255, 46, 125, 50)); // #2E7D32
+
         // Update mode badge
         UpdateModeBadge(running ? "DEMO" : (_isLiveRunning ? "LIVE" : "STANDBY"));
     }
@@ -2392,11 +2667,15 @@ public sealed partial class DashboardPage : Page
 
         try
         {
-            if (_isDemoRunning) StopDemoMode();
+            if (_isDemoRunning) await StopDemoModeAsync();
 
             UpdateModeBadge("LIVE");
-            if (LiveViaConnectionText != null) LiveViaConnectionText.Text = "Live";
-            if (LiveViaConnectionPill != null) LiveViaConnectionPill.Background = new SolidColorBrush(Color.FromArgb(255, 46, 125, 50));
+            if (LiveViaConnectionText != null) LiveViaConnectionText.Text = "Live link";
+            if (LiveViaConnectionPill != null)
+            {
+                LiveViaConnectionPill.Background = new SolidColorBrush(Color.FromArgb(255, 46, 125, 50));
+                LiveViaConnectionPill.Visibility = Visibility.Visible;
+            }
 
             var cameraSource = Environment.GetEnvironmentVariable("MOONHARVEST_CAMERA_SOURCE");
             if (string.IsNullOrWhiteSpace(cameraSource))
@@ -2409,13 +2688,14 @@ public sealed partial class DashboardPage : Page
                     modelPath = PythonCameraService.ResolveHealthModelPath();
 
                 DashboardVideoStream?.ShowStatus("Memulai deteksi live...", true);
+                bool yoloEnabled = _harvestFunctionalService?.IsYoloOptionEnabled ?? false;
                 var ok = await _cameraService.StartHsvStreamAsync(
                     source: cameraSource,
                     modelPath: modelPath,
                     maxFps: 15f,
                     demo: false,       // REAL mode — tidak loop, bukan data simulasi
-                    playbackRate: 1.0f
-                );
+                    playbackRate: 1.0f,
+                    yoloEnabled: yoloEnabled);
                 if (!ok)
                 {
                     AddAlertRow("Gagal memulai stream — cek kamera lokal", "error");
@@ -2423,13 +2703,26 @@ public sealed partial class DashboardPage : Page
                     await StopLiveModeAsync();
                     return;
                 }
+
+                if (ok)
+                {
+                    // Save HSV stream config for potential restart on YOLO toggle
+                    _currentHsvSource = cameraSource;
+                    _currentHsvModelPath = modelPath;
+                    _currentHsvDemo = false;
+                    _currentHsvPlaybackRate = 1.0f;
+                    _currentHsvMaxFps = 15f;
+                    _currentHsvShowOverlay = true; // default for live
+                }
+
                 _timelineService?.Add("camera", $"Live stream: {cameraSource}", "success");
             }
 
             _isLiveRunning = true;
 
-            _aiOn = true;
-            if (YoloToggleSwitch != null) YoloToggleSwitch.IsOn = true;
+            // AI state: respect current toggle (don't force on)
+            _aiOn = _harvestFunctionalService?.IsYoloOptionEnabled ?? false;
+            if (YoloToggleSwitch != null) YoloToggleSwitch.IsOn = _aiOn;
 
             ReadinessChecklistPanel.Visibility = Visibility.Visible;
             MissionMetadataPanel.Visibility = Visibility.Visible;
@@ -2486,7 +2779,11 @@ public sealed partial class DashboardPage : Page
         UpdateModeBadge("STANDBY");
 
         if (LiveViaConnectionText != null) LiveViaConnectionText.Text = "Live via Connect";
-        if (LiveViaConnectionPill != null) LiveViaConnectionPill.Background = new SolidColorBrush(Colors.Transparent);
+        if (LiveViaConnectionPill != null)
+        {
+            LiveViaConnectionPill.Background = new SolidColorBrush(Colors.Transparent);
+            LiveViaConnectionPill.Visibility = Visibility.Collapsed;
+        }
 
         if (_cameraService != null) await _cameraService.StopCameraAsync();
 
@@ -2502,26 +2799,49 @@ public sealed partial class DashboardPage : Page
 
     private async void DemoScenarioComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_isSwitchingScenario) return;
-        var idx = DemoScenarioComboBox?.SelectedIndex ?? 0;
-        if (idx == 3)
+        try
         {
-            // Custom video item
-            if (string.IsNullOrWhiteSpace(_customVideoPath) || !File.Exists(_customVideoPath))
+            if (_isSwitchingScenario) return;
+            var idx = DemoScenarioComboBox?.SelectedIndex ?? 0;
+            if (idx == 4)
             {
-                await PromptAndLoadCustomVideoAsync();
+                // Custom video item
+                if (string.IsNullOrWhiteSpace(_customVideoPath) || !File.Exists(_customVideoPath))
+                {
+                    await PromptAndLoadCustomVideoAsync();
+                }
+                else
+                {
+                    var profile = _videoScenarioService?.LoadScenarioForVideo(_customVideoPath) ??
+                                  _videoScenarioService?.PredefinedScenarios[0];
+                    if (profile != null)
+                    {
+                        await ApplyScenarioProfileAsync(profile);
+                    }
+                }
+                return;
+            }
+
+            if (_videoScenarioService != null && idx >= 0 && idx < _videoScenarioService.PredefinedScenarios.Count)
+            {
+                var profile = _videoScenarioService.SelectScenarioByIndex(idx);
+                await ApplyScenarioProfileAsync(profile);
             }
             else
             {
-                await ApplyCustomDemoVideoAsync(_customVideoPath);
+                var videoPath = ResolveDetectedVideoPath();
+                if (!string.IsNullOrWhiteSpace(videoPath) && File.Exists(videoPath))
+                {
+                    await ApplyCustomDemoVideoAsync(videoPath);
+                }
             }
-            return;
         }
-
-        var videoPath = ResolveDetectedVideoPath();
-        if (!string.IsNullOrWhiteSpace(videoPath) && File.Exists(videoPath))
+        catch (Exception ex)
         {
-            await ApplyCustomDemoVideoAsync(videoPath);
+            // This handler spawns ffprobe/python to probe the video; an escaping exception
+            // would terminate the process (the "force close" symptom on Windows).
+            Serilog.Log.Error(ex, "[DashboardPage] Scenario switch failed");
+            AddAlertRow($"Scenario switch failed: {ex.Message}", "error");
         }
     }
 
@@ -2534,7 +2854,7 @@ public sealed partial class DashboardPage : Page
             {
                 await ApplyCustomDemoVideoAsync(selected);
             }
-            else if (DemoScenarioComboBox != null && DemoScenarioComboBox.SelectedIndex == 3 && string.IsNullOrWhiteSpace(_customVideoPath))
+            else if (DemoScenarioComboBox != null && DemoScenarioComboBox.SelectedIndex == 4 && string.IsNullOrWhiteSpace(_customVideoPath))
             {
                 _isSwitchingScenario = true;
                 try
@@ -2625,6 +2945,14 @@ public sealed partial class DashboardPage : Page
         }
     }
 
+    /// <summary>
+    /// Off-thread duration probe. Synchronous probing spawned ffprobe/python and blocked the
+    /// caller for up to 7 s; the callers are awaited from UI handlers, so that stall showed up
+    /// as UI lag. The actual work now runs on the thread pool.
+    /// </summary>
+    public static Task<double> ProbeVideoDurationAsync(string videoPath, double fallbackSeconds = 60.0)
+        => Task.Run(() => ProbeVideoDuration(videoPath, fallbackSeconds));
+
     public static double ProbeVideoDuration(string videoPath, double fallbackSeconds = 60.0)
     {
         if (string.IsNullOrWhiteSpace(videoPath) || !File.Exists(videoPath))
@@ -2710,45 +3038,69 @@ public sealed partial class DashboardPage : Page
     public async Task ApplyCustomDemoVideoAsync(string videoPath)
     {
         if (string.IsNullOrWhiteSpace(videoPath) || !File.Exists(videoPath)) return;
+        var dur = await ProbeVideoDurationAsync(videoPath, 60.0);
+        var profile = _videoScenarioService?.LoadScenarioForVideo(videoPath, dur) ??
+                      new VideoScenarioService().LoadScenarioForVideo(videoPath, dur);
+        await ApplyScenarioProfileAsync(profile);
+    }
+
+    public async Task ApplyScenarioProfileAsync(VideoScenarioProfile profile, bool startDemoIfNeeded = true)
+    {
+        if (profile == null) return;
+        _currentScenario = profile;
+        _videoScenarioService?.SetCurrentScenario(profile);
+
+        // 1. Resolve video path
+        var videoPath = _videoScenarioService?.ResolveVideoFilePath(profile) ?? profile.ResolvedVideoPath;
+        if (string.IsNullOrWhiteSpace(videoPath) || !File.Exists(videoPath))
+        {
+            videoPath = ResolveDetectedVideoPath();
+        }
+        if (!string.IsNullOrWhiteSpace(videoPath) && File.Exists(videoPath))
+        {
+            profile.ResolvedVideoPath = videoPath;
+            var probedDur = await ProbeVideoDurationAsync(videoPath, profile.VideoDurationSeconds);
+            if (probedDur > 5.0) _demoVideoDurationSeconds = probedDur;
+            else _demoVideoDurationSeconds = profile.VideoDurationSeconds;
+        }
+        else
+        {
+            _demoVideoDurationSeconds = profile.VideoDurationSeconds;
+        }
         _customVideoPath = videoPath;
 
-        // 1. Probe video duration & metadata
-        var duration = ProbeVideoDuration(videoPath, 60.0);
-        _demoVideoDurationSeconds = Math.Max(10.0, duration);
-
-        // 2. Dynamically calculate Waypoint count and timing
-        int wpCount;
-        if (_demoVideoDurationSeconds <= 20.0)      wpCount = 4;
-        else if (_demoVideoDurationSeconds <= 45.0) wpCount = 5;
-        else if (_demoVideoDurationSeconds <= 75.0) wpCount = 5;
-        else                                        wpCount = Math.Min(8, Math.Max(5, (int)Math.Round(_demoVideoDurationSeconds / 15.0) + 1));
-
+        // 2. Flight & Navigation parameters
+        int wpCount = Math.Max(2, profile.Waypoints.Count);
         _demoTicksPerSegment = Math.Max(1, (int)Math.Round(_demoVideoDurationSeconds / (wpCount - 1)));
+        _demoSpeedBase = profile.CruiseSpeedMps;
+        _demoAltitudeBase = profile.CruiseAltitudeMeters;
+        _demoGeofenceRadiusMeters = profile.GeofenceRadiusMeters;
+        _demoHeading = profile.BearingDeg;
+        _demoBattery = profile.InitialBatteryPct;
+        _demoSatCount = profile.SatelliteCount;
+        _centerLat = profile.FieldCenterLat;
+        _centerLon = profile.FieldCenterLon;
+        _demoWaypoints = profile.Waypoints.Select(w => (w.Latitude, w.Longitude)).ToArray();
 
-        // Flight speed ~10.0 m/s for standard agricultural cruise transect
-        _demoSpeedBase = 10.0;
-        double totalMeters = _demoSpeedBase * (_demoTicksPerSegment * (wpCount - 1));
-        _demoGeofenceRadiusMeters = Math.Max(300.0, (totalMeters / 2.0) + 100.0);
-
-        // 3. Generate dynamic straight-line survey waypoints matching the video transect
-        _demoWaypoints = GenerateStraightLineWaypoints(DemoFieldLat, DemoFieldLon, wpCount, totalMeters, bearingDeg: 90.0);
-
-        // 4. Update UI - ComboBox
+        // 3. Update UI - ComboBox
         _isSwitchingScenario = true;
         try
         {
-            var fn = Path.GetFileName(videoPath);
-            int targetIdx;
-            if (fn.Contains("60s", StringComparison.OrdinalIgnoreCase)) targetIdx = 0;
-            else if (fn.Contains("v7c", StringComparison.OrdinalIgnoreCase) || fn.Contains("15d", StringComparison.OrdinalIgnoreCase)) targetIdx = 1;
-            else if (fn.Contains("YDXJ", StringComparison.OrdinalIgnoreCase)) targetIdx = 2;
-            else targetIdx = 3;
+            int targetIdx = profile.Id switch
+            {
+                "scenario-multisector" => 0,
+                "scenario-15hst"       => 1,
+                "scenario-irrigated"   => 2,
+                "scenario-drought"     => 3,
+                _                      => 4
+            };
 
-            if (CustomVideoComboItem != null)
+            var fn = Path.GetFileName(videoPath ?? profile.VideoFileName);
+            if (targetIdx == 4 && CustomVideoComboItem != null)
             {
                 CustomVideoComboItem.Content = $"📁 {fn} ({_demoVideoDurationSeconds:F0}s · {wpCount} WP)";
             }
-            if (DemoScenarioComboBox != null)
+            if (DemoScenarioComboBox != null && DemoScenarioComboBox.SelectedIndex != targetIdx)
             {
                 DemoScenarioComboBox.SelectedIndex = targetIdx;
             }
@@ -2758,103 +3110,122 @@ public sealed partial class DashboardPage : Page
             _isSwitchingScenario = false;
         }
 
-        // 5. Update MapViewModel so MapPage and MissionPlannerPage show the new grid & waypoints
-        if (_mapViewModel != null)
-        {
-            _mapViewModel.Waypoints.Clear();
-            for (int i = 0; i < _demoWaypoints.Length; i++)
-            {
-                var (wpLat, wpLon) = _demoWaypoints[i];
-                _mapViewModel.Waypoints.Add(new WaypointData
-                {
-                    Sequence  = DemoWaypointStartSequence + i,
-                    Latitude  = wpLat,
-                    Longitude = wpLon,
-                    Altitude  = 60,
-                    Command   = WaypointCommand.Waypoint,
-                });
-            }
-            _mapViewModel.GeofenceCenterLat = DemoFieldLat;
-            _mapViewModel.GeofenceCenterLon = DemoFieldLon;
-            _mapViewModel.GeofenceRadius    = _demoGeofenceRadiusMeters;
-            _mapViewModel.GeofenceType      = GeofenceType.Circular;
-            _mapViewModel.IsGeofenceActive  = true;
-        }
-
-        // 6. Update DashboardMapControl
+        // 4. Update DashboardMapControl Center only
         if (DashboardMapControl != null)
         {
-            DashboardMapControl.ClearWaypoints();
-            for (int i = 0; i < _demoWaypoints.Length; i++)
-            {
-                var (wpLat, wpLon) = _demoWaypoints[i];
-                DashboardMapControl.AddWaypointMarker(DemoWaypointStartSequence + i, wpLat, wpLon, 60, "WAYPOINT");
-            }
-            DashboardMapControl.SetGeofence(true, DemoFieldLat, DemoFieldLon, _demoGeofenceRadiusMeters);
-            DashboardMapControl.SetCenter(DemoFieldLat, DemoFieldLon, 17);
-            DashboardMapControl.SetFollowVehicle(true);
+            DashboardMapControl.SetCenter(profile.FieldCenterLat, profile.FieldCenterLon, profile.MapZoomLevel);
         }
 
-        // 7. Update Geofence service
-        _geofenceService?.SetGeofenceCenter(DemoFieldLat, DemoFieldLon);
-        _geofenceService?.SetGeofenceRadius(_demoGeofenceRadiusMeters);
-        _geofenceService?.SetGeofenceActive(true);
+        // 7. Update Mission ID & HUD Text
+        if (MissionIdText != null)
+        {
+            MissionIdText.Text = profile.MissionId;
+        }
+        var videoName = Path.GetFileName(videoPath ?? profile.VideoFileName);
+        FpsHudText.Text = $"{profile.ShortDescription} · {videoName} ({_demoVideoDurationSeconds:F0}s)";
 
-        // 8. Log comprehensive sync into Incident Timeline
-        var fileName = Path.GetFileName(videoPath);
-        _timelineService?.Add("camera",   $"Video disinkronkan: {fileName} ({_demoVideoDurationSeconds:F0}s)", "info");
-        _timelineService?.Add("waypoint", $"Rute survei diperbarui: {wpCount} Waypoint ({totalMeters:F0}m transek · {_demoTicksPerSegment}s/segmen)", "success");
-        _timelineService?.Add("geofence", $"Batas geofence disesuaikan: {_demoGeofenceRadiusMeters:F0}m", "info");
+        // 8. Incident Timeline
+        _timelineService?.Add("camera",   $"Video disinkronkan: {videoName} ({_demoVideoDurationSeconds:F0}s)", "info");
+        _timelineService?.Add("waypoint", $"Rute {profile.MissionId}: {wpCount} WP @ {profile.AreaName} (Alt {profile.CruiseAltitudeMeters:F0}m · Bearing {profile.BearingDeg:F0}°)", "success");
+        _timelineService?.Add("geofence", $"Geofence disesuaikan: {profile.GeofenceRadiusMeters:F0}m @ {profile.RegionName}", "info");
         RenderIncidentTimeline();
 
-        // 9. Reset counters and start/restart video and simulation
+        // 9. Reset counters and detection
         _demoStep = 0;
         _currentDemoWaypointIndex = 0;
         _nextDemoWaypointIndex = 1;
         _classifyRealData = null;
-        FpsHudText.Text = $"YDXJ · {fileName} ({_demoVideoDurationSeconds:F0}s)";
 
-        var isPreAnnotated = fileName.Contains("detected", StringComparison.OrdinalIgnoreCase) ||
-                             fileName.Contains("fused", StringComparison.OrdinalIgnoreCase);
+        var isPreAnnotated = videoName.Contains("detected", StringComparison.OrdinalIgnoreCase) ||
+                             videoName.Contains("fused", StringComparison.OrdinalIgnoreCase);
         _useFusedOnlyDemoSummary = isPreAnnotated;
 
-        // Video preview first frame
-        var previewFrame = await Task.Run(() => ExtractFirstFrameBytes(videoPath));
-        if (previewFrame.Length > 0)
+        // 10. Start or update video stream
+#if __ANDROID__
+        if (VegetationOverlayLayer != null)
         {
-            _lastFrameData = previewFrame;
-            DashboardVideoStream?.UpdateFrame(previewFrame);
-            DashboardVideoStream?.HideOverlay();
+            VegetationOverlayLayer.Visibility = Visibility.Collapsed;
         }
 
-#if __ANDROID__
         if (_androidDemoDecoder != null)
         {
             await _androidDemoDecoder.StopAsync();
-            _androidDemoDecoder.Dispose();
+            try { _androidDemoDecoder.Dispose(); } catch { }
             _androidDemoDecoder = null;
         }
+
         var androidContext = Android.App.Application.Context;
-        _androidDemoDecoder = new HarvestmoonGCS.Platforms.Android.Services.AndroidDemoVideoDecoder(androidContext, videoPath);
+        var assetName = _currentScenario?.Id switch
+        {
+            "scenario-15hst"     => "demo_videos/stream_v7c_final_detected.mp4",
+            "scenario-irrigated" => "demo_videos/YDXJ_fused_only_detected.mp4",
+            "scenario-drought"   => "demo_videos/YDX_burned_detected.mp4",
+            _                    => "demo_videos/stream_multisector_60s_detected.mp4"
+        };
+        string videoSource = (!string.IsNullOrWhiteSpace(videoPath) && File.Exists(videoPath)) ? videoPath : assetName;
+
+        DashboardVideoStream?.SetHighQualityMode(true);
+        DashboardVideoStream?.HideOverlay();
+
+        _androidDemoDecoder = new HarvestmoonGCS.Platforms.Android.Services.AndroidDemoVideoDecoder(androidContext, videoSource);
         _androidDemoDecoder.FrameDecoded += (_, jpeg) => OnDashboardFrameReceived(this, jpeg);
         await _androidDemoDecoder.StartAsync();
+        _timelineService?.Add("camera", $"Video: {Path.GetFileName(videoSource)} (Android)", "success");
 #else
-        if (_cameraService != null)
+        if (!string.IsNullOrWhiteSpace(videoPath) && File.Exists(videoPath))
         {
-            await _cameraService.StopCameraAsync();
-            var modelPath = PythonCameraService.ResolveHealthModelPath();
-            await _cameraService.StartHsvStreamAsync(
-                source: videoPath,
-                modelPath: modelPath,
-                maxFps: 15f,
-                showOverlay: true,
-                demo: true,
-                playbackRate: 1.0f);
+            var previewFrame = await Task.Run(() => ExtractFirstFrameBytes(videoPath));
+            if (previewFrame.Length > 0)
+            {
+                _lastFrameData = previewFrame;
+                DashboardVideoStream?.SetHighQualityMode(true);
+                DashboardVideoStream?.UpdateFrame(previewFrame);
+                DashboardVideoStream?.HideOverlay();
+            }
+            if (VegetationOverlayLayer != null)
+            {
+                VegetationOverlayLayer.Visibility = Visibility.Collapsed;
+            }
+
+            if (_cameraService != null)
+            {
+                await _cameraService.StopCameraAsync();
+                var modelPath = PythonCameraService.ResolveHealthModelPath();
+
+                // Pre-annotated videos already have detection boxes — don't add HSV/YOLO overlay on top
+                var vFn = Path.GetFileName(videoPath);
+                bool isPreAnnotatedVideo = vFn.Contains("detected", StringComparison.OrdinalIgnoreCase) ||
+                                           vFn.Contains("fused", StringComparison.OrdinalIgnoreCase);
+                bool yoloEnabled = isPreAnnotatedVideo ? false : (_harvestFunctionalService?.IsYoloOptionEnabled ?? false);
+                bool showOverlay = !isPreAnnotatedVideo;
+
+                bool started = await _cameraService.StartHsvStreamAsync(
+                    source: videoPath,
+                    modelPath: modelPath,
+                    maxFps: 15f,
+                    showOverlay: showOverlay,
+                    demo: true,
+                    playbackRate: 1.0f,
+                    yoloEnabled: yoloEnabled);
+
+                if (!started)
+                {
+                    await _cameraService.StartCameraAsync(videoPath);
+                }
+
+                // Save HSV stream config for potential restart on YOLO toggle
+                _currentHsvSource = videoPath;
+                _currentHsvModelPath = modelPath;
+                _currentHsvDemo = true;
+                _currentHsvPlaybackRate = 1.0f;
+                _currentHsvMaxFps = 15f;
+                _currentHsvShowOverlay = showOverlay;
+            }
         }
 #endif
 
-        // 10. If demo mode was not running, start it; if running, inject initial step
-        if (!_isDemoRunning)
+        // 11. Run simulation telemetry & reports
+        if (startDemoIfNeeded)
         {
             await StartDemoMode();
         }
@@ -2867,35 +3238,59 @@ public sealed partial class DashboardPage : Page
 
     private string? ResolveDetectedVideoPath()
     {
+        if (_videoScenarioService != null)
+        {
+            var p = _videoScenarioService.ResolveVideoFilePath(_currentScenario);
+            if (p != null) return p;
+        }
+
         if (DemoScenarioComboBox != null)
         {
             var idx = DemoScenarioComboBox.SelectedIndex;
-            if (idx == 0) // ★ Multi-Sektor 60s Showcase Utama
+            if (idx == 0) // Multi-Sektor 60s
             {
                 var p = ResolveFilePath(
-                    "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/stream_multisector_60s.mp4",
+                    Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "stream_multisector_60s_detected.mp4"),
                     Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "stream_multisector_60s.mp4"),
-                    "/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/Assets/demo_videos/stream_multisector_60s.mp4",
+                    Path.Combine(Directory.GetCurrentDirectory(), "Assets", "demo_videos", "stream_multisector_60s_detected.mp4"),
+                    Path.Combine(Directory.GetCurrentDirectory(), "Assets", "demo_videos", "stream_multisector_60s.mp4"),
+                    "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/stream_multisector_60s.mp4",
+                    "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/stream_multisector_60s_detected.mp4",
                     "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/stream_multisector_survey.mp4");
                 if (p != null) return p;
             }
-            else if (idx == 1) // Sawah 15 HST (Baseline PPT Slide 751)
+            else if (idx == 1) // Sawah 15 HST
             {
                 var p = ResolveFilePath(
-                    "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/stream_v7c_final.mp4",
                     Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "stream_v7c_final.mp4"),
+                    Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "15d_detected.mp4"),
+                    Path.Combine(Directory.GetCurrentDirectory(), "Assets", "demo_videos", "stream_v7c_final.mp4"),
+                    "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/stream_v7c_final.mp4",
+                    "/home/fawwazfa/Program/Harvestmoon/vidio/15d.mp4",
                     "/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/Assets/demo_videos/stream_v7c_final.mp4");
                 if (p != null) return p;
             }
-            else if (idx == 2) // Lahan Kering / Stress Backup
+            else if (idx == 2) // Lahan Irigasi (YDXJ)
             {
                 var p = ResolveFilePath(
-                    "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/YDXJ_fused_only_detected.mp4",
                     Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "YDXJ_fused_only_detected.mp4"),
+                    Path.Combine(Directory.GetCurrentDirectory(), "Assets", "demo_videos", "YDXJ_fused_only_detected.mp4"),
+                    "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/YDXJ_fused_only_detected.mp4",
+                    "/home/fawwazfa/Program/Harvestmoon/vidio/YDXJ0012_demo(1).mp4",
                     "/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/Assets/demo_videos/YDXJ_fused_only_detected.mp4");
                 if (p != null) return p;
             }
-            else if (idx == 3) // Custom Video
+            else if (idx == 3) // Lahan Kering (YDX_burned)
+            {
+                var p = ResolveFilePath(
+                    Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "YDX_burned.mp4"),
+                    Path.Combine(Directory.GetCurrentDirectory(), "Assets", "demo_videos", "YDX_burned.mp4"),
+                    "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/YDX_burned.mp4",
+                    "/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/Assets/demo_videos/YDX_burned.mp4",
+                    "/home/fawwazfa/Program/Harvestmoon/vidio/YDX_burned.mp4");
+                if (p != null) return p;
+            }
+            else if (idx == 4) // Custom Video
             {
                 if (!string.IsNullOrWhiteSpace(_customVideoPath) && File.Exists(_customVideoPath))
                 {
@@ -2952,11 +3347,12 @@ public sealed partial class DashboardPage : Page
         return wps;
     }
 
-    private static (double Lat, double Lon)[] GenerateDemoRiceFieldWaypoints()
+    private (double Lat, double Lon)[] GenerateDemoRiceFieldWaypoints()
     {
-        // 5 titik (4 segmen @ 150m = 600m transek E-W), tiap segmen 15 detik.
-        // 4 segmen x 15s = 60 detik tepat satu arah (sinkron 1:1 dengan 4 sektor video 60s!).
-        // Round-trip 8 segmen x 15s = 120 detik (2 menit).
+        if (_currentScenario != null && _currentScenario.Waypoints.Count > 0)
+        {
+            return _currentScenario.Waypoints.Select(w => (w.Latitude, w.Longitude)).ToArray();
+        }
         return GenerateStraightLineWaypoints(DemoFieldLat, DemoFieldLon, count: 5, totalMeters: 600, bearingDeg: 90.0);
     }
 
@@ -3001,19 +3397,74 @@ public sealed partial class DashboardPage : Page
 
     private async Task ExportReportAsync(string format)
     {
-        if (_harvestFunctionalService == null) return;
+        if (_harvestFunctionalService == null)
+        {
+            AddAlertRow("Export failed: HarvestFunctionalService not available", "error");
+            return;
+        }
+
         var telemetry = _flightViewModel?.Telemetry;
         var connected = _flightViewModel?.IsConnected == true;
         var videoPath = _videoRecorderService?.CurrentRecordingPath ?? string.Empty;
-        var mapSnapshotBytes = DashboardMapControl?.CaptureSnapshotPng();
-        var mapPath = _harvestFunctionalService.SaveMapSnapshot(
-            mapSnapshotBytes,
-            telemetry?.Latitude ?? _centerLat,
-            telemetry?.Longitude ?? _centerLon,
-            connected ? "Live dashboard position" : "Dashboard standby position");
-        var yoloPath = _lastFrameData != null
-            ? await _harvestFunctionalService.SaveLatestYoloScreenshotAsync(_lastFrameData)
-            : string.Empty;
+
+        // --- Map snapshot (guarded) ---
+        string mapPath = string.Empty;
+        try
+        {
+            var mapSnapshotBytes = DashboardMapControl?.CaptureSnapshotPng();
+            mapPath = _harvestFunctionalService.SaveMapSnapshot(
+                mapSnapshotBytes,
+                telemetry?.Latitude ?? _centerLat,
+                telemetry?.Longitude ?? _centerLon,
+                connected ? "Live dashboard position" : "Dashboard standby position");
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "[DashboardPage] Map snapshot failed, continuing export without it");
+            AddAlertRow("Map snapshot unavailable, exporting without map", "warning");
+        }
+
+        // --- YOLO screenshot (guarded) ---
+        string yoloPath = string.Empty;
+        try
+        {
+            byte[]? frameForScreenshot = _lastFrameData;
+            if (frameForScreenshot == null || frameForScreenshot.Length == 0)
+            {
+                // Demo mode fallback: try to extract a frame from the current demo video
+                if (_isDemoRunning && !string.IsNullOrWhiteSpace(_customVideoPath) && File.Exists(_customVideoPath))
+                {
+                    frameForScreenshot = ExtractFirstFrameBytes(_customVideoPath);
+                }
+                // If still null, check if we have a demo video playing via the camera service
+                if (frameForScreenshot == null || frameForScreenshot.Length == 0)
+                {
+                    // Try the first available demo video candidate
+                    foreach (var candidate in DemoVideoPathCandidates)
+                    {
+                        if (File.Exists(candidate))
+                        {
+                            frameForScreenshot = ExtractFirstFrameBytes(candidate);
+                            if (frameForScreenshot != null && frameForScreenshot.Length > 0) break;
+                        }
+                    }
+                }
+            }
+
+            if (frameForScreenshot != null && frameForScreenshot.Length > 0)
+            {
+                yoloPath = await _harvestFunctionalService.SaveLatestYoloScreenshotAsync(frameForScreenshot);
+            }
+            else
+            {
+                AddAlertRow("No camera frame available for YOLO screenshot, exporting without it", "warning");
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "[DashboardPage] YOLO screenshot failed, continuing export without it");
+            AddAlertRow("YOLO screenshot unavailable, exporting without it", "warning");
+        }
 
         var record = new HarvestFunctionalService.HarvestReportRecord
         {
@@ -3030,20 +3481,35 @@ public sealed partial class DashboardPage : Page
             VideoRecordingPath = videoPath,
             IncidentTimelineJson = _timelineService?.ToJson() ?? string.Empty
         };
+
         try
         {
             await _harvestFunctionalService.CreateEvidenceBundleAsync(record);
             var baseName = $"dashboard-{DateTime.Now:yyyyMMddHHmmss}";
+            string exportPath = string.Empty;
             switch (format)
             {
-                case "pdf": await _harvestFunctionalService.ExportReportPdfAsync(record, baseName); break;
-                case "csv": await _harvestFunctionalService.ExportReportCsvAsync(record, baseName); break;
-                case "json": await _harvestFunctionalService.ExportReportJsonAsync(record, baseName); break;
+                case "pdf": exportPath = await _harvestFunctionalService.ExportReportPdfAsync(record, baseName); break;
+                case "csv": exportPath = await _harvestFunctionalService.ExportReportCsvAsync(record, baseName); break;
+                case "json": exportPath = await _harvestFunctionalService.ExportReportJsonAsync(record, baseName); break;
+            }
+            if (string.IsNullOrWhiteSpace(exportPath))
+            {
+                AddAlertRow($"Export completed ({format.ToUpper()})", "info");
+            }
+            else if (exportPath.StartsWith("EXPORT_FAILED", StringComparison.OrdinalIgnoreCase))
+            {
+                AddAlertRow($"Export failed: {exportPath}", "error");
+            }
+            else
+            {
+                AddAlertRow($"Export successful: {exportPath}", "info");
             }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[DashboardPage] Export {format} error: {ex.Message}");
+            Serilog.Log.Error(ex, "[DashboardPage] Export {Format} failed", format);
+            AddAlertRow($"Export failed: {ex.Message}", "error");
         }
     }
 
@@ -3080,6 +3546,25 @@ public sealed partial class DashboardPage : Page
 
     private static byte[] ExtractFirstFrameBytes(string videoPath)
     {
+#if __ANDROID__
+        try
+        {
+            if (File.Exists(videoPath))
+            {
+                using var mmr = new Android.Media.MediaMetadataRetriever();
+                mmr.SetDataSource(videoPath);
+                using var bmp = mmr.GetFrameAtTime(0);
+                if (bmp != null)
+                {
+                    using var ms = new MemoryStream();
+                    bmp.Compress(Android.Graphics.Bitmap.CompressFormat.Jpeg!, 80, ms);
+                    return ms.ToArray();
+                }
+            }
+        }
+        catch { }
+        return Array.Empty<byte>();
+#else
         if (OperatingSystem.IsAndroid())
         {
             return Array.Empty<byte>();
@@ -3141,6 +3626,7 @@ sys.stdout.buffer.write(buf.tobytes())
             Serilog.Log.Warning(ex, "[DashboardPage] Failed to extract demo frame from {Video}", videoPath);
             return Array.Empty<byte>();
         }
+#endif
     }
 
     private static string? ResolvePreviewPythonCommand()
@@ -3218,11 +3704,21 @@ sys.stdout.buffer.write(buf.tobytes())
             return;
         }
 
-        // Gentle idle animation when disconnected so the artificial horizon isn't frozen.
-        var rnd = Random.Shared;
-        _pitch = Math.Clamp(_pitch + (rnd.NextDouble() - 0.5) * 10, -25, 25);
-        _roll  = Math.Clamp(_roll  + (rnd.NextDouble() - 0.5) * 14, -35, 35);
-        _yaw   = (_yaw + (rnd.NextDouble() - 0.5) * 6 + 360) % 360;
+        if (_flightViewModel?.IsConnected == true)
+        {
+            // If connected but telemetry is null, just hold at 0.
+            _pitch = 0;
+            _roll = 0;
+            _yaw = 0;
+        }
+        else
+        {
+            // Gentle idle animation when disconnected so the artificial horizon isn't frozen.
+            var rnd = Random.Shared;
+            _pitch = Math.Clamp(_pitch + (rnd.NextDouble() - 0.5) * 10, -25, 25);
+            _roll  = Math.Clamp(_roll  + (rnd.NextDouble() - 0.5) * 14, -35, 35);
+            _yaw   = (_yaw + (rnd.NextDouble() - 0.5) * 6 + 360) % 360;
+        }
         ImuRollTransform.Angle = _roll;
         ImuPitchTransform.Y = Math.Clamp(_pitch * 1.4, -42, 42);
         ImuLabelText.Text = $"P{_pitch:F0}° R{_roll:F0}° Y{_yaw:F0}°";
@@ -3246,8 +3742,8 @@ sys.stdout.buffer.write(buf.tobytes())
     private void ApplyImuTelemetry(TelemetryData telemetry)
     {
         ApplyImuValues(
-            telemetry.Pitch * 180.0 / Math.PI,
-            telemetry.Roll * 180.0 / Math.PI,
+            telemetry.Pitch,
+            telemetry.Roll,
             telemetry.Heading);
     }
 
@@ -3309,18 +3805,49 @@ sys.stdout.buffer.write(buf.tobytes())
         var battery = telemetry?.BatteryPercent is > 0
             ? telemetry.BatteryPercent
             : telemetry?.BatteryRemaining ?? 0;
-        var gpsReady = telemetry != null && IsValidCoordinate(telemetry.Latitude, telemetry.Longitude) && telemetry.SatelliteCount >= 6;
+        var hasValidGps = telemetry != null && IsValidCoordinate(telemetry.Latitude, telemetry.Longitude);
+        var gpsReady = hasValidGps && (telemetry?.SatelliteCount ?? 0) >= 6;
         var geofenceReady = _mapViewModel?.IsGeofenceActive == true || _geofenceService?.CurrentGeofence.IsActive == true;
-        var waypointReady = (_mapViewModel?.Waypoints?.Count ?? 0) > 0;
+        var wpCount = _mapViewModel?.Waypoints?.Count ?? 0;
+        var waypointReady = wpCount > 0;
+        var yoloReady = _harvestFunctionalService?.IsYoloRuntimeReady == true;
+        var cameraReady = _cameraService?.IsStreaming == true;
+        var recorderReady = _videoRecorderService != null;
+        var battOk = battery >= 20;
 
-        SetChecklistText(ReadyTelemetryText, connected, "Telemetry connected");
-                        SetChecklistText(ReadyGpsText, true, "GPS fix(15) (15 sats)");
-        SetChecklistText(ReadyBatteryText, true, "Battery 82%");
-        SetChecklistText(ReadyCameraText, _cameraService?.IsStreaming == true, "Camera active");
-        SetChecklistText(ReadyYoloText, _harvestFunctionalService?.IsYoloRuntimeReady == true, "YOLO ready");
-        SetChecklistText(ReadyGeofenceText, geofenceReady, "Geofence loaded");
-        SetChecklistText(ReadyWaypointText, waypointReady, $"Waypoint loaded ({_mapViewModel?.Waypoints?.Count ?? 0})");
-        SetChecklistText(ReadyRecorderText, _videoRecorderService != null, _videoRecorderService?.IsRecording == true ? "Recorder active" : "Recorder ready");
+        SetChecklistText(ReadyTelemetryText, connected, connected ? "Telemetry Link OK" : "Telemetry Offline");
+        SetChecklistText(ReadyGpsText, gpsReady, gpsReady ? $"GPS 3D Fix ({telemetry!.SatelliteCount} Sats)" : "GPS No Fix");
+        SetChecklistText(ReadyBatteryText, battOk, battery > 0 ? $"Battery {battery:F0}% OK" : "Battery Standby");
+        SetChecklistText(ReadyCameraText, cameraReady, cameraReady ? "Camera Feed Active" : "Camera Feed Standby");
+        SetChecklistText(ReadyYoloText, yoloReady, yoloReady ? "AI Model Ready" : "AI Initializing");
+        SetChecklistText(ReadyGeofenceText, geofenceReady, geofenceReady ? "Geofence Active" : "Geofence Standby");
+        SetChecklistText(ReadyWaypointText, waypointReady, waypointReady ? $"Mission WPs ({wpCount})" : "No Mission WPs");
+        SetChecklistText(ReadyRecorderText, recorderReady, _videoRecorderService?.IsRecording == true ? "Recording Blackbox" : "Recorder Armed");
+
+        // Calculate overall GO / NO-GO status
+        bool isScenarioActive = _isDemoRunning || _videoScenarioService?.CurrentScenario != null;
+        bool allGo = (connected || isScenarioActive) &&
+                     (gpsReady || isScenarioActive) &&
+                     (battOk || isScenarioActive) &&
+                     waypointReady;
+
+        if (ReadinessStatusPill != null && ReadinessStatusText != null)
+        {
+            if (allGo)
+            {
+                ReadinessStatusPill.Background = new SolidColorBrush(Color.FromArgb(255, 236, 253, 245));
+                ReadinessStatusPill.BorderBrush = new SolidColorBrush(Color.FromArgb(255, 16, 185, 129));
+                ReadinessStatusText.Text = "GO FOR FLIGHT";
+                ReadinessStatusText.Foreground = new SolidColorBrush(Color.FromArgb(255, 6, 95, 70));
+            }
+            else
+            {
+                ReadinessStatusPill.Background = new SolidColorBrush(Color.FromArgb(255, 254, 243, 199));
+                ReadinessStatusPill.BorderBrush = new SolidColorBrush(Color.FromArgb(255, 245, 158, 11));
+                ReadinessStatusText.Text = "PRE-FLIGHT CHECK";
+                ReadinessStatusText.Foreground = new SolidColorBrush(Color.FromArgb(255, 146, 64, 14));
+            }
+        }
     }
 
     private static void SetChecklistText(TextBlock textBlock, bool ok, string label)

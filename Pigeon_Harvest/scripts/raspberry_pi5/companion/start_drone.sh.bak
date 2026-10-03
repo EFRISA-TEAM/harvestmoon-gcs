@@ -1,0 +1,85 @@
+#!/bin/bash
+# =============================================================================
+# Launcher Mandiri: Orange Pi 3B Autonomous Drone Companion
+# =============================================================================
+
+# IP Default Laptop GCS (Jika belum ada paket masuk dari GCS)
+GCS_IP="192.168.1.20"
+
+# Port Konfigurasi
+GCS_PORT="14550"        # Port Telemetri MAVLink UDP (Dua Arah)
+VIDEO_PORT="5600"       # Port Livestream Video UDP RTP H.264
+HTTP_PORT="8080"        # Port Web HUD & MJPEG /video_feed
+
+# Kamera & Serial (Auto-detect aktif)
+CAM_INDEX="-1"          # -1 = auto-detect kamera USB dengan uji MJPG
+CAM_WIDTH="1280"
+CAM_HEIGHT="720"
+CAM_FPS="30"
+PIXHAWK_PORT="auto"     # auto = scan /dev/ttyACM0, /dev/ttyUSB0, /dev/ttyS2
+BAUDRATE="115200"
+
+# =============================================================================
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# Watchdog Wi-Fi: Pastikan tersambung ke jaringan
+ensure_wifi() {
+    # Cek apakah sudah ada koneksi aktif yang memiliki IP
+    ACTIVE_SSID=$(nmcli -t -f active,ssid dev wifi 2>/dev/null | grep '^yes:' | cut -d: -f2)
+    if [ -n "$ACTIVE_SSID" ]; then
+        echo "[WIFI] Terhubung ke jaringan: $ACTIVE_SSID"
+        return 0
+    fi
+
+    echo "[WIFI] Mencoba menyambungkan ke Wi-Fi mboh..."
+    nmcli dev wifi connect "TP-Link_0CBA" password "03906910" >/dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        echo "[WIFI] Berhasil terhubung ke Wi-Fi mboh!"
+        return 0
+    fi
+
+    echo "[WIFI] Wi-Fi mboh tidak ditemukan, mencoba jaringan cadangan (EAGLE)..."
+    nmcli dev wifi connect "EAGLE" >/dev/null 2>&1
+}
+
+ensure_wifi
+
+# Aktifkan Python Virtual Environment
+if [ -d "$HOME/orange_pi3b_yolov8n_webcam_test/.venv" ]; then
+    source "$HOME/orange_pi3b_yolov8n_webcam_test/.venv/bin/activate"
+elif [ -d "$HOME/venv" ]; then
+    source "$HOME/venv/bin/activate"
+fi
+
+# Aktifkan Streaming UDP RTP H.264 (Port 5600 ke QGroundControl)
+# Set "false" jika hanya menggunakan Web Browser HUD (Port 8080) untuk menghemat 100% CPU!
+ENABLE_UDP_STREAM="false"
+
+# Jalankan script utama secara terus-menerus
+while true; do
+    echo "=========================================================="
+    echo "  MENJALANKAN ORANGE PI 3B AUTONOMOUS COMPANION SYSTEM"
+    echo "=========================================================="
+    EXTRA_ARGS=""
+    if [ "$ENABLE_UDP_STREAM" != "true" ]; then
+        EXTRA_ARGS="--no-stream"
+    fi
+
+    python3 drone_telemetry_stream.py \
+        --gcs-ip "$GCS_IP" \
+        --pixhawk-port "$PIXHAWK_PORT" \
+        --baud "$BAUDRATE" \
+        --gcs-port "$GCS_PORT" \
+        --video-port "$VIDEO_PORT" \
+        --http-port "$HTTP_PORT" \
+        --cam "$CAM_INDEX" \
+        --width "$CAM_WIDTH" \
+        --height "$CAM_HEIGHT" \
+        --fps "$CAM_FPS" \
+        $EXTRA_ARGS
+
+    echo "[COMPANION] Layanan berhenti, memulai ulang dalam 2 detik..."
+    sleep 2
+    ensure_wifi
+done

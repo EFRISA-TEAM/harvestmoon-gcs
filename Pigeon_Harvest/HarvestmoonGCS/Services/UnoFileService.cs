@@ -9,14 +9,34 @@ namespace HarvestmoonGCS.Services;
 
 public class UnoFileService : IFileService
 {
-    private string BasePath => Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+    /// <summary>
+    /// Root for all mission/parameter files. MyDocuments is empty on Android and on some
+    /// Linux desktops, which produced paths rooted at an empty string and made every file
+    /// operation fail — fall back to local app data, then to the app directory.
+    /// </summary>
+    private string BasePath
+    {
+        get
+        {
+            var docs = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            if (!string.IsNullOrWhiteSpace(docs)) return docs;
+
+            var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (!string.IsNullOrWhiteSpace(local)) return local;
+
+            return AppContext.BaseDirectory;
+        }
+    }
+
     private string MissionsPath => Path.Combine(BasePath, "Missions");
     private string ParamsPath => Path.Combine(BasePath, "Parameters");
     
     public UnoFileService()
     {
-        Directory.CreateDirectory(MissionsPath);
-        Directory.CreateDirectory(ParamsPath);
+        // Never let an unwritable/absent directory abort construction — the caller still
+        // gets a working service and individual operations report their own failures.
+        try { Directory.CreateDirectory(MissionsPath); } catch { }
+        try { Directory.CreateDirectory(ParamsPath); } catch { }
     }
     
     public async Task<string?> PickFileAsync(string[] extensions)
@@ -125,10 +145,29 @@ public class UnoFileService : IFileService
 
     public Task<string> ExportToDownloadsAsync(string filename, string content)
     {
-        var downloads = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-        var path = Path.Combine(downloads, filename);
-        File.WriteAllText(path, content);
-        return Task.FromResult(path);
+        try
+        {
+            var downloads = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            if (string.IsNullOrWhiteSpace(downloads))
+            {
+                // Fallback for platforms where MyDocuments is not available
+                downloads = AppContext.BaseDirectory;
+            }
+            var path = Path.Combine(downloads, filename);
+            var dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrWhiteSpace(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+            File.WriteAllText(path, content);
+            return Task.FromResult(path);
+        }
+        catch (Exception ex)
+        {
+            // Return a clear error message instead of throwing
+            Serilog.Log.Error(ex, "[UnoFileService] ExportToDownloadsAsync failed for {Filename}", filename);
+            return Task.FromResult($"EXPORT_FAILED: {ex.Message}");
+        }
     }
 
     public string[] ListMissionFiles()

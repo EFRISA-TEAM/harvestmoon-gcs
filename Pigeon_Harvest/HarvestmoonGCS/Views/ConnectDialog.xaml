@@ -190,8 +190,8 @@
                                        FontWeight="Bold" 
                                        Foreground="{ThemeResource MutedForegroundBrush}"/>
                             <TextBox x:Name="HostTextBox" 
-                                     Text="127.0.0.1" 
-                                     PlaceholderText="127.0.0.1"
+                                     Text="0.0.0.0" 
+                                     PlaceholderText="0.0.0.0 (Dengarkan UAV / Orange Pi)"
                                      Background="{ThemeResource BackgroundBrush}"
                                      BorderBrush="{ThemeResource BorderBrush}"
                                      FontSize="14"/>
@@ -306,17 +306,17 @@
                             </Grid>
                         </Border>
 
-                        <!-- IP Kamera -->
-                        <StackPanel Spacing="4">
-                            <TextBlock Text="IP KAMERA (default: 192.168.0.1)"
-                                       FontSize="10" FontWeight="Bold"
-                                       Foreground="{ThemeResource MutedForegroundBrush}"/>
-                            <TextBox x:Name="RuncamIpTextBox"
-                                     Text="192.168.0.1"
-                                     PlaceholderText="192.168.0.1"
-                                     Background="{ThemeResource BackgroundBrush}"
-                                     BorderBrush="{ThemeResource BorderBrush}"
-                                     FontSize="14"/>
+<!-- IP Kamera -->
+                         <StackPanel Spacing="4">
+                             <TextBlock Text="IP KAMERA (default: 192.168.1.100 atau 10.235.141.127)"
+                                        FontSize="10" FontWeight="Bold"
+                                        Foreground="{ThemeResource MutedForegroundBrush}"/>
+                             <TextBox x:Name="RuncamIpTextBox"
+                                      Text="192.168.1.100"
+                                      PlaceholderText="192.168.1.100 (LAN TP-Link) / 192.168.0.100 (hotspot)"
+                                      Background="{ThemeResource BackgroundBrush}"
+                                      BorderBrush="{ThemeResource BorderBrush}"
+                                      FontSize="14"/>
                         </StackPanel>
 
                         <!-- Stream Protocol -->
@@ -330,8 +330,8 @@
                                       BorderBrush="{ThemeResource BorderBrush}"
                                       FontSize="13"
                                       SelectedIndex="2">
-                                <ComboBoxItem Content="RTSP (rtsp://192.168.0.1:554/live)" Tag="Rtsp"/>
-                                <ComboBoxItem Content="MJPEG (http://192.168.0.1:8080)" Tag="Mjpeg"/>
+                                <ComboBoxItem Content="RTSP (rtsp://192.168.1.100:554/live)" Tag="Rtsp"/>
+                                <ComboBoxItem Content="MJPEG (http://192.168.1.100:8080/video_feed)" Tag="Mjpeg"/>
                                 <ComboBoxItem Content="Auto (RTSP → fallback MJPEG)" Tag="Auto"/>
                             </ComboBox>
                         </StackPanel>
@@ -364,22 +364,11 @@
                             </StackPanel>
                         </Grid>
 
-                        <!-- Pilihan koneksi -->
-                        <Grid ColumnSpacing="8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <CheckBox x:Name="RuncamConnectCameraCheck"
-                                      Content="Kamera"
-                                      IsChecked="True"
-                                      FontSize="12"/>
-                            <CheckBox x:Name="RuncamConnectMavLinkCheck"
-                                      Grid.Column="1"
-                                      Content="MAVLink"
-                                      IsChecked="True"
-                                      FontSize="12"/>
-                        </Grid>
+                        <!-- Koneksi otomatis: kamera + MAVLink bersamaan -->
+                        <TextBlock FontSize="11"
+                                   Foreground="{ThemeResource MutedForegroundBrush}"
+                                   TextWrapping="Wrap"
+                                   Text="Otomatis: stream kamera (RTSP/MJPEG) dan MAVLink terhubung bersamaan dalam satu kali Connect."/>
 
                         <!-- Info box -->
                         <Border CornerRadius="8" Padding="10,8"
@@ -389,8 +378,8 @@
                             <TextBlock FontSize="11"
                                        Foreground="{ThemeResource MutedForegroundBrush}"
                                        TextWrapping="Wrap">
-                                <Run FontWeight="Bold">RunCam WiFi Link 2:</Run>
-                                <Run> Hubungkan HP/laptop ke WiFi "RUNCAM_WIFILINK_XXXXXX", lalu tekan Connect.</Run>
+                                <Run FontWeight="Bold">RunCam WiFi Link 2 / UAV:</Run>
+                                <Run> Hubungkan laptop ke WiFi "RUNCAM_WIFILINK_XXXXXX" (hotspot) atau ke router TP-Link lewat LAN, lalu tekan Connect. IP UAV terdeteksi otomatis.</Run>
                             </TextBlock>
                         </Border>
                     </StackPanel>
@@ -404,6 +393,7 @@
                                Foreground="{ThemeResource MutedForegroundBrush}"/>
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <Button Content="SITL" FontSize="10" FontWeight="Bold" Padding="10,4" CornerRadius="6" Background="{ThemeResource MutedBrush}" Foreground="{ThemeResource MutedForegroundBrush}" BorderThickness="0" Click="Preset_Click" Tag="SITL"/>
+                        <Button Content="UAV LISTEN" FontSize="10" FontWeight="Bold" Padding="10,4" CornerRadius="6" Background="#1A2563EB" BorderBrush="#3B2563EB" BorderThickness="1" Foreground="#60A5FA" Click="Preset_Click" Tag="UAVLISTEN"/>
                         <Button Content="GCS RELAY" FontSize="10" FontWeight="Bold" Padding="10,4" CornerRadius="6" Background="{ThemeResource MutedBrush}" Foreground="{ThemeResource MutedForegroundBrush}" BorderThickness="0" Click="Preset_Click" Tag="GCS"/>
                         <Button Content="TELEMETRY" FontSize="10" FontWeight="Bold" Padding="10,4" CornerRadius="6" Background="{ThemeResource MutedBrush}" Foreground="{ThemeResource MutedForegroundBrush}" BorderThickness="0" Click="Preset_Click" Tag="TELEMETRY"/>
                         <Button Content="RUNCAM" FontSize="10" FontWeight="Bold" Padding="10,4" CornerRadius="6" Background="#1A22C55E" BorderBrush="#3B22C55E" BorderThickness="1" Foreground="#22C55E" Click="Preset_Click" Tag="RUNCAM"/>

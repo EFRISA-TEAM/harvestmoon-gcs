@@ -38,6 +38,12 @@ public class PythonCameraService : ICameraService
     private string _recordingFramesDirectory = string.Empty;
     private int _recordingFrameCount;
 
+    /// <summary>
+    /// Serializes all Start/Stop operations so only one camera process can exist at a time.
+    /// Not reentrant — internal stop helper bypasses this guard.
+    /// </summary>
+    private readonly SemaphoreSlim _startStopGate = new(1, 1);
+
     public bool IsStreaming { get; private set; }
     public bool IsRecording { get; private set; }
     public bool IsClassificationStream { get; private set; }
@@ -224,13 +230,14 @@ public class PythonCameraService : ICameraService
             return false;
         }
 
+        await _startStopGate.WaitAsync();
         try
         {
             Serilog.Log.Information($"[PythonCameraService] ========== STARTING CAMERA ==========");
             Serilog.Log.Information($"[PythonCameraService] Source: {source}");
-            
-            await StopCameraAsync();
-            
+
+            await StopCameraInternalAsync();
+
             _currentSource = source;
 
             if (source == "network")
@@ -266,6 +273,10 @@ public class PythonCameraService : ICameraService
             ConnectionError?.Invoke(this, $"Failed to start camera: {ex.Message}");
             return false;
         }
+        finally
+        {
+            _startStopGate.Release();
+        }
     }
 
     public async Task<bool> StartClassifyStreamAsync(
@@ -298,13 +309,14 @@ public class PythonCameraService : ICameraService
             return false;
         }
 
+        await _startStopGate.WaitAsync();
         try
         {
             Serilog.Log.Information("[PythonCameraService] ========== STARTING CLASSIFICATION STREAM ==========");
             Serilog.Log.Information("[PythonCameraService] Source: {Source}, Model: {Model}", source, modelPath);
             Serilog.Log.Information("[PythonCameraService] Grid: {R}x{C}, MinConf: {Conf}, BoxScale: {Scale}", gridRows, gridCols, minConf, boxScale);
 
-            await StopCameraAsync();
+            await StopCameraInternalAsync();
 
             _currentSource = source;
             IsClassificationStream = true;
@@ -354,6 +366,10 @@ public class PythonCameraService : ICameraService
             ConnectionError?.Invoke(this, $"Failed to start classification stream: {ex.Message}");
             return false;
         }
+        finally
+        {
+            _startStopGate.Release();
+        }
     }
 
     public async Task<bool> StartHsvStreamAsync(
@@ -362,7 +378,8 @@ public class PythonCameraService : ICameraService
         float maxFps = 15f,
         bool showOverlay = true,
         bool demo = true,
-        float playbackRate = 1.0f)
+        float playbackRate = 1.0f,
+        bool yoloEnabled = false)
     {
         // Prefer .venv-yolo (has ultralytics → YOLO fusion aktif); fallback .venv-camera
         var (yoloPython, _) = ResolvePythonCommand(".venv-yolo");
@@ -387,12 +404,13 @@ public class PythonCameraService : ICameraService
             return false;
         }
 
+        await _startStopGate.WaitAsync();
         try
         {
             Serilog.Log.Information("[PythonCameraService] ========== STARTING HSV STREAM ==========");
             Serilog.Log.Information("[PythonCameraService] Source: {Source}", source);
 
-            await StopCameraAsync();
+            await StopCameraInternalAsync();
 
             _currentSource = source;
             IsClassificationStream = true;
@@ -409,10 +427,17 @@ public class PythonCameraService : ICameraService
                 args += $" --model {QuoteArg(modelPath)}";
             }
 
-            var detModel = ResolveDetModelPath();
-            if (!string.IsNullOrWhiteSpace(detModel) && File.Exists(detModel))
+            if (yoloEnabled)
             {
-                args += $" --det-model {QuoteArg(detModel)}";
+                var detModel = ResolveDetModelPath();
+                if (!string.IsNullOrWhiteSpace(detModel) && File.Exists(detModel))
+                {
+                    args += $" --det-model {QuoteArg(detModel)}";
+                }
+            }
+            else
+            {
+                args += " --no-yolo";
             }
 
             var psi = new ProcessStartInfo
@@ -450,19 +475,37 @@ public class PythonCameraService : ICameraService
             ConnectionError?.Invoke(this, $"Failed to start HSV stream: {ex.Message}");
             return false;
         }
+        finally
+        {
+            _startStopGate.Release();
+        }
     }
 
-    public async Task StopCameraAsync()
+    /// <summary>
+    /// Internal stop helper — does NOT acquire the semaphore. Used by start methods that already hold the gate.
+    /// Idempotent, deadlock-free with bounded waits and hard kill.
+    /// </summary>
+    private async Task StopCameraInternalAsync()
     {
-        Serilog.Log.Information("[PythonCameraService] Stopping camera");
-        
-        _streamCts?.Cancel();
+        Serilog.Log.Information("[PythonCameraService] Stopping camera (internal)");
 
-        if (_streamProcess != null && !_streamProcess.HasExited)
+        // Cancel token first so read loops exit cleanly
+        var cts = _streamCts;
+        _streamCts = null; // Prevent double-dispose race
+        cts?.Cancel();
+
+        // Kill process if still alive
+        var process = _streamProcess;
+        _streamProcess = null; // Null early to avoid races
+        if (process != null && !process.HasExited)
         {
             try
             {
-                _streamProcess.Kill();
+#if NET6_0_OR_GREATER
+                process.Kill(entireProcessTree: true);
+#else
+                process.Kill();
+#endif
             }
             catch (Exception ex)
             {
@@ -470,28 +513,51 @@ public class PythonCameraService : ICameraService
             }
         }
 
-        if (_streamTask != null)
-        {
-            await _streamTask;
-        }
-
-        if (_stderrTask != null)
-        {
-            await _stderrTask;
-        }
-
-        _streamProcess?.Dispose();
-        _streamProcess = null;
+        // Await read tasks with timeout — don't deadlock if pipe read blocks forever
+        var streamTask = _streamTask;
+        var stderrTask = _stderrTask;
         _streamTask = null;
         _stderrTask = null;
-        _streamCts?.Dispose();
-        _streamCts = null;
+
+        const int waitMs = 2000;
+        var waitTasks = new List<Task>();
+        if (streamTask != null) waitTasks.Add(streamTask);
+        if (stderrTask != null) waitTasks.Add(stderrTask);
+
+        if (waitTasks.Count > 0)
+        {
+            var allTasks = Task.WhenAll(waitTasks);
+            var completed = await Task.WhenAny(allTasks, Task.Delay(waitMs));
+            if (completed != allTasks)
+            {
+                Serilog.Log.Warning("[PythonCameraService] Read tasks did not complete within {Ms}ms — continuing cleanup", waitMs);
+            }
+        }
+
+        // Dispose process
+        try { process?.Dispose(); } catch { }
+
+        // Dispose CTS
+        try { cts?.Dispose(); } catch { }
 
         IsStreaming = false;
         IsClassificationStream = false;
         StreamingStatusChanged?.Invoke(this, false);
 
-        Serilog.Log.Information("[PythonCameraService] Camera stopped");
+        Serilog.Log.Information("[PythonCameraService] Camera stopped (internal)");
+    }
+
+    public async Task StopCameraAsync()
+    {
+        await _startStopGate.WaitAsync();
+        try
+        {
+            await StopCameraInternalAsync();
+        }
+        finally
+        {
+            _startStopGate.Release();
+        }
     }
 
     private void ReadFramesLoop(CancellationToken ct)
@@ -968,7 +1034,29 @@ public class PythonCameraService : ICameraService
         }
     }
 
+    /// <summary>
+    /// Caches ResolvePythonCommand results per venvSubdir. Resolution probes every candidate
+    /// python by actually spawning it (CanExecute + HasCv2Module), which can mean dozens of
+    /// process launches taking seconds. Without this cache the singleton's constructor — and
+    /// every video-duration probe on the dashboard — blocked the UI thread, which is what made
+    /// the app appear to freeze/lag on Linux.
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string? Command, string LauncherArgs)> _pythonCommandCache = new();
+
     public static (string? Command, string LauncherArgs) ResolvePythonCommand(string? venvSubdir = null)
+    {
+        var cacheKey = venvSubdir ?? string.Empty;
+        if (_pythonCommandCache.TryGetValue(cacheKey, out var cached))
+        {
+            return cached;
+        }
+
+        var resolved = ResolvePythonCommandUncached(venvSubdir);
+        _pythonCommandCache[cacheKey] = resolved;
+        return resolved;
+    }
+
+    private static (string? Command, string LauncherArgs) ResolvePythonCommandUncached(string? venvSubdir)
     {
         var probes = new List<(string Command, string ProbeArgs, string LauncherArgs)>();
 
@@ -1014,6 +1102,11 @@ public class PythonCameraService : ICameraService
 
         foreach (var root in probedDirs.Distinct())
         {
+            if (OperatingSystem.IsWindows())
+            {
+                probes.Add((Path.Combine(root, "python", "python.exe"), "--version", string.Empty));
+                probes.Add((Path.Combine(root, venvSubdir ?? ".venv-camera", "Scripts", "python.exe"), "--version", string.Empty));
+            }
             // When a specific venv is requested, probe it FIRST so it wins over .venv-camera
             if (venvSubdir != null)
             {
@@ -1036,7 +1129,7 @@ public class PythonCameraService : ICameraService
 
         if (OperatingSystem.IsWindows())
         {
-            probes.Insert(0, ("py", "-3 --version", "-3"));
+            probes.Add(("py", "-3 --version", "-3"));
         }
 
         foreach (var probe in probes)

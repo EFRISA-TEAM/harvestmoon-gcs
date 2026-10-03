@@ -1,10 +1,18 @@
 <Project Sdk="Uno.Sdk">
   <PropertyGroup>
     <TargetFrameworks>net9.0-android;net9.0-desktop</TargetFrameworks>
+    <TargetFrameworks Condition="'$(DesktopOnly)' == 'true'">net9.0-desktop</TargetFrameworks>
     <EnableDefaultContentItems>false</EnableDefaultContentItems>
+    <!-- Explicit RuntimeIdentifier for Linux/Windows self-contained publish (avoids missing Mono package) -->
+    <UseMonoRuntime Condition="!$(TargetFramework.Contains('android'))">false</UseMonoRuntime>
+    <RuntimeFrameworkVersion Condition="'$(RuntimeIdentifier)' == 'linux-x64'">9.0.0</RuntimeFrameworkVersion>
 
     <OutputType>Exe</OutputType>
     <UnoSingleProject>true</UnoSingleProject>
+    
+    <!-- Embed everything (including demo_videos) into the single EXE -->
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
 
     <!-- Display name -->
     <ApplicationTitle>Harvestmoon GCS</ApplicationTitle>
@@ -52,13 +60,13 @@
     <PackageReference Include="Microsoft.ML.OnnxRuntime" />
     <PackageReference Include="Newtonsoft.Json" />
     <PackageReference Include="OpenCvSharp4" />
-    <PackageReference Include="OpenCvSharp4.runtime.ubuntu.22.04-x64" Condition="$([MSBuild]::IsOSPlatform('Linux')) and !$(TargetFramework.Contains('android'))" />
-    <PackageReference Include="OpenCvSharp4.runtime.win" Condition="$([MSBuild]::IsOSPlatform('Windows')) and !$(TargetFramework.Contains('android'))" />
+    <PackageReference Include="OpenCvSharp4.runtime.ubuntu.22.04-x64" Condition="$([MSBuild]::IsOSPlatform('Linux')) and !$(RuntimeIdentifier.StartsWith('win')) and !$(TargetFramework.Contains('android'))" />
+    <PackageReference Include="OpenCvSharp4.runtime.win" Condition="($([MSBuild]::IsOSPlatform('Windows')) or $(RuntimeIdentifier.StartsWith('win'))) and !$(TargetFramework.Contains('android'))" />
     <PackageReference Include="System.IO.Ports" />
     <PackageReference Include="Uno.Extensions.Navigation.Toolkit.WinUI" />
     <PackageReference Include="Uno.Toolkit.WinUI" />
     <PackageReference Include="LibVLCSharp" />
-    <PackageReference Include="VideoLAN.LibVLC.Windows" Condition="$(TargetFramework.Contains('windows'))" />
+    <PackageReference Include="VideoLAN.LibVLC.Windows" Condition="$(TargetFramework.Contains('windows')) or $(RuntimeIdentifier.StartsWith('win'))" />
     <PackageReference Include="Serilog" />
     <PackageReference Include="Serilog.Sinks.Console" />
     <PackageReference Include="Serilog.Sinks.File" />
@@ -76,9 +84,15 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="Assets\**\*">
+    <Content Include="Assets\**\*" Exclude="Assets\icons\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>Assets\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Content>
+  </ItemGroup>
+  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('win'))">
+    <Content Include="Assets\icons\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>Assets\icons\%(RecursiveDir)%(Filename)%(Extension)</Link>
     </Content>
   </ItemGroup>
 
@@ -87,11 +101,14 @@
     <AndroidAsset Include="Assets\demo_videos\stream_multisector_60s_detected.mp4">
       <Link>demo_videos/stream_multisector_60s_detected.mp4</Link>
     </AndroidAsset>
-    <AndroidAsset Include="Assets\demo_videos\stream_v7c_final.mp4">
-      <Link>demo_videos/stream_v7c_final.mp4</Link>
+    <AndroidAsset Include="Assets\demo_videos\stream_v7c_final_detected.mp4">
+      <Link>demo_videos/stream_v7c_final_detected.mp4</Link>
     </AndroidAsset>
     <AndroidAsset Include="Assets\demo_videos\YDXJ_fused_only_detected.mp4">
       <Link>demo_videos/YDXJ_fused_only_detected.mp4</Link>
+    </AndroidAsset>
+    <AndroidAsset Include="Assets\demo_videos\YDX_burned_detected.mp4">
+      <Link>demo_videos/YDX_burned_detected.mp4</Link>
     </AndroidAsset>
   </ItemGroup>
 
@@ -105,10 +122,76 @@
     </None>
   </ItemGroup>
 
+  <!-- MoonHarvest app icon + splash (override default placeholder icon.svg/icon_foreground.svg) -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net9.0-desktop'">
+    <Content Include="moonharvest_detect_stream.py;yolo_classify_stream.py;recommendation_bridge.py;camera_service.py">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\recommendations\*.py">
+      <Link>recommendations\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net9.0-desktop' and $(RuntimeIdentifier.StartsWith('win'))">
+    <Content Include="PortableRuntime\**\*" Exclude="PortableRuntime\**\__pycache__\**;PortableRuntime\**\*.pyc">
+      <Link>%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <PropertyGroup>
+    <UnoIconBackgroundFile>Assets/icons/icon.png</UnoIconBackgroundFile>
+    <UnoIconForegroundFile>Assets/icons/icon_foreground.png</UnoIconForegroundFile>
+    <UnoSplashScreenFile>Assets/Splash/splash_screen.png</UnoSplashScreenFile>
+    <UnoSplashScreenColor>#FFFFFF</UnoSplashScreenColor>
+  </PropertyGroup>
+
+  <!-- Desktop window/app icon -->
+  <PropertyGroup>
+    <ApplicationIcon>Assets/logo/moonharvest.ico</ApplicationIcon>
+  </PropertyGroup>
+
   <Target Name="EnsureAssetOutputDirs" BeforeTargets="CopyFilesToOutputDirectory">
     <MakeDir Directories="$(OutDir)Assets" />
     <MakeDir Directories="$(OutDir)Assets/icons" />
-    <MakeDir Directories="$(OutDir)Assets/Icons" />
+  </Target>
+
+  <!-- Windows cannot distinguish Assets/Icons from Assets/icons. -->
+  <UsingTask TaskName="UniqueWindowsBundleFiles" TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <Files ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true" />
+      <UniqueFiles ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System" />
+      <Using Namespace="System.Collections.Generic" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<Microsoft.Build.Framework.ITaskItem>();
+        foreach (var file in Files)
+        {
+            var path = file.GetMetadata("RelativePath").Replace('\\', '/');
+            if (seen.Add(path)) result.Add(file);
+        }
+        UniqueFiles = result.ToArray();
+      ]]></Code>
+    </Task>
+  </UsingTask>
+  <Target Name="DeduplicateWindowsBundleIcons" BeforeTargets="GenerateSingleFileBundle"
+          DependsOnTargets="PrepareForBundle"
+          Condition="$(RuntimeIdentifier.StartsWith('win')) and '$(PublishSingleFile)' == 'true'">
+    <UniqueWindowsBundleFiles Files="@(FilesToBundle)">
+      <Output TaskParameter="UniqueFiles" ItemName="_WindowsBundleFiles" />
+    </UniqueWindowsBundleFiles>
+    <ItemGroup>
+      <FilesToBundle Remove="@(FilesToBundle)" />
+      <FilesToBundle Include="@(_WindowsBundleFiles)" />
+    </ItemGroup>
   </Target>
 
 </Project>

@@ -33,10 +33,10 @@ public sealed partial class ReportsHarvestPage : Page
 
     private static readonly IReadOnlyList<ReportEntry> SeedReports = new List<ReportEntry>
     {
-        new() { Id = "MH-20260909-017", DateTime = "2026-09-09 09:30", Area = "Sawah Multi-Sektor · Karawang",    Duration = "00:01:00", Detections = 1842, Priority = "Medium", IsDemo = true, YoloBenchmarkJson = "{\"FramesPerSecond\":15.1,\"AverageLatencyMs\":6.2,\"AverageDetections\":18.4}" },
-        new() { Id = "MH-20260908-016", DateTime = "2026-09-08 14:15", Area = "Sawah Sukamerta 15 HST · Karawang", Duration = "00:00:16", Detections = 1638, Priority = "Low",    IsDemo = true, YoloBenchmarkJson = "{\"FramesPerSecond\":15.2,\"AverageLatencyMs\":6.3,\"AverageDetections\":14.8}" },
-        new() { Id = "MH-20260905-015", DateTime = "2026-09-05 10:45", Area = "Sawah Sukamerta Timur · Karawang", Duration = "00:35:10", Detections = 2140, Priority = "Medium", IsDemo = true, YoloBenchmarkJson = "{\"FramesPerSecond\":15.0,\"AverageLatencyMs\":6.4,\"AverageDetections\":16.2}" },
-        new() { Id = "MH-20260901-014", DateTime = "2026-09-01 13:20", Area = "Sawah Rawamerta Barat · Karawang", Duration = "00:28:44", Detections = 1420, Priority = "High",   IsDemo = true, YoloBenchmarkJson = "{\"FramesPerSecond\":14.8,\"AverageLatencyMs\":6.5,\"AverageDetections\":12.1}" },
+        new() { Id = "MS-60S-SUBANG-01", DateTime = "2026-09-10 08:30", Area = "Subang Rice Estate · Sawah Subang", Duration = "00:01:00", Detections = 1842, Priority = "Medium", IsDemo = true, YoloBenchmarkJson = "{\"FramesPerSecond\":15.1,\"AverageLatencyMs\":6.2,\"AverageDetections\":18.4}" },
+        new() { Id = "HST15-RAWAMERTA-02", DateTime = "2026-09-09 14:15", Area = "Sukamerta Karawang 15 HST · Karawang", Duration = "00:00:16", Detections = 1638, Priority = "Low", IsDemo = true, YoloBenchmarkJson = "{\"FramesPerSecond\":15.2,\"AverageLatencyMs\":6.3,\"AverageDetections\":14.8}" },
+        new() { Id = "IRR-MAJALENGKA-03", DateTime = "2026-09-07 10:45", Area = "Rentang Majalengka Irrigation · Majalengka", Duration = "00:00:45", Detections = 2140, Priority = "Low", IsDemo = true, YoloBenchmarkJson = "{\"FramesPerSecond\":15.0,\"AverageLatencyMs\":6.4,\"AverageDetections\":16.2}" },
+        new() { Id = "DRY-SINDUR-04", DateTime = "2026-09-05 13:20", Area = "Gunung Sindur Dryland Sector · Bogor", Duration = "00:00:30", Detections = 1420, Priority = "High", IsDemo = true, YoloBenchmarkJson = "{\"FramesPerSecond\":14.8,\"AverageLatencyMs\":6.5,\"AverageDetections\":12.1}" },
     };
 
     private readonly DispatcherTimer _feedbackTimer;
@@ -65,7 +65,23 @@ public sealed partial class ReportsHarvestPage : Page
 
         RenderMissionList();
         RenderDetail();
-        _ = LoadPersistedReportsAsync();
+        _ = SafeLoadPersistedReportsAsync();
+    }
+
+    /// <summary>
+    /// Fire-and-forget wrapper so a disk/IO failure while reloading history cannot surface as an
+    /// unobserved exception and tear down the process.
+    /// </summary>
+    private async Task SafeLoadPersistedReportsAsync()
+    {
+        try
+        {
+            await LoadPersistedReportsAsync();
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[ReportsHarvestPage] LoadPersistedReports failed");
+        }
     }
 
     /// <summary>
@@ -76,7 +92,7 @@ public sealed partial class ReportsHarvestPage : Page
     /// </summary>
     public void OnPageActivated()
     {
-        _ = LoadPersistedReportsAsync();
+        _ = SafeLoadPersistedReportsAsync();
     }
 
     private void OnPageLoaded(object sender, RoutedEventArgs e)
@@ -120,29 +136,54 @@ public sealed partial class ReportsHarvestPage : Page
 
     private static IEnumerable<ReportEntry> EnrichSeedReports(IReadOnlyList<ReportEntry> seeds)
     {
-        // Try to find the demo video file so the exported PDF shows a real path
-        var videoCandidates = new[]
+        // Prefer app-bundled assets so demo evidence works on any machine/OS, then fall back
+        // to the developer's local checkout for convenience. Absolute /home/... paths alone
+        // meant Windows and Android always resolved to nothing.
+        static string Asset(string name) => System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", name);
+
+        var scenarioVideos = new[]
         {
+            Asset("stream_multisector_60s.mp4"),
+            Asset("stream_v7c_final.mp4"),
             "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/stream_multisector_60s.mp4",
             "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/stream_v7c_final.mp4",
+            "/home/fawwazfa/Program/Harvestmoon/demo_videos/out/gabung_fused_only.mp4",
+            "/home/fawwazfa/Program/Harvestmoon/vidio/YDX_burned.mp4",
+        };
+
+        var fallbackCandidates = new[]
+        {
+            Asset("YDXJ_fused_only_detected.mp4"),
+            Asset("stream_multisector_survey.mp4"),
             "/home/fawwazfa/Program/Harvestmoon/vidio/15d.mp4",
             "/home/fawwazfa/Program/Harvestmoon/vidio/YDXJ0012_demo(1).mp4",
             "/home/fawwazfa/Program/Harvestmoon/vid/15d.mp4",
             "/home/fawwazfa/Program/Harvestmoon/demo_videos/fusion_gabung/gabung_fused_only.mp4",
             "/home/fawwazfa/Program/Harvestmoon/demo_videos/fusion_gabung/gabung_fused.mp4",
-            "/home/fawwazfa/Program/Harvestmoon/demo_videos/out/gabung_fused_only.mp4",
         };
-        var demoVideo = System.Array.Find(
-            videoCandidates,
+        var fallbackVideo = System.Array.Find(
+            fallbackCandidates,
             p => System.IO.File.Exists(p) && new System.IO.FileInfo(p).Length > 10_000) ?? string.Empty;
 
-        // Fake-but-consistent TLOG paths for each seed (files need not exist for PDF — path is just shown as text)
-        var tlogDir = System.IO.Path.Combine(
-            System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments),
-            "HarvestmoonGCS", "TLogs");
+        // TLogs live under a writable root; MyDocuments is empty on Android.
+        var docsRoot = System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments);
+        if (string.IsNullOrWhiteSpace(docsRoot))
+        {
+            docsRoot = System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData);
+        }
+        if (string.IsNullOrWhiteSpace(docsRoot))
+        {
+            docsRoot = AppContext.BaseDirectory;
+        }
+
+        var tlogDir = System.IO.Path.Combine(docsRoot, "HarvestmoonGCS", "TLogs");
 
         foreach (var (seed, idx) in seeds.Select((s, i) => (s, i)))
         {
+            var vid = (idx < scenarioVideos.Length && System.IO.File.Exists(scenarioVideos[idx]))
+                ? scenarioVideos[idx]
+                : fallbackVideo;
+
             var tlogName = $"demo_{seed.Id.Replace("DEMO-", "").Replace("-", "_")}.tlog";
             yield return new ReportEntry
             {
@@ -153,7 +194,7 @@ public sealed partial class ReportsHarvestPage : Page
                 Detections          = seed.Detections,
                 Priority            = seed.Priority,
                 IsDemo              = seed.IsDemo,
-                VideoRecordingPath  = idx == 0 ? demoVideo : string.Empty,
+                VideoRecordingPath  = vid,
                 TlogPath            = System.IO.Path.Combine(tlogDir, tlogName),
                 GeofenceAlertsJson  = "[]",
                 YoloBenchmarkJson   = seed.YoloBenchmarkJson,
@@ -175,56 +216,86 @@ public sealed partial class ReportsHarvestPage : Page
 
     private async void ExportAction_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button button || button.Content is not string label)
+        try
         {
-            return;
-        }
-
-        var selected = _reports.FirstOrDefault(r => r.Id == _selectedId);
-        if (selected == null)
-        {
-            ShowActionFeedback("Please select a report first");
-            return;
-        }
-
-        if (_harvestFunctionalService != null && label is "PDF" or "CSV" or "JSON")
-        {
-            var record = ToHarvestReportRecord(selected);
-            var baseName = selected.Id.Replace(" ", "_").Replace("/", "-");
-            var path = label switch
+            if (sender is not Button button || button.Content is not string label)
             {
-                "PDF" => await _harvestFunctionalService.ExportReportPdfAsync(record, baseName),
-                "CSV" => await _harvestFunctionalService.ExportReportCsvAsync(record, baseName),
-                "JSON" => await _harvestFunctionalService.ExportReportJsonAsync(record, baseName),
-                _ => string.Empty
-            };
+                return;
+            }
 
-            ShowActionFeedback($"{label} report saved: {path}");
-            return;
+            var selected = _reports.FirstOrDefault(r => r.Id == _selectedId);
+            if (selected == null)
+            {
+                ShowActionFeedback("Please select a report first");
+                return;
+            }
+
+            if (_harvestFunctionalService != null && label is "PDF" or "CSV" or "JSON")
+            {
+                var record = ToHarvestReportRecord(selected);
+                var baseName = selected.Id.Replace(" ", "_").Replace("/", "-");
+                var path = label switch
+                {
+                    "PDF" => await _harvestFunctionalService.ExportReportPdfAsync(record, baseName),
+                    "CSV" => await _harvestFunctionalService.ExportReportCsvAsync(record, baseName),
+                    "JSON" => await _harvestFunctionalService.ExportReportJsonAsync(record, baseName),
+                    _ => string.Empty
+                };
+
+                ShowActionFeedback(DescribeExport(label, path));
+                return;
+            }
+
+            if (_harvestFunctionalService != null && label == "Share")
+            {
+                var record = ToHarvestReportRecord(selected);
+                var baseName = selected.Id.Replace(" ", "_").Replace("/", "-");
+                var path = await _harvestFunctionalService.ExportReportPdfAsync(record, baseName);
+                ShowActionFeedback(string.IsNullOrWhiteSpace(path) || IsExportFailure(path)
+                    ? $"Failed to prepare report for sharing: {path}"
+                    : $"Report ready to share: {path}");
+                return;
+            }
+
+            if (_harvestFunctionalService != null && (label == "Send to Cooperative" || label == "Cooperative" || button == ExportCoopButton))
+            {
+                var record = ToHarvestReportRecord(selected);
+                var zipPath = await _harvestFunctionalService.QueueReportForCooperativeAsync(record);
+                ShowActionFeedback(string.IsNullOrWhiteSpace(zipPath) || IsExportFailure(zipPath)
+                    ? $"Failed to prepare report bundle: {zipPath}"
+                    : $"Report bundle queued in Outbox — send manually to the cooperative: {zipPath}");
+                return;
+            }
+
+            ShowActionFeedback("Action executed");
         }
-
-        if (_harvestFunctionalService != null && label == "Share")
+        catch (Exception ex)
         {
-            var record = ToHarvestReportRecord(selected);
-            var baseName = selected.Id.Replace(" ", "_").Replace("/", "-");
-            var path = await _harvestFunctionalService.ExportReportPdfAsync(record, baseName);
-            ShowActionFeedback(string.IsNullOrWhiteSpace(path)
-                ? "Failed to prepare report for sharing"
-                : $"Report ready to share: {path}");
-            return;
+            // Bundling zips files and writes to disk; an escaping exception here would
+            // terminate the process.
+            Serilog.Log.Error(ex, "[ReportsHarvestPage] Export action failed");
+            ShowActionFeedback($"Export failed: {ex.Message}");
         }
+    }
 
-        if (_harvestFunctionalService != null && (label == "Send to Cooperative" || label == "Cooperative" || button == ExportCoopButton))
+    /// <summary>
+    /// The file/evidence layer signals failure by returning an "EXPORT_FAILED: ..." string
+    /// rather than throwing, so callers must not present it as a successful save.
+    /// </summary>
+    private static bool IsExportFailure(string? path) =>
+        !string.IsNullOrWhiteSpace(path) &&
+        path.StartsWith("EXPORT_FAILED", StringComparison.OrdinalIgnoreCase);
+
+    private static string DescribeExport(string label, string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
         {
-            var record = ToHarvestReportRecord(selected);
-            var zipPath = await _harvestFunctionalService.QueueReportForCooperativeAsync(record);
-            ShowActionFeedback(string.IsNullOrWhiteSpace(zipPath)
-                ? "Failed to prepare report bundle"
-                : $"Report bundle queued in Outbox — send manually to the cooperative: {zipPath}");
-            return;
+            return $"{label} export failed: no output path returned";
         }
 
-        ShowActionFeedback("Action executed");
+        return IsExportFailure(path)
+            ? $"{label} export failed: {path}"
+            : $"{label} report saved: {path}";
     }
 
     private void MissionRow_Tapped(object sender, TappedRoutedEventArgs e)

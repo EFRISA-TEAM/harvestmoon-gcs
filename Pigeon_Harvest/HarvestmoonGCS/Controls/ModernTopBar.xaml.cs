@@ -36,7 +36,11 @@ public sealed partial class ModernTopBar : UserControl
         };
         _exitTimer.Tick += (s, e) => ResetExitState();
         
-        this.Loaded += (s, e) => UpdateConnectionVisuals();
+        this.Loaded += (s, e) =>
+        {
+            _lastVisualStatus = (ConnectionStatus)(-1);
+            UpdateConnectionVisuals();
+        };
     }
 
     // Dependency Properties
@@ -144,11 +148,11 @@ public sealed partial class ModernTopBar : UserControl
     public event EventHandler? RTLClicked;
     public event EventHandler? MissionClicked;
 
-    // Mission state \u2014 starts false since no mission is actually running until a real
+    // Mission state — starts false since no mission is actually running until a real
     // MISSION_START command succeeds (see MainPage_Modern.TopBar_MissionClicked).
     private bool _isMissionRunning;
 
-    /// <summary>Whether the top bar currently shows the mission as running (reflects a real, confirmed state \u2014 see <see cref="SetMissionRunning"/>).</summary>
+    /// <summary>Whether the top bar currently shows the mission as running (reflects a real, confirmed state — see <see cref="SetMissionRunning"/>).</summary>
     public bool IsMissionRunning => _isMissionRunning;
 
     private void ConnectButton_Click(object sender, RoutedEventArgs e)
@@ -239,16 +243,29 @@ public sealed partial class ModernTopBar : UserControl
         SetPillCompact(GpsPill,     GpsText,      pillPadding, pillFontSize);
 
         // Compact action buttons
-        var btnPadding = compact ? new Thickness(7, 5) : new Thickness(10, 8);
-        if (RTLButton != null)     RTLButton.Padding     = btnPadding;
-        if (MissionButton != null) MissionButton.Padding = btnPadding;
+        double btnHeight = compact ? 30 : 34;
+        var btnPadding = compact ? new Thickness(8, 0) : new Thickness(12, 0);
+        if (RTLButton != null)
+        {
+            RTLButton.Height = btnHeight;
+            RTLButton.Padding = compact ? new Thickness(7, 0) : new Thickness(10, 0);
+        }
+        if (MissionButton != null)
+        {
+            MissionButton.Height = btnHeight;
+            MissionButton.Padding = btnPadding;
+        }
 
         // Shrink button font sizes
         SetButtonLabelFontSize(RTLButton,     compact ? 11.0 : 12.0);
         SetButtonLabelFontSize(MissionButton, compact ? 11.0 : 12.0);
 
         // Connect button
-        if (ConnectButton != null) ConnectButton.Padding = compact ? new Thickness(8, 5, 10, 5) : new Thickness(12, 8, 16, 8);
+        if (ConnectButton != null)
+        {
+            ConnectButton.Height = btnHeight;
+            ConnectButton.Padding = compact ? new Thickness(8, 0, 10, 0) : new Thickness(12, 0, 14, 0);
+        }
         if (ConnectionLabel != null) ConnectionLabel.FontSize = compact ? 10.0 : 11.0;
     }
 
@@ -294,21 +311,91 @@ public sealed partial class ModernTopBar : UserControl
             (Resources["DotPulseAnimation"] as Storyboard)?.Stop();
         }
 
-        
-        ConnectButton.Style = Status switch
+        if (ConnectButton != null)
         {
-            ConnectionStatus.Connected => (Style)Application.Current.Resources["ConnectedButtonStyle"],
-            ConnectionStatus.Connecting => (Style)Application.Current.Resources["ConnectingButtonStyle"],
-            _ => (Style)Application.Current.Resources["DisconnectedButtonStyle"]
-        };
+            ConnectButton.Style = Status switch
+            {
+                ConnectionStatus.Connected => (Style)Application.Current.Resources["ConnectedButtonStyle"],
+                ConnectionStatus.Connecting => (Style)Application.Current.Resources["ConnectingButtonStyle"],
+                _ => (Style)Application.Current.Resources["DisconnectedButtonStyle"]
+            };
+        }
 
+        bool isConnected = Status == ConnectionStatus.Connected;
+        if (RTLButton != null)
+        {
+            RTLButton.Opacity = isConnected ? 1.0 : 0.45;
+        }
+        if (MissionButton != null)
+        {
+            MissionButton.Opacity = isConnected ? 1.0 : 0.45;
+        }
+
+        UpdateWifiPillVisuals();
         UpdateTelemetryColors();
+    }
+
+    private void UpdateWifiPillVisuals()
+    {
+        if (WifiPill == null || WifiIcon == null || WifiLabel == null)
+        {
+            return;
+        }
+
+        switch (Status)
+        {
+            case ConnectionStatus.Connected:
+                WifiLabel.Text = "Connected";
+                WifiIcon.Glyph = "\uE701";
+                WifiLabel.Foreground = ResolveBrush("ConnectedBrush", "SuccessBrush");
+                WifiIcon.Foreground = ResolveBrush("ConnectedBrush", "SuccessBrush");
+                WifiPill.Background = ResolveBrush("ConnectedBgBrush", "SuccessBrush20");
+                WifiPill.BorderBrush = ResolveBrush("ConnectedBorderBrush", "SuccessBrush40");
+                break;
+
+            case ConnectionStatus.Connecting:
+                WifiLabel.Text = "Connecting...";
+                WifiIcon.Glyph = "\uE895";
+                WifiLabel.Foreground = ResolveBrush("ConnectingBrush", "WarningBrush");
+                WifiIcon.Foreground = ResolveBrush("ConnectingBrush", "WarningBrush");
+                WifiPill.Background = ResolveBrush("ConnectingBgBrush", "WarningBrush40");
+                WifiPill.BorderBrush = ResolveBrush("ConnectingBorderBrush", "WarningBrush40");
+                break;
+
+            case ConnectionStatus.Disconnected:
+            default:
+                WifiLabel.Text = "Disconnected";
+                WifiIcon.Glyph = "\uE703";
+                WifiLabel.Foreground = ResolveBrush("DisconnectedBrush", "ErrorBrush");
+                WifiIcon.Foreground = ResolveBrush("DisconnectedBrush", "ErrorBrush");
+                WifiPill.Background = ResolveBrush("DisconnectedBgBrush", "ErrorBrush20");
+                WifiPill.BorderBrush = ResolveBrush("DisconnectedBorderBrush", "ErrorBrush40");
+                break;
+        }
+    }
+
+    private Brush ResolveBrush(string localKey, string fallbackThemeKey)
+    {
+        if (Resources.TryGetValue(localKey, out var res) && res is Brush b1)
+        {
+            return b1;
+        }
+        if (Application.Current.Resources.TryGetValue(fallbackThemeKey, out var appRes) && appRes is Brush b2)
+        {
+            return b2;
+        }
+        return new SolidColorBrush(Microsoft.UI.Colors.Transparent);
     }
 
     private void UpdateBatteryVisuals()
     {
+        if (BatteryText == null || BatteryIcon == null)
+        {
+            return;
+        }
+
         bool isConnected = Status == ConnectionStatus.Connected;
-        var nextText = isConnected ? $"{Battery:F0}%" : "—";
+        var nextText = (isConnected && Battery > 0) ? $"{Battery:F0}%" : "—";
         if (!string.Equals(BatteryText.Text, nextText, StringComparison.Ordinal))
         {
             BatteryText.Text = nextText;
@@ -321,21 +408,28 @@ public sealed partial class ModernTopBar : UserControl
 
         _lastRenderedBattery = Battery;
         
-        if (isConnected)
+        if (isConnected && Battery > 0)
         {
             var brushKey = Battery > 50 ? "SuccessBrush" : (Battery > 20 ? "WarningBrush" : "ErrorBrush");
-            BatteryText.Foreground = Application.Current.Resources.TryGetValue(brushKey, out var brush) ? (Brush)brush : BatteryText.Foreground;
-            BatteryIcon.Foreground = Application.Current.Resources.TryGetValue(brushKey, out var iconBrush) ? (Brush)iconBrush : BatteryIcon.Foreground;
+            var brush = Application.Current.Resources.TryGetValue(brushKey, out var b) ? (Brush)b : BatteryText.Foreground;
+            BatteryText.Foreground = brush;
+            BatteryIcon.Foreground = brush;
         }
         else
         {
-            BatteryText.Foreground = (Brush)Application.Current.Resources["MutedForegroundBrush"];
-            BatteryIcon.Foreground = (Brush)Application.Current.Resources["MutedForegroundBrush"];
+            var muted = (Brush)Application.Current.Resources["MutedForegroundBrush"];
+            BatteryText.Foreground = muted;
+            BatteryIcon.Foreground = muted;
         }
     }
 
     private void UpdateGpsVisuals()
     {
+        if (GpsText == null || GpsIcon == null)
+        {
+            return;
+        }
+
         bool isConnected = Status == ConnectionStatus.Connected;
         var nextText = isConnected ? (GpsSats > 0 ? $"Fix ({GpsSats})" : "No Fix") : "—";
         if (!string.Equals(GpsText.Text, nextText, StringComparison.Ordinal))
@@ -352,18 +446,25 @@ public sealed partial class ModernTopBar : UserControl
         
         if (isConnected && GpsSats > 0)
         {
-            GpsText.Foreground = (Brush)Application.Current.Resources["InfoBrush"];
-            GpsIcon.Foreground = (Brush)Application.Current.Resources["InfoBrush"];
+            var infoBrush = (Brush)Application.Current.Resources["InfoBrush"];
+            GpsText.Foreground = infoBrush;
+            GpsIcon.Foreground = infoBrush;
         }
         else
         {
-            GpsText.Foreground = (Brush)Application.Current.Resources["MutedForegroundBrush"];
-            GpsIcon.Foreground = (Brush)Application.Current.Resources["MutedForegroundBrush"];
+            var muted = (Brush)Application.Current.Resources["MutedForegroundBrush"];
+            GpsText.Foreground = muted;
+            GpsIcon.Foreground = muted;
         }
     }
 
     private void UpdateModeVisuals()
     {
+        if (ModeText == null || ModeIcon == null)
+        {
+            return;
+        }
+
         bool isConnected = Status == ConnectionStatus.Connected;
         var nextMode = isConnected ? Mode : "—";
         if (!string.Equals(ModeText.Text, nextMode, StringComparison.Ordinal))
@@ -378,15 +479,17 @@ public sealed partial class ModernTopBar : UserControl
 
         _lastRenderedMode = Mode;
         
-        if (isConnected)
+        if (isConnected && !string.Equals(Mode, "—", StringComparison.Ordinal))
         {
-            ModeText.Foreground = (Brush)Application.Current.Resources["NavStatsBrush"];
-            ModeIcon.Foreground = (Brush)Application.Current.Resources["NavStatsBrush"];
+            var navBrush = (Brush)Application.Current.Resources["NavStatsBrush"];
+            ModeText.Foreground = navBrush;
+            ModeIcon.Foreground = navBrush;
         }
         else
         {
-            ModeText.Foreground = (Brush)Application.Current.Resources["MutedForegroundBrush"];
-            ModeIcon.Foreground = (Brush)Application.Current.Resources["MutedForegroundBrush"];
+            var muted = (Brush)Application.Current.Resources["MutedForegroundBrush"];
+            ModeText.Foreground = muted;
+            ModeIcon.Foreground = muted;
         }
     }
 

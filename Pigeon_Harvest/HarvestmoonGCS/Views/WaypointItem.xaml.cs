@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using HarvestmoonGCS.Core.Models;
+using Serilog;
 
 namespace HarvestmoonGCS.Views;
 
@@ -116,25 +117,33 @@ public sealed partial class WaypointItem : UserControl
 
     private async void Edit_Click(object sender, RoutedEventArgs e)
     {
-        if (TheWaypointData == null) return;
-
-        var dialog = new WaypointEditDialog(TheWaypointData);
-        dialog.XamlRoot = this.XamlRoot;
-        
-        var result = await dialog.ShowAsync();
-        
-        if (result == ContentDialogResult.Primary && dialog.ResultWaypoint != null)
+        try
         {
-            TheWaypointData.Latitude = dialog.ResultWaypoint.Latitude;
-            TheWaypointData.Longitude = dialog.ResultWaypoint.Longitude;
-            TheWaypointData.Altitude = dialog.ResultWaypoint.Altitude;
-            TheWaypointData.Command = dialog.ResultWaypoint.Command;
-            TheWaypointData.Param1 = dialog.ResultWaypoint.Param1;
-            TheWaypointData.Param2 = dialog.ResultWaypoint.Param2;
-            TheWaypointData.Param3 = dialog.ResultWaypoint.Param3;
-            TheWaypointData.Param4 = dialog.ResultWaypoint.Param4;
-            
-            UpdateUI();
+            if (TheWaypointData == null) return;
+
+            var dialog = new WaypointEditDialog(TheWaypointData);
+            dialog.XamlRoot = this.XamlRoot;
+
+            // ShowAsync throws if another ContentDialog is already open on this XamlRoot.
+            var result = await dialog.ShowAsync();
+
+            if (result == ContentDialogResult.Primary && dialog.ResultWaypoint != null)
+            {
+                TheWaypointData.Latitude = dialog.ResultWaypoint.Latitude;
+                TheWaypointData.Longitude = dialog.ResultWaypoint.Longitude;
+                TheWaypointData.Altitude = dialog.ResultWaypoint.Altitude;
+                TheWaypointData.Command = dialog.ResultWaypoint.Command;
+                TheWaypointData.Param1 = dialog.ResultWaypoint.Param1;
+                TheWaypointData.Param2 = dialog.ResultWaypoint.Param2;
+                TheWaypointData.Param3 = dialog.ResultWaypoint.Param3;
+                TheWaypointData.Param4 = dialog.ResultWaypoint.Param4;
+
+                UpdateUI();
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[WaypointItem] Edit dialog failed");
         }
     }
 

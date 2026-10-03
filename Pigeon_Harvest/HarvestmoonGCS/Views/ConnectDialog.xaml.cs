@@ -22,6 +22,8 @@ namespace HarvestmoonGCS.Views
         private readonly ISettingsService? _settingsService;
         private readonly IRuncamWifiLinkService? _runcamService;
         private bool _isRuncamMode = false;
+        private bool _runcamIpUserEdited;
+        private bool _suppressRuncamIpTracking;
         private System.Threading.CancellationTokenSource? _runcamScanCts;
         private bool _isConnecting;
         private int _progressLoopToken;
@@ -38,6 +40,11 @@ namespace HarvestmoonGCS.Views
         private const int ManualSerialProbeRounds = 1;
         private const string LastSerialPortKey = "mavlink.serial.lastPort";
         private const string LastBaudRateKey = "mavlink.serial.lastBaud";
+        private const string LastConnectionTypeKey = "mavlink.last.type";
+        private const string LastHostKey = "mavlink.last.host";
+        private const string LastPortKey = "mavlink.last.port";
+        private const string LastRuncamIpKey = "runcam.last.ip";
+        private const string AutoConnectOnStartupKey = "mavlink.autoConnectOnStartup";
         private const string AutoDetectPortsKey = "mavlink.serial.autoDetect";
         private const string AutoConnectOnNewPortKey = "mavlink.serial.autoConnectOnNewPort";
         private const string AutoDetectLastAttemptUtcKey = "mavlink.serial.autoDetect.lastAttemptUtc";
@@ -56,6 +63,10 @@ namespace HarvestmoonGCS.Views
             UpdateFieldsVisibility();
             
             InitializeSelections();
+            if (RuncamIpTextBox != null)
+            {
+                RuncamIpTextBox.TextChanged += RuncamIpTextBox_TextChanged;
+            }
             this.Loaded += ConnectDialog_Loaded;
             this.Opened += ConnectDialog_Opened;
             this.Closed += ConnectDialog_Closed;
@@ -216,6 +227,10 @@ namespace HarvestmoonGCS.Views
 
             _mavLinkService.ConnectionStatusChanged += OnConnectionStatusChanged;
             _mavLinkService.HeartbeatReceived += OnHeartbeatReceived;
+            if (_runcamService != null)
+            {
+                _runcamService.StatusChanged += OnRuncamStatusChanged;
+            }
             _isStatusSubscribed = true;
         }
 
@@ -228,7 +243,16 @@ namespace HarvestmoonGCS.Views
 
             _mavLinkService.ConnectionStatusChanged -= OnConnectionStatusChanged;
             _mavLinkService.HeartbeatReceived -= OnHeartbeatReceived;
+            if (_runcamService != null)
+            {
+                _runcamService.StatusChanged -= OnRuncamStatusChanged;
+            }
             _isStatusSubscribed = false;
+        }
+
+        private void OnRuncamStatusChanged(object? sender, RuncamConnectionStatus status)
+        {
+            DispatcherQueue.TryEnqueue(UpdateConnectButtonState);
         }
 
         private void OnConnectionStatusChanged(object? sender, bool isConnected)
@@ -369,7 +393,7 @@ namespace HarvestmoonGCS.Views
                 return false;
             }
 
-            return _settingsService?.GetBool(AutoConnectOnNewPortKey, true) ?? true;
+            return _settingsService?.GetBool(AutoConnectOnNewPortKey, false) ?? false;
         }
 
         private IEnumerable<int> BuildProbeBaudOrder(string port, int preferredBaud)
@@ -527,7 +551,8 @@ namespace HarvestmoonGCS.Views
                 return;
             }
 
-            var isConnected = _mavLinkService?.IsConnected ?? false;
+            var isConnected = (_mavLinkService?.IsConnected ?? false)
+                || (_runcamService != null && (_runcamService.IsCameraConnected || _runcamService.IsMavLinkConnected));
             ConnectButtonText.Text = isConnected ? "Disconnect" : "Connect";
             ConnectButtonIcon.Glyph = isConnected ? "\uE71A" : "\uE912";
         }
@@ -643,6 +668,8 @@ namespace HarvestmoonGCS.Views
                     UpdateTabStyles();
                     UpdateFieldsVisibility();
                     UpdateConnectButtonState();
+                    // Cari UAV (Orange Pi / RunCam) di jaringan secara otomatis
+                    _ = AutoDetectRuncamAsync();
                     return;
                 }
 
@@ -650,6 +677,10 @@ namespace HarvestmoonGCS.Views
                 if (Enum.TryParse(typeStr, out ConnectionType type))
                 {
                     _selectedType = type;
+                    if (type == ConnectionType.UDP && HostTextBox != null && (string.IsNullOrWhiteSpace(HostTextBox.Text) || HostTextBox.Text == "127.0.0.1"))
+                    {
+                        HostTextBox.Text = "0.0.0.0";
+                    }
                     UpdateTabStyles();
                     UpdateFieldsVisibility();
                     UpdateConnectButtonState();
@@ -732,10 +763,26 @@ namespace HarvestmoonGCS.Views
                     case "RUNCAM":
                         // Preset RunCam WiFi Link 2 – aktifkan tab RunCam
                         _isRuncamMode = true;
-                        RuncamIpTextBox.Text = "192.168.0.1";
+                        _suppressRuncamIpTracking = true;
+                        try
+                        {
+                            RuncamIpTextBox.Text = "192.168.1.100";
+                        }
+                        finally
+                        {
+                            _suppressRuncamIpTracking = false;
+                        }
                         RuncamMavLocalPortTextBox.Text  = "14550";
                         RuncamMavRemotePortTextBox.Text = "14551";
                         RuncamProtocolComboBox.SelectedIndex = 2; // Auto
+                        break;
+                    case "UAVLISTEN":
+                        // UAV (Orange Pi companion) MENDORONG telemetri ke GCS:14550.
+                        // IP UAV tidak diketahui (DHCP router/hotspot) → mode dengarkan.
+                        _isRuncamMode = false;
+                        _selectedType = ConnectionType.UDP;
+                        HostTextBox.Text = "0.0.0.0";
+                        PortTextBox.Text = "14550";
                         break;
                 }
                 UpdateTabStyles();
@@ -761,14 +808,25 @@ namespace HarvestmoonGCS.Views
                 return;
             }
 
-            if (_mavLinkService?.IsConnected == true)
+            bool isConnected = _mavLinkService?.IsConnected == true
+                || (_runcamService != null && (_runcamService.IsCameraConnected || _runcamService.IsMavLinkConnected));
+            if (isConnected)
             {
                 _isDisconnecting = true;
                 try
                 {
                     ConnectButton.IsEnabled = false;
                     StatusSubtitle.Text = "Disconnecting...";
-                    await _mavLinkService.DisconnectAsync();
+                    // Matikan RunCam (kamera + MAVLink) juga, bukan hanya MAVLink biasa.
+                    if (_runcamService != null &&
+                        (_runcamService.IsCameraConnected || _runcamService.IsMavLinkConnected))
+                    {
+                        await _runcamService.DisconnectAllAsync();
+                    }
+                    if (_mavLinkService?.IsConnected == true)
+                    {
+                        await _mavLinkService.DisconnectAsync();
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -831,24 +889,23 @@ namespace HarvestmoonGCS.Views
                 // ── Mode RunCam WiFi Link 2 ─────────────────────────────────────────
                 if (_isRuncamMode && _runcamService != null)
                 {
-                    var runcamConfig = BuildRuncamConfig();
-                    bool connectCamera  = RuncamConnectCameraCheck.IsChecked == true;
-                    bool connectMavLink = RuncamConnectMavLinkCheck.IsChecked == true;
+                    // Jika IP belum diisi, coba deteksi otomatis dulu (UAV via router/hotspot).
+                    if (string.IsNullOrWhiteSpace(RuncamIpTextBox.Text))
+                    {
+                        StatusSubtitle.Text = "Mencari UAV di jaringan...";
+                        await AutoDetectRuncamAsync();
+                    }
 
-                    StatusSubtitle.Text = "Menghubungkan ke RunCam WiFi Link 2...";
+                    var runcamConfig = BuildRuncamConfig();
+
+                    // Otomatis: kamera + MAVLink selalu terhubung bersamaan.
+                    StatusSubtitle.Text = "Menghubungkan kamera + MAVLink via RunCam WiFi Link 2...";
                     bool success = false;
 
                     using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(20));
                     try
                     {
-                        if (connectCamera && connectMavLink)
-                            success = await _runcamService.ConnectAllAsync(runcamConfig, cts.Token);
-                        else if (connectCamera)
-                            success = await _runcamService.StartCameraStreamAsync(runcamConfig, cts.Token);
-                        else if (connectMavLink)
-                            success = await _runcamService.StartMavLinkAsync(runcamConfig, cts.Token);
-                        else
-                            success = true; // tidak ada yang dipilih, anggap sukses
+                        success = await _runcamService.ConnectAllAsync(runcamConfig, cts.Token);
                     }
                     catch (OperationCanceledException)
                     {
@@ -867,6 +924,9 @@ namespace HarvestmoonGCS.Views
                             var status = _runcamService.Status;
                             StatusSubtitle.Text = $"RunCam terhubung ({status})";
                             RuncamStatusText.Text = $"Terhubung – {runcamConfig.ActiveStreamUrl}";
+                            // Simpan untuk auto-connect saat aplikasi dibuka lagi.
+                            SaveLastConnection(isRuncam: true, host: runcamConfig.CameraIp,
+                                port: runcamConfig.MavLinkLocalPort);
                             shouldHideDialog = true;
                         }
                         else
@@ -937,6 +997,10 @@ namespace HarvestmoonGCS.Views
                         TitleIcon.Glyph = "✓";
                         TitleIconBorder.Background = new SolidColorBrush(Color.FromArgb(51, 16, 185, 129));
                         TitleIconBorder.BorderBrush = new SolidColorBrush(Color.FromArgb(102, 16, 185, 129));
+
+                        // Simpan untuk auto-connect saat aplikasi dibuka lagi.
+                        SaveLastConnection(isRuncam: false, host: config.Address, port: config.Port,
+                            type: _selectedType);
 
                         await Task.Delay(1200);
                         shouldHideDialog = true;
@@ -1110,6 +1174,68 @@ namespace HarvestmoonGCS.Views
 
         // ── RunCam WiFi Link 2 handlers ────────────────────────────────────────
 
+        private void RuncamIpTextBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (!_suppressRuncamIpTracking)
+            {
+                _runcamIpUserEdited = true;
+            }
+        }
+
+        /// <summary>
+        /// Cari UAV/Orange Pi di jaringan (LAN TP-Link atau hotspot) lalu isi field IP
+        /// secara otomatis. Tidak menimpa IP yang sudah diketik manual oleh user.
+        /// </summary>
+        private async Task AutoDetectRuncamAsync()
+        {
+            if (_runcamService == null || _runcamIpUserEdited)
+            {
+                return;
+            }
+
+            try
+            {
+                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(25));
+                var devices = await _runcamService.DetectDevicesAsync(cts.Token);
+                if (devices.Count == 0)
+                {
+                    return;
+                }
+
+                var best = devices[0];
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (_runcamIpUserEdited)
+                    {
+                        return;
+                    }
+
+                    _suppressRuncamIpTracking = true;
+                    try
+                    {
+                        RuncamIpTextBox.Text = best.CameraIp;
+                        RuncamProtocolComboBox.SelectedIndex =
+                            best.StreamProtocol == HarvestmoonGCS.Core.Models.RuncamStreamProtocol.Rtsp ? 0 : 1;
+                    }
+                    finally
+                    {
+                        _suppressRuncamIpTracking = false;
+                    }
+
+                    RuncamStatusText.Text = $"Terdeteksi otomatis: {best.CameraIp} ({best.StreamProtocol})";
+                    RuncamStatusBorder.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(40, 34, 197, 94));
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                // scan dibatalkan / timeout — abaikan, user tetap bisa isi manual
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ConnectDialog] Auto-detect RunCam gagal: {ex.Message}");
+            }
+        }
+
         /// <summary>Scan jaringan untuk mendeteksi RunCam WiFi Link 2 secara otomatis.</summary>
         private async void RuncamScanButton_Click(object sender, RoutedEventArgs e)
         {
@@ -1140,7 +1266,7 @@ namespace HarvestmoonGCS.Views
                     }
                     else
                     {
-                        RuncamStatusText.Text = "Tidak ditemukan. Pastikan terhubung ke WiFi RUNCAM_WIFILINK_XXXXXX";
+                        RuncamStatusText.Text = "Tidak ditemukan. Pastikan laptop terhubung ke WiFi RUNCAM_WIFILINK_XXXXXX atau ke LAN router TP-Link, dan UAV menyala.";
                         RuncamStatusBorder.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(40, 239, 68, 68));
                     }
 
@@ -1169,7 +1295,7 @@ namespace HarvestmoonGCS.Views
         private HarvestmoonGCS.Core.Models.RuncamWifiLinkConfig BuildRuncamConfig()
         {
             var ip = RuncamIpTextBox.Text.Trim();
-            if (string.IsNullOrWhiteSpace(ip)) ip = "192.168.0.1";
+            if (string.IsNullOrWhiteSpace(ip)) ip = "192.168.1.100";
 
             int localPort  = int.TryParse(RuncamMavLocalPortTextBox.Text,  out var lp) ? lp : 14550;
             int remotePort = int.TryParse(RuncamMavRemotePortTextBox.Text, out var rp) ? rp : 14551;
@@ -1197,6 +1323,110 @@ namespace HarvestmoonGCS.Views
             _isConnecting = false;
             _runcamScanCts?.Cancel();
             this.Hide();
+        }
+
+        // ── Auto-connect saat aplikasi dibuka ───────────────────────────────────
+
+        /// <summary>
+        /// Simpan konfigurasi koneksi terakhir supaya bisa dipakai auto-connect
+        /// saat MoonHarvest dibuka lagi (tanpa perlu klik Connect manual).
+        /// </summary>
+        private void SaveLastConnection(bool isRuncam, string host, int port,
+            ConnectionType? type = null)
+        {
+            try
+            {
+                if (_settingsService == null) return;
+
+                _settingsService.SaveString(LastConnectionTypeKey, isRuncam ? "RUNCAM" : (type ?? ConnectionType.UDP).ToString());
+                _settingsService.SaveString(LastHostKey, host ?? string.Empty);
+                _settingsService.SaveInt(LastPortKey, port);
+
+                if (isRuncam && !string.IsNullOrWhiteSpace(host))
+                {
+                    _settingsService.SaveString(LastRuncamIpKey, host);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ConnectDialog] SaveLastConnection gagal: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Auto-connect saat startup aplikasi (tanpa membuka dialog).
+        ///
+        /// Dinonaktifkan secara default ("mavlink.autoConnectOnStartup" = false) agar
+        /// pengguna memiliki kontrol penuh kapan harus menghubungkan wahana.
+        /// </summary>
+        public static async Task<bool> TryAutoConnectAsync(
+            IMavLinkService? mavLinkService,
+            IRuncamWifiLinkService? runcamService,
+            ISettingsService? settingsService)
+        {
+            if (mavLinkService == null || mavLinkService.IsConnected)
+            {
+                return false;
+            }
+
+            // Hormati preferensi pengguna (default: nonaktif).
+            bool autoEnabled = settingsService?.GetBool(AutoConnectOnStartupKey, false) ?? false;
+            if (!autoEnabled)
+            {
+                return false;
+            }
+
+            var typeStr = settingsService?.GetString(LastConnectionTypeKey, null);
+            var host = settingsService?.GetString(LastHostKey, null);
+            var port = settingsService?.GetInt(LastPortKey, 14550) ?? 14550;
+
+            try
+            {
+                // RunCam mode tersimpan → sambungkan kamera + MAVLink sekaligus.
+                if (string.Equals(typeStr, "RUNCAM", StringComparison.OrdinalIgnoreCase)
+                    && runcamService != null)
+                {
+                    var ip = settingsService?.GetString(LastRuncamIpKey, host) ?? host;
+                    if (string.IsNullOrWhiteSpace(ip))
+                    {
+                        return false;
+                    }
+
+                    var cfg = new RuncamWifiLinkConfig
+                    {
+                        CameraIp = ip,
+                        MavLinkRemoteIp = ip,
+                        StreamProtocol = RuncamStreamProtocol.Auto
+                    };
+
+                    using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(15));
+                    return await runcamService.ConnectAllAsync(cfg, cts.Token);
+                }
+
+                // Default aman: dengarkan UDP 14550 (UAV mendorong telemetri).
+                // Jika koneksi terakhir adalah unicast spesifik, pakai itu.
+                bool useListen = string.IsNullOrWhiteSpace(host)
+                    || host == "0.0.0.0"
+                    || string.Equals(typeStr, "UDP", StringComparison.OrdinalIgnoreCase) == false;
+
+                var address = useListen ? "0.0.0.0" : host!;
+                var listenPort = port > 0 ? port : 14550;
+
+                Serilog.Log.Information(
+                    "[ConnectDialog] Auto-connect: {Type} {Addr}:{Port}",
+                    useListen ? "UDP LISTEN" : typeStr, address, listenPort);
+
+                var connectTask = mavLinkService.ConnectAsync(
+                    HarvestmoonGCS.Core.Models.ConnectionType.UDP, address, listenPort);
+
+                var completed = await Task.WhenAny(connectTask, Task.Delay(TimeSpan.FromSeconds(6)));
+                return completed == connectTask && await connectTask;
+            }
+            catch (Exception ex)
+            {
+                Serilog.Log.Warning(ex, "[ConnectDialog] Auto-connect startup gagal");
+                return false;
+            }
         }
     }
 }

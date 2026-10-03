@@ -1,7 +1,7 @@
 # MoonHarvest — Manual Book
 ## Panduan Penggunaan Sistem Monitoring Kesehatan Tanaman Padi Berbasis UAV
 
-**Versi:** 1.0 (TEKNOFEST 2026)
+**Versi:** 2.0 (TEKNOFEST 2026)
 **Platform:** .NET 9 / Uno Platform + Python 3 + YOLOv8 + OpenCV
 **Tim:** MoonHarvest Team — EFRISA TEKNO
 
@@ -19,9 +19,8 @@
 8. [Kelas Deteksi & Maknanya](#8-kelas-deteksi--maknanya)
 9. [Field Health Index (FHI)](#9-field-health-index-fhi)
 10. [Konfigurasi Parameter](#10-konfigurasi-parameter)
-11. [Protokol Komunikasi MAVLink](#11-protokol-komunikasi-mavlink)
-12. [Troubleshooting](#12-troubleshooting)
-13. [Keterbatasan Sistem](#13-keterbatasan-sistem)
+11. [Troubleshooting](#11-troubleshooting)
+12. [Keterbatasan Sistem](#12-keterbatasan-sistem)
 
 ---
 
@@ -41,12 +40,13 @@ Python Detection Script (moonharvest_detect_stream.py)
        ▼ JSON stream (stdout)
        │
 HarvestmoonGCS (.NET / Uno Platform)
-   ├── Dashboard   ← status UAV + ringkasan kesehatan
-   ├── Camera      ← video live + bounding box deteksi
-   ├── Map         ← peta waypoint & geofence
-   ├── Mission     ← perencanaan misi terbang
-   ├── Reports     ← laporan hasil sesi deteksi
-   └── Stats       ← grafik distribusi kelas
+   ├── Dashboard · Live ← status UAV + ringkasan kesehatan
+   ├── Camera           ← video live + bounding box deteksi
+   ├── Peta & Misi      ← peta waypoint & geofence
+   ├── Crop Analysis    ← grafik distribusi kelas
+   ├── Edge Mode        ← tampilan ringkas untuk resource terbatas
+   ├── AI Settings      ← konfigurasi model deteksi
+   └── Reports          ← laporan hasil sesi deteksi
 ```
 
 ### Tujuan Sistem
@@ -97,6 +97,7 @@ Letakkan di `Pigeon_Harvest/HarvestmoonGCS/Assets/models/`:
 | `moonharvest-health-cls-int8.onnx` | Classifier INT8 (lebih cepat) |
 | `moonharvest-uav-det.onnx` | Detektor UAV (FP32) |
 | `moonharvest-uav-det-int8.onnx` | Detektor UAV INT8 |
+| `classes-moonharvest-health.txt` | File kelas deteksi |
 
 ---
 
@@ -169,7 +170,7 @@ dotnet run --project HarvestmoonGCS/HarvestmoonGCS.csproj \
 Jika tidak ada UAV, sistem mendukung mode demo menggunakan video yang sudah diproses:
 
 - Video demo tersedia di `HarvestmoonGCS/Assets/demo_videos/`
-- Aktifkan mode demo dari **AI Settings Page** di GCS
+- Mode demo diaktifkan secara otomatis saat tidak ada koneksi MAVLink
 - Atau set environment variable:
 
 ```bash
@@ -181,14 +182,29 @@ export MOONHARVEST_DEMO=1
 1. Pastikan file model `.onnx` tersedia di folder `Assets/models/`
 2. Pastikan `.venv-yolo` sudah terinstall
 3. Jalankan GCS
-4. Buka **AI Settings Page** → pilih model dan mode deteksi
-5. Buka **Camera Page** → klik tombol "Start Detection"
+4. Buka **AI Settings** → konfigurasi model deteksi (ONNX model path, class file path, threshold)
+5. Buka **Camera** → klik tombol "Start Detection"
+
+### 4.4 Navigasi Sidebar
+
+GCS memiliki sidebar navigasi dengan menu berikut:
+
+| Menu | Keterangan |
+|------|------------|
+| **Dashboard · Live** | Halaman utama — status UAV, telemetri, FHI, ringkasan kelas |
+| **Camera** | Tampilan video live + overlay bounding box deteksi |
+| **Peta & Misi** | Peta offline, posisi UAV real-time, waypoint misi, geofence |
+| **Crop Analysis** | Grafik distribusi kelas kesehatan, statistik FHI historis |
+| **Edge Mode** | Tampilan ringkas untuk tablet/resource terbatas |
+| **AI Settings** | Konfigurasi model deteksi YOLO, ONNX path, class file |
+| **Reports** | Laporan per sesi inspeksi, riwayat deteksi |
+| **Yolo Option** | Opsi cepat pengaturan model YOLO (di sidebar bawah) |
 
 ---
 
 ## 5. Halaman-Halaman GCS
 
-### 5.1 Dashboard Page
+### 5.1 Dashboard · Live
 
 Halaman utama yang menampilkan:
 - **Status koneksi UAV** — connected/disconnected + protokol
@@ -196,6 +212,7 @@ Halaman utama yang menampilkan:
 - **Field Health Index** — angka 0–100 + status (Baik/Perhatian/Kritis)
 - **Ringkasan kelas** — persentase Healthy/Stress/Drought/Bare Soil
 - **Battery warning** — peringatan baterai rendah
+- **Yolo Option status** — indikator status model YOLO di sidebar bawah
 
 ### 5.2 Camera Page
 
@@ -208,49 +225,55 @@ Halaman tampilan video + hasil deteksi:
   - Abu-abu `(140,140,140)` → Bare Soil/Gap
 - Tombol **Start/Stop Detection**
 - Pilihan model (ONNX cls atau YOLO)
+- Status inference di panel samping
 
-### 5.3 Map Page
+### 5.3 Peta & Misi
 
 - Peta offline berbasis **Mapsui**
 - Tampilkan posisi UAV real-time
-- Overlay waypoint misi
+- Overlay waypoint misi terbang
 - Batas geofence
-
-### 5.4 Mission Planner Page
-
-- Buat dan edit waypoint misi terbang
+- Buat dan edit waypoint misi
 - Fitur **Undo/Redo** untuk pengeditan waypoint
-- Upload/download misi via MAVLink protocol
 - Export ke format standar
 
-### 5.5 Stats Page
+### 5.4 Crop Analysis
 
 - Grafik distribusi kelas kesehatan (LiveCharts)
 - Persentase area per kelas dari sesi deteksi terakhir
 - Field Health Index historis
 - Zona prioritas inspeksi
+- Detail per-frame detection log
 
-### 5.6 Reports Page
+### 5.5 Edge Mode
+
+Mode khusus untuk perangkat dengan resource terbatas (Android tablet):
+- Tampilan ringkas untuk monitoring di lapangan
+- Menampilkan hasil deteksi dari stream Python
+- Parsing JSON output dari `moonharvest_detect_stream.py`
+- Tampilan performance metrics (inference time, FPS)
+- Status model dan ONNX runtime
+
+### 5.6 AI Settings
+
+Konfigurasi sistem deteksi model:
+- **Detection Settings** (bagian utama):
+  - ONNX Model Path — pilih file model classifier (`.onnx`)
+  - Class File Path — pilih file kelas deteksi (`.txt`)
+  - Detection threshold — atur confidence threshold
+  - Cloud AI integration tersedia di mode Advanced
+- **Vision Runtime**:
+  - Konfigurasi model ONNX untuk deteksi kesehatan tanaman
+  - Pengaturan path model dan kelas
+  - Preview konfigurasi deteksi
+
+### 5.7 Reports (Tlog)
 
 - Laporan per sesi inspeksi
 - Riwayat deteksi dengan timestamp
-- Terhubung ke video demo hasil deteksi
+- Detail per-frame detection results
 - Export laporan (partial)
-
-### 5.7 AI Settings Page
-
-Konfigurasi sistem deteksi AI:
-- Pilih model ONNX (classifier atau detektor)
-- Atur confidence threshold
-- Pilih mode (HSV-only / YOLO-only / Fusion)
-- Pengaturan kamera
-
-### 5.8 Edge Mode Page
-
-Mode khusus untuk perangkat dengan resource terbatas (Android):
-- Menampilkan hasil deteksi dari stream Python
-- Parsing JSON output dari `moonharvest_detect_stream.py`
-- Tampilan ringkas untuk tablet/lapangan
+- Visualisasi data deteksi lengkap
 
 ---
 
@@ -323,6 +346,7 @@ Panel kanan frame (480px) menampilkan:
 - Jumlah region per kelas
 - Field Health Index (FHI)
 - Status lapangan (Baik / Perhatian / Kritis)
+- Inference time per frame
 
 ### 7.2 Struktur JSON Detection
 
@@ -454,49 +478,7 @@ Bobot menentukan seberapa besar kontribusi masing-masing metode per kelas:
 
 ---
 
-## 11. Protokol Komunikasi MAVLink
-
-GCS mendukung koneksi ke flight controller melalui MAVLink v1 dan v2.
-
-### Jenis Koneksi
-
-| Tipe | Contoh | Keterangan |
-|------|--------|-----------|
-| Serial | `/dev/ttyUSB0:57600` | Kabel USB ke FC |
-| TCP | `tcp:192.168.1.1:5760` | Jaringan WiFi |
-| UDP | `udp:14550` | Simulasi SITL |
-
-### Cara Konek di GCS
-
-1. Buka **Dashboard Page**
-2. Klik tombol **Connect**
-3. Isi dialog koneksi:
-   - Pilih tipe: Serial / TCP / UDP
-   - Isi alamat/port yang sesuai
-4. Klik **Connect**
-5. Indikator status akan berubah hijau jika berhasil
-
-### Perintah UAV yang Tersedia
-
-| Perintah | Kode | Fungsi |
-|---------|------|--------|
-| ARM | - | Aktifkan motor |
-| DISARM | - | Matikan motor |
-| TAKE_OFF | 0xAA | Auto takeoff |
-| LAND | 0xCC | Auto landing |
-| RTL | - | Return to Launch |
-| PAUSE | - | Tunda misi |
-| CONTINUE | - | Lanjutkan misi |
-
-### Mode Penerbangan yang Didukung
-
-Copter: Stabilize, AltHold, Loiter, Auto, Guided, RTL, Land, Brake, PosHold
-
-Plane: Manual, Stabilize, FlyByWireA, Auto, RTL, Loiter, Guided
-
----
-
-## 12. Troubleshooting
+## 11. Troubleshooting
 
 ### Problem: GCS tidak bisa menemukan Python
 
@@ -539,33 +521,40 @@ Pigeon_Harvest/HarvestmoonGCS/moonharvest_detect_stream.py
 **Gejala:** Hanya 0.5–1 FPS
 
 **Solusi:**
-- Gunakan `onnxruntime-gpu` jika punya NVIDIA GPU
 - Kurangi `max_regions` di config (default 80, coba 30)
 - Gunakan model INT8: `moonharvest-health-cls-int8.onnx`
 - Kurangi resolusi processing (edit `PROC_W` di script dari 640 ke 320)
 
-### Problem: Terlalu banyak false positive
+### Problem: Model tidak ditemukan
+
+**Gejala:** Error "Model file not found" di AI Settings
+
+**Solusi:**
+- Pastikan file `.onnx` ada di `Pigeon_Harvest/HarvestmoonGCS/Assets/models/`
+- Pastikan file `classes-moonharvest-health.txt` juga ada di folder yang sama
+- Atur ONNX Model Path dan Class File Path di AI Settings dengan benar
+
+### Problem: Edge Mode tidak tampil
+
+**Gejala:** Edge Mode halaman kosong atau error
+
+**Solusi:**
+- Pastikan stream Python berjalan dan menghasilkan JSON output
+- Cek koneksi antara Python subprocess dan GCS
+- Pastikan `PythonCameraService.cs` terkonfigurasi dengan benar
+
+### Problem: Deteksi sangat banyak false positive
 
 **Gejala:** Bounding box muncul di area yang tidak relevan (pematang, jalan, dsb)
 
 **Solusi:**
-- Naikkan `min_conf` dari 0.40 ke 0.55
+- Naikkan `min_conf` dari 0.40 ke 0.55 di AI Settings
 - Aktifkan `suppress_structures: true` di config HSV
 - Naikkan `min_region_area_frac` dari 0.0015 ke 0.003
 
-### Problem: MAVLink tidak terkoneksi
-
-**Gejala:** Status tetap "Disconnected" setelah connect
-
-**Solusi:**
-- Cek apakah port serial sudah benar: `ls /dev/ttyUSB*`
-- Cek baud rate sesuai flight controller (biasanya 57600 atau 115200)
-- Cek permission port: `sudo chmod 666 /dev/ttyUSB0`
-- Coba mode UDP jika menggunakan SITL: `udp:14550`
-
 ---
 
-## 13. Keterbatasan Sistem
+## 12. Keterbatasan Sistem
 
 ### Yang Perlu Diketahui Operator
 
@@ -580,6 +569,8 @@ Pigeon_Harvest/HarvestmoonGCS/moonharvest_detect_stream.py
 5. **Hanya visible spectrum (RGB)** — Tidak menggunakan kamera multispektral atau NDVI. Akurasi lebih rendah dibandingkan analisis multispektral.
 
 6. **bare_soil disembunyikan di UI default** — Untuk melihatnya, ubah konfigurasi di `moonharvest_detect_stream.py` baris `DISPLAY_MAP`.
+
+7. **Edge Mode untuk Android tablet** — Tampilan dioptimalkan untuk perangkat dengan resource terbatas. Performa mungkin lebih lambat di desktop.
 
 ---
 

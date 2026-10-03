@@ -102,6 +102,7 @@ public partial class App : Application
         // StreamRequestManager, dll. Core.MavLinkService hanya untuk testing.
         services.AddSingleton<IMavLinkService, HarvestmoonGCS.Services.MavLinkService>();
         services.AddSingleton<IWaypointService, WaypointService>();
+        services.AddSingleton<IVideoScenarioService, VideoScenarioService>();
         services.AddSingleton<IMissionService, MissionService>();
         services.AddSingleton<IStatisticsService, StatisticsService>();
         services.AddSingleton<IGeofenceService, GeofenceService>();

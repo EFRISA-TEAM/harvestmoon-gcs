@@ -275,6 +275,8 @@ public sealed class RecommendationService : IDisposable
         // Check venv first, then system
         var candidates = new[]
         {
+            Path.Combine(AppContext.BaseDirectory, "python", "python.exe"),
+            Path.Combine(AppContext.BaseDirectory, ".venv-camera", "Scripts", "python.exe"),
             "/home/fawwazfa/Program/Harvestmoon/.venv/bin/python3",
             "/home/fawwazfa/Program/Harvestmoon/.venv/bin/python",
             "/usr/bin/python3",

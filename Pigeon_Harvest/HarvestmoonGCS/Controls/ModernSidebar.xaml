@@ -63,18 +63,12 @@
             </StackPanel>
 
             <StackPanel Margin="0,16,0,0" HorizontalAlignment="Center">
-                <Image Source="ms-appx:///Assets/logo/pigeonlogo.png" Height="38" Stretch="Uniform" HorizontalAlignment="Center"/>
-                <TextBlock Text="MOONHARVEST"
-                           FontWeight="Bold"
-                           FontSize="11"
-                           CharacterSpacing="100"
-                           Foreground="{ThemeResource NavFlightBrush}"
-                           HorizontalAlignment="Center"
-                           Margin="0,8,0,0"/>
+                <Image Source="ms-appx:///Assets/logo/moonharvest_logo.png" Height="42" Stretch="Uniform" HorizontalAlignment="Center"/>
                 <TextBlock Text="Unified GCS"
                            FontSize="9"
                            Foreground="{ThemeResource MutedForegroundBrush}"
-                           HorizontalAlignment="Center"/>
+                           HorizontalAlignment="Center"
+                           Margin="0,6,0,0"/>
             </StackPanel>
         </StackPanel>
 
@@ -82,7 +76,7 @@
         <StackPanel x:Name="LogoCompact" Grid.Row="0" Padding="6,10"
                     BorderBrush="{ThemeResource SidebarBorderBrush}" BorderThickness="0,0,0,1"
                     Visibility="Collapsed" HorizontalAlignment="Center">
-            <Image Source="ms-appx:///Assets/logo/pigeonlogo.png" Height="28" Stretch="Uniform" HorizontalAlignment="Center"/>
+            <Image Source="ms-appx:///Assets/logo/moonharvest_icon.png" Height="30" Stretch="Uniform" HorizontalAlignment="Center"/>
         </StackPanel>
 
         <!-- Navigation Items -->

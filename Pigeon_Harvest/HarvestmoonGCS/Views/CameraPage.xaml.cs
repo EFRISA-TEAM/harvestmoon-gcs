@@ -22,10 +22,12 @@ namespace HarvestmoonGCS.Views;
 public sealed partial class CameraPage : Page
 {
     private readonly ICameraService _cameraService;
+    private readonly IRuncamWifiLinkService? _runcamService;
     private readonly IVideoRecorderService _videoRecorderService;
     private readonly IFileService? _fileService;
     private readonly IncidentTimelineService? _timelineService;
     private readonly HarvestFunctionalService? _harvestFunctionalService;
+    private readonly IVideoScenarioService? _videoScenarioService;
     private readonly FlightViewModel? _flightViewModel;
     private readonly MapViewModel? _mapViewModel;
     private DispatcherTimer _recordingTimer;
@@ -59,10 +61,12 @@ public sealed partial class CameraPage : Page
         try
         {
             _cameraService = App.GetService<ICameraService>();
+            _runcamService = App.Current.Services.GetService<IRuncamWifiLinkService>();
             _videoRecorderService = App.GetService<IVideoRecorderService>();
             _fileService = App.Current.Services.GetService<IFileService>();
             _timelineService = App.Current.Services.GetService<IncidentTimelineService>();
             _harvestFunctionalService = App.Current.Services.GetService<HarvestFunctionalService>();
+            _videoScenarioService = App.Current.Services.GetService<IVideoScenarioService>();
             _flightViewModel = App.Current.Services.GetService<FlightViewModel>();
             _mapViewModel = App.Current.Services.GetService<MapViewModel>();
             
@@ -101,9 +105,30 @@ public sealed partial class CameraPage : Page
         // Sync button state if a demo stream was already started before this page opened
         if (_cameraService != null && _cameraService.IsStreaming)
             OnStreamingStatusChanged(this, true);
+        // Sync RunCam stream state (konek via ConnectDialog sebelum buka halaman Camera)
+        else if (_runcamService != null &&
+                 _runcamService.Status is RuncamConnectionStatus.CameraOnly or RuncamConnectionStatus.FullyConnected)
+            OnRuncamStatusChanged(_runcamService, _runcamService.Status);
 
         // Initialize and sync PiP map
         SyncPipMap();
+
+        if (VideoFilePathTextBox != null && (string.IsNullOrWhiteSpace(VideoFilePathTextBox.Text) || !File.Exists(VideoFilePathTextBox.Text)))
+        {
+            var scenario = _videoScenarioService?.CurrentScenario;
+            var vid = _videoScenarioService?.ResolveVideoFilePath(scenario!) ?? scenario?.ResolvedVideoPath;
+            if (!string.IsNullOrWhiteSpace(vid) && File.Exists(vid))
+            {
+                VideoFilePathTextBox.Text = vid;
+                if (VideoFileTab != null) VideoFileTab.IsChecked = true;
+            }
+        }
+
+        if (_videoScenarioService != null)
+        {
+            _videoScenarioService.ScenarioChanged -= OnScenarioChanged;
+            _videoScenarioService.ScenarioChanged += OnScenarioChanged;
+        }
 
         if (_flightViewModel != null)
         {
@@ -120,6 +145,20 @@ public sealed partial class CameraPage : Page
         {
             OnStreamingStatusChanged(this, true);
         }
+        else if (_runcamService != null &&
+                 _runcamService.Status is RuncamConnectionStatus.CameraOnly or RuncamConnectionStatus.FullyConnected)
+        {
+            OnRuncamStatusChanged(_runcamService, _runcamService.Status);
+        }
+        if (VideoFilePathTextBox != null && (string.IsNullOrWhiteSpace(VideoFilePathTextBox.Text) || !File.Exists(VideoFilePathTextBox.Text)))
+        {
+            var scenario = _videoScenarioService?.CurrentScenario;
+            var vid = _videoScenarioService?.ResolveVideoFilePath(scenario!) ?? scenario?.ResolvedVideoPath;
+            if (!string.IsNullOrWhiteSpace(vid) && File.Exists(vid))
+            {
+                VideoFilePathTextBox.Text = vid;
+            }
+        }
         SyncPipMap();
         if (_flightViewModel != null)
         {
@@ -132,12 +171,13 @@ public sealed partial class CameraPage : Page
     {
         if (PipMap == null) return;
 
+        var scenario = _videoScenarioService?.CurrentScenario;
         double cLat = (_flightViewModel?.Telemetry?.Latitude != null && _flightViewModel.Telemetry.Latitude != 0)
             ? _flightViewModel.Telemetry.Latitude
-            : -6.24361;
+            : (scenario?.FieldCenterLat ?? -6.24361);
         double cLon = (_flightViewModel?.Telemetry?.Longitude != null && _flightViewModel.Telemetry.Longitude != 0)
             ? _flightViewModel.Telemetry.Longitude
-            : 107.36556;
+            : (scenario?.FieldCenterLon ?? 107.36556);
         PipMap.SetCenter(cLat, cLon, 16);
         PipMap.SetFollowVehicle(true);
         PipMap.SetMapControlsVisible(false);
@@ -177,6 +217,11 @@ public sealed partial class CameraPage : Page
     {
         _isInitialized = false;
 
+        if (_videoScenarioService != null)
+        {
+            _videoScenarioService.ScenarioChanged -= OnScenarioChanged;
+        }
+
         if (_flightViewModel != null)
         {
             _flightViewModel.PropertyChanged -= FlightViewModel_PropertyChanged;
@@ -190,6 +235,22 @@ public sealed partial class CameraPage : Page
         {
             _recordingTimer.Stop();
         }
+    }
+
+    private void OnScenarioChanged(object? sender, VideoScenarioProfile profile)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (profile != null)
+            {
+                var vid = _videoScenarioService?.ResolveVideoFilePath(profile) ?? profile.ResolvedVideoPath;
+                if (!string.IsNullOrWhiteSpace(vid) && File.Exists(vid) && VideoFilePathTextBox != null)
+                {
+                    VideoFilePathTextBox.Text = vid;
+                }
+                SyncPipMap();
+            }
+        });
     }
 
     private void CameraPage_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -223,12 +284,38 @@ public sealed partial class CameraPage : Page
 
     private void EnsureYoloInitialized()
     {
+        // YOLO is opt-in. Only initialise the detector when the user has actually enabled
+        // the YOLO option, so a disabled toggle never runs inference on incoming frames.
+        if (_harvestFunctionalService?.IsYoloOptionEnabled != true)
+        {
+            _yoloReady = false;
+            _lastYoloSummary = "YOLO: OFF";
+            if (YoloStatusText != null)
+            {
+                YoloStatusText.Text = _lastYoloSummary;
+            }
+            return;
+        }
+
         _yoloReady = _yoloProcessor.Initialize();
         _lastYoloSummary = _yoloReady ? "YOLO: READY" : $"YOLO: {_yoloProcessor.Status}";
         if (YoloStatusText != null)
         {
             YoloStatusText.Text = _lastYoloSummary;
         }
+    }
+
+    private void OnYoloOptionChanged(object? sender, bool enabled)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            EnsureYoloInitialized();
+            if (!enabled)
+            {
+                // Drop any overlay left over from before the toggle was switched off.
+                VideoStream.SetDetectionOverlays(Array.Empty<VideoDetectionOverlay>());
+            }
+        });
     }
 
     private void AttachServiceHandlers()
@@ -251,9 +338,23 @@ public sealed partial class CameraPage : Page
             }
         }
 
+        // RunCam WiFi Link 2: tampilkan stream & status tanpa perlu Start Camera manual.
+        if (_runcamService != null)
+        {
+            _runcamService.FrameReceived += OnFrameReceived;
+            _runcamService.StatusChanged += OnRuncamStatusChanged;
+        }
+
         _videoRecorderService.RecordingStatusChanged += OnRecordingStatusChanged;
         _videoRecorderService.RecordingError += OnRecordingError;
         _recordingTimer.Tick += RecordingTimer_Tick;
+
+        if (_harvestFunctionalService != null)
+        {
+            _harvestFunctionalService.YoloOptionChanged -= OnYoloOptionChanged;
+            _harvestFunctionalService.YoloOptionChanged += OnYoloOptionChanged;
+        }
+
         _serviceHandlersAttached = true;
     }
 
@@ -276,6 +377,17 @@ public sealed partial class CameraPage : Page
             }
         }
 
+        if (_runcamService != null)
+        {
+            _runcamService.FrameReceived -= OnFrameReceived;
+            _runcamService.StatusChanged -= OnRuncamStatusChanged;
+        }
+
+        if (_harvestFunctionalService != null)
+        {
+            _harvestFunctionalService.YoloOptionChanged -= OnYoloOptionChanged;
+        }
+
         _videoRecorderService.RecordingStatusChanged -= OnRecordingStatusChanged;
         _videoRecorderService.RecordingError -= OnRecordingError;
         _recordingTimer.Tick -= RecordingTimer_Tick;
@@ -293,22 +405,37 @@ public sealed partial class CameraPage : Page
             
             if (sources.Count > 0)
             {
-                CameraSourceComboBox.SelectedIndex = 0;
-                if (_cameraService != null && !_cameraService.IsStreaming)
+                // Prioritas: kamera lokal/USB dulu → baru network MJPEG → terakhir UDP drone
+                var preferredSource =
+                    // 1. Kamera lokal atau USB
+                    sources.FirstOrDefault(s => s.Type is CameraSourceType.LocalCamera or CameraSourceType.USB)
+                    // 2. Network MJPEG (bukan udp-h264-drone)
+                    ?? sources.FirstOrDefault(s => s.Type == CameraSourceType.NetworkStream
+                                                   && !s.Id.StartsWith("udp-h264", StringComparison.OrdinalIgnoreCase)
+                                                   && !s.Id.Equals("network", StringComparison.OrdinalIgnoreCase))
+                    // 3. UDP H.264 drone (fallback terakhir saja)
+                    ?? sources.FirstOrDefault(s => s.Id.StartsWith("udp-h264", StringComparison.OrdinalIgnoreCase))
+                    ?? sources[0];
+
+                CameraSourceComboBox.SelectedItem = preferredSource;
+
+                // Auto-start kalau kamera lokal/USB tersedia
+                if (preferredSource.Type is CameraSourceType.LocalCamera or CameraSourceType.USB)
                 {
-                    foreach (var source in sources.Where(source => source.Type is CameraSourceType.LocalCamera or CameraSourceType.USB))
+                    _ = Task.Run(async () =>
                     {
-                        CameraSourceComboBox.SelectedItem = source;
-                        if (await StartCamera())
+                        await Task.Delay(500);
+                        DispatcherQueue.TryEnqueue(async () =>
                         {
-                            break;
-                        }
-                    }
+                            if (!_isStreaming)
+                                await _cameraService.StartCameraAsync(preferredSource.Id);
+                        });
+                    });
                 }
             }
             else
             {
-                ShowError("No local camera detected. Connect a device camera or use RTSP Stream.");
+                ShowInfo("Tidak ada kamera terdeteksi. Hubungkan kamera USB atau sambungkan Orange Pi ke jaringan.");
             }
         }
         catch (Exception ex)
@@ -334,7 +461,9 @@ public sealed partial class CameraPage : Page
         }
 
         YoloFrameResult? yoloResult = null;
-        if (_yoloReady)
+        // Double gate: _yoloReady already reflects the toggle, but re-check the live flag so a
+        // toggle flipped between frames can never run one more inference pass.
+        if (_yoloReady && _harvestFunctionalService?.IsYoloOptionEnabled == true)
         {
             try
             {
@@ -384,6 +513,28 @@ public sealed partial class CameraPage : Page
             else
             {
                 StartStopButton.Content = "Start Camera";
+            }
+        });
+    }
+
+    /// <summary>
+    /// Sinkronkan indikator LIVE saat RunCam WiFi Link 2 connect/disconnect.
+    /// Frame RunCam masuk lewat OnFrameReceived yang sama, jadi cukup update state di sini.
+    /// </summary>
+    private void OnRuncamStatusChanged(object? sender, RuncamConnectionStatus status)
+    {
+        bool cameraLive = status is RuncamConnectionStatus.CameraOnly or RuncamConnectionStatus.FullyConnected;
+        bool anyLive = cameraLive || (_cameraService?.IsStreaming ?? false);
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            _isStreaming = anyLive;
+            UpdateLiveStatus(anyLive);
+            UpdateControlStates();
+            StartStopButton.Content = anyLive ? "Stop Camera" : "Start Camera";
+            if (cameraLive && MetadataDeviceText != null)
+            {
+                MetadataSourceText.Text = "SRC: RUNCAM_WIFI_LINK";
+                MetadataDeviceText.Text = $"URL: {_runcamService?.CurrentConfig.ActiveStreamUrl}";
             }
         });
     }
@@ -445,13 +596,21 @@ public sealed partial class CameraPage : Page
 
     private async void StartStopButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_isStreaming)
+        try
         {
-            await StopCamera();
+            if (_isStreaming)
+            {
+                await StopCamera();
+            }
+            else
+            {
+                await StartCamera();
+            }
         }
-        else
+        catch (Exception ex)
         {
-            await StartCamera();
+            Serilog.Log.Error(ex, "[CameraPage] Start/Stop toggled failed");
+            ShowError($"Gagal mengubah status kamera: {ex.Message}");
         }
     }
 
@@ -480,32 +639,50 @@ public sealed partial class CameraPage : Page
             var path = VideoFilePathTextBox.Text?.Trim();
             if (string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path))
             {
+                var scenario = _videoScenarioService?.CurrentScenario;
+                path = _videoScenarioService?.ResolveVideoFilePath(scenario!) ?? scenario?.ResolvedVideoPath;
+                if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+                {
+                    VideoFilePathTextBox.Text = path;
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path))
+            {
                 ShowError("Select a valid MP4/MOV/AVI video file.");
                 return false;
             }
 
-            // If PythonCameraService is available, use health classification stream
+            // If PythonCameraService is available, use HSV + YOLO fusion stream
             if (_cameraService is PythonCameraService pcs)
             {
                 var modelPath = PythonCameraService.ResolveHealthModelPath();
-                if (!string.IsNullOrWhiteSpace(modelPath) && File.Exists(modelPath))
+                _lastClassifySource = path;
+                _lastClassifyModel = modelPath;
+                bool yoloEnabled = _harvestFunctionalService?.IsYoloOptionEnabled ?? false;
+                var classifyConnected = await pcs.StartHsvStreamAsync(
+                    source: path,
+                    modelPath: modelPath,
+                    maxFps: 15f,
+                    showOverlay: _vegetationOverlayEnabled,
+                    demo: true,
+                    playbackRate: 1.0f,
+                    yoloEnabled: yoloEnabled);
+
+                // Only chase the classify fallback when YOLO is on — otherwise an
+                // HSV-only stream is exactly what the user asked for.
+                if (yoloEnabled && !classifyConnected && !string.IsNullOrWhiteSpace(modelPath) && File.Exists(modelPath))
                 {
-                    _lastClassifySource = path;
-                    _lastClassifyModel = modelPath;
-                    var classifyConnected = await pcs.StartClassifyStreamAsync(
+                    classifyConnected = await pcs.StartClassifyStreamAsync(
                         path, modelPath,
                         showOverlay: _vegetationOverlayEnabled,
                         minConf: _minConf);
-                    if (!classifyConnected)
-                    {
-                        ShowError("Failed to start classification stream. Check model and connection.");
-                    }
-                    _timelineService?.Add("camera", $"Video file classification started: {path}", classifyConnected ? "success" : "warning");
-                    return classifyConnected;
                 }
-                else
+
+                if (classifyConnected)
                 {
-                    Serilog.Log.Warning("[CameraPage] Health model not found, falling back to regular stream");
+                    _timelineService?.Add("camera", $"Video stream started: {Path.GetFileName(path)}", "success");
+                    return true;
                 }
             }
 
@@ -560,6 +737,12 @@ public sealed partial class CameraPage : Page
     {
         try
         {
+            // Matikan stream RunCam juga jika sedang aktif (source-nya bukan ICameraService).
+            if (_runcamService != null &&
+                _runcamService.Status is RuncamConnectionStatus.CameraOnly or RuncamConnectionStatus.FullyConnected)
+            {
+                await _runcamService.StopCameraStreamAsync();
+            }
             await _cameraService.StopCameraAsync();
         }
         catch (Exception ex)
@@ -594,37 +777,45 @@ public sealed partial class CameraPage : Page
 
     private async void RecordButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_videoRecorderService.IsRecording)
+        try
         {
-            var outputPath = _videoRecorderService.CurrentRecordingPath;
-            await _videoRecorderService.StopRecordingAsync();
-            if (!string.IsNullOrWhiteSpace(outputPath) && _harvestFunctionalService != null)
+            if (_videoRecorderService.IsRecording)
             {
-                await _harvestFunctionalService.AttachVideoRecordingToLatestReportAsync(outputPath);
-            }
+                var outputPath = _videoRecorderService.CurrentRecordingPath;
+                await _videoRecorderService.StopRecordingAsync();
+                if (!string.IsNullOrWhiteSpace(outputPath) && _harvestFunctionalService != null)
+                {
+                    await _harvestFunctionalService.AttachVideoRecordingToLatestReportAsync(outputPath);
+                }
 
-            _timelineService?.Add("recording", $"Video recording stopped: {outputPath}", "success");
-            ShowInfo($"Recording saved: {outputPath}");
-        }
-        else
-        {
-            if (!_isStreaming)
-            {
-                ShowError("Start camera/video first before recording.");
-                return;
-            }
-
-            var outputPath = await _videoRecorderService.GetDefaultRecordingPathAsync();
-            var success = await _videoRecorderService.StartRecordingAsync(outputPath, width: 1280, height: 720, fps: 30);
-            if (success)
-            {
-                _timelineService?.Add("recording", $"Video recording started: {outputPath}", "success");
-                ShowInfo($"Recording started: {outputPath}");
+                _timelineService?.Add("recording", $"Video recording stopped: {outputPath}", "success");
+                ShowInfo($"Recording saved: {outputPath}");
             }
             else
             {
-                ShowError("Failed to start recording");
+                if (!_isStreaming)
+                {
+                    ShowError("Start camera/video first before recording.");
+                    return;
+                }
+
+                var outputPath = await _videoRecorderService.GetDefaultRecordingPathAsync();
+                var success = await _videoRecorderService.StartRecordingAsync(outputPath, width: 1280, height: 720, fps: 30);
+                if (success)
+                {
+                    _timelineService?.Add("recording", $"Video recording started: {outputPath}", "success");
+                    ShowInfo($"Recording started: {outputPath}");
+                }
+                else
+                {
+                    ShowError("Failed to start recording");
+                }
             }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[CameraPage] Recording toggle failed");
+            ShowError($"Gagal merekam: {ex.Message}");
         }
     }
 
@@ -633,9 +824,36 @@ public sealed partial class CameraPage : Page
         LoadCameraSources();
     }
 
-    private void CameraSourceComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private bool _suppressSourceAutoRestart;
+
+    private async void CameraSourceComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         UpdateMetadata();
+
+        // Picking a different device while streaming must actually switch the feed.
+        // _suppressSourceAutoRestart guards the programmatic selection made by
+        // LoadCameraSources() while it probes sources, and by the restart itself.
+        if (_suppressSourceAutoRestart) return;
+        if (!_isStreaming) return;
+        if (LocalTab?.IsChecked != true) return;
+        if (CameraSourceComboBox.SelectedItem is not CameraSource) return;
+
+        _suppressSourceAutoRestart = true;
+        try
+        {
+            await StopCamera();
+            await StartCamera();
+            _timelineService?.Add("camera", "Camera source switched", "info");
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[CameraPage] Camera source switch failed");
+            ShowError($"Gagal berpindah kamera: {ex.Message}");
+        }
+        finally
+        {
+            _suppressSourceAutoRestart = false;
+        }
     }
 
     private void RecordingTimer_Tick(object sender, object e)
@@ -746,26 +964,42 @@ public sealed partial class CameraPage : Page
 
     private async void BrowseVideoFileButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_fileService == null)
+        try
         {
-            ShowError("File picker not available.");
-            return;
-        }
+            if (_fileService == null)
+            {
+                ShowError("File picker not available.");
+                return;
+            }
 
-        var file = await _fileService.PickFileAsync(new[] { ".mp4", ".mov", ".avi", ".mkv" });
-        if (!string.IsNullOrWhiteSpace(file))
+            var file = await _fileService.PickFileAsync(new[] { ".mp4", ".mov", ".avi", ".mkv" });
+            if (!string.IsNullOrWhiteSpace(file))
+            {
+                VideoFilePathTextBox.Text = file;
+                UpdateMetadata();
+            }
+        }
+        catch (Exception ex)
         {
-            VideoFilePathTextBox.Text = file;
-            UpdateMetadata();
+            Serilog.Log.Error(ex, "[CameraPage] Browse video file failed");
+            ShowError($"Gagal memilih file video: {ex.Message}");
         }
     }
 
     // TASK-04: Vegetation Overlay toggle
     private async void VegetationOverlayToggle_Toggled(object sender, RoutedEventArgs e)
     {
-        _vegetationOverlayEnabled = VegetationOverlayToggle.IsOn;
-        // Restart classify stream with new overlay flag if active
-        await RestartClassifyStreamIfActive();
+        try
+        {
+            _vegetationOverlayEnabled = VegetationOverlayToggle.IsOn;
+            // Restart classify stream with new overlay flag if active
+            await RestartClassifyStreamIfActive();
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[CameraPage] Vegetation overlay toggle failed");
+            ShowError($"Gagal mengubah overlay vegetasi: {ex.Message}");
+        }
     }
 
     // TASK-06: Confidence slider
@@ -781,6 +1015,14 @@ public sealed partial class CameraPage : Page
         if (_cameraService is not PythonCameraService pcs) return;
         if (!pcs.IsClassificationStream || !_isStreaming) return;
         if (string.IsNullOrWhiteSpace(_lastClassifySource) || string.IsNullOrWhiteSpace(_lastClassifyModel)) return;
+
+        // Never escalate an HSV-only stream into the YOLO classify pipeline just because the
+        // vegetation overlay was toggled. Only the YOLO option decides whether YOLO runs.
+        if (_harvestFunctionalService?.IsYoloOptionEnabled != true)
+        {
+            Serilog.Log.Information("[CameraPage] Vegetation overlay toggled with YOLO off — keeping HSV-only stream");
+            return;
+        }
 
         await pcs.StartClassifyStreamAsync(
             _lastClassifySource, _lastClassifyModel,

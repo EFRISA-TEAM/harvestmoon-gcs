@@ -448,31 +448,47 @@ public sealed partial class AISettingsPage : Page
 
     private async void BrowseVisionModelButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_fileService == null)
+        try
         {
-            VisionRuntimeStatusText.Text = "File picker tidak tersedia.";
-            return;
-        }
+            if (_fileService == null)
+            {
+                VisionRuntimeStatusText.Text = "File picker tidak tersedia.";
+                return;
+            }
 
-        var path = await _fileService.PickFileAsync(new[] { ".onnx" });
-        if (!string.IsNullOrWhiteSpace(path))
+            var path = await _fileService.PickFileAsync(new[] { ".onnx" });
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                VisionModelPathBox.Text = path;
+            }
+        }
+        catch (Exception ex)
         {
-            VisionModelPathBox.Text = path;
+            Serilog.Log.Error(ex, "[AISettingsPage] Browse vision model failed");
+            VisionRuntimeStatusText.Text = $"Gagal memilih model: {ex.Message}";
         }
     }
 
     private async void BrowseVisionClassButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_fileService == null)
+        try
         {
-            VisionRuntimeStatusText.Text = "File picker tidak tersedia.";
-            return;
-        }
+            if (_fileService == null)
+            {
+                VisionRuntimeStatusText.Text = "File picker tidak tersedia.";
+                return;
+            }
 
-        var path = await _fileService.PickFileAsync(new[] { ".txt", ".names" });
-        if (!string.IsNullOrWhiteSpace(path))
+            var path = await _fileService.PickFileAsync(new[] { ".txt", ".names" });
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                VisionClassPathBox.Text = path;
+            }
+        }
+        catch (Exception ex)
         {
-            VisionClassPathBox.Text = path;
+            Serilog.Log.Error(ex, "[AISettingsPage] Browse vision class failed");
+            VisionRuntimeStatusText.Text = $"Gagal memilih file kelas: {ex.Message}";
         }
     }
 

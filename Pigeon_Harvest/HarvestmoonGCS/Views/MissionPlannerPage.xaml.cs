@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
@@ -11,6 +12,8 @@ using HarvestmoonGCS.Core.Models;
 using HarvestmoonGCS.Core.Services;
 using HarvestmoonGCS.ViewModels;
 using HarvestmoonGCS.Core.Helpers;
+using HarvestmoonGCS.Helpers;
+using HarvestmoonGCS.Services;
 
 namespace HarvestmoonGCS.Views;
 
@@ -30,6 +33,8 @@ public sealed partial class MissionPlannerPage : Page
     private readonly IMavLinkService _mavLinkService;
     private readonly IWaypointService _waypointService;
     private readonly IGeofenceService? _geofenceService;
+    private readonly IVideoScenarioService? _videoScenarioService;
+    private readonly IFileService? _fileService;
     private readonly MapViewModel? _mapViewModel;
     private readonly List<MissionWaypointItem> _waypoints = new();
     private bool _initialized;
@@ -44,6 +49,8 @@ public sealed partial class MissionPlannerPage : Page
         _mavLinkService = App.GetService<IMavLinkService>();
         _waypointService = App.GetService<IWaypointService>();
         _geofenceService = App.Current.Services.GetService<IGeofenceService>();
+        _videoScenarioService = App.Current.Services.GetService<IVideoScenarioService>();
+        _fileService = App.Current.Services.GetService<IFileService>();
         _mapViewModel   = App.GetService<MapViewModel>();
 
         Loaded += MissionPlannerPage_Loaded;
@@ -54,8 +61,30 @@ public sealed partial class MissionPlannerPage : Page
     {
         MissionMapControl?.SetActive(true);
         MissionMapControl?.InvalidateArrange();
-        _ = SyncFromWaypointServiceAsync();
+        var scenario = _videoScenarioService?.CurrentScenario;
+        if (scenario != null)
+        {
+            _defaultLat = scenario.FieldCenterLat;
+            _defaultLon = scenario.FieldCenterLon;
+        }
+        _ = SafeSyncFromWaypointServiceAsync();
         ApplyGeofence();
+    }
+
+    /// <summary>
+    /// Fire-and-forget wrapper that guarantees the awaited work can never raise an
+    /// unobserved exception and tear down the process.
+    /// </summary>
+    private async Task SafeSyncFromWaypointServiceAsync()
+    {
+        try
+        {
+            await SyncFromWaypointServiceAsync();
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[MissionPlannerPage] SyncFromWaypointService failed");
+        }
     }
 
     private async Task SyncFromWaypointServiceAsync()
@@ -96,17 +125,56 @@ public sealed partial class MissionPlannerPage : Page
 
         if (!_initialized)
         {
+            var scenario = _videoScenarioService?.CurrentScenario;
+            if (scenario != null)
+            {
+                _defaultLat = scenario.FieldCenterLat;
+                _defaultLon = scenario.FieldCenterLon;
+            }
             MapProviderComboBox.SelectedIndex = 0;
             MissionMapControl.SetCenter(_defaultLat, _defaultLon, 14);
             SeedInitialWaypoints();
             _initialized = true;
         }
 
+        if (_videoScenarioService != null)
+        {
+            _videoScenarioService.ScenarioChanged -= OnScenarioChanged;
+            _videoScenarioService.ScenarioChanged += OnScenarioChanged;
+        }
+
         // subscribe to waypoint changes
         _waypointService.WaypointsChanged -= WaypointService_WaypointsChanged;
         _waypointService.WaypointsChanged += WaypointService_WaypointsChanged;
 
-        _ = SyncFromWaypointServiceAsync();
+        _ = SafeSyncFromWaypointServiceAsync();
+    }
+
+    private void OnScenarioChanged(object? sender, VideoScenarioProfile scenario)
+    {
+        DispatcherQueue.TryEnqueue(async () =>
+        {
+            if (scenario != null)
+            {
+                _defaultLat = scenario.FieldCenterLat;
+                _defaultLon = scenario.FieldCenterLon;
+                // Saat demo berjalan, waypoint sudah diisi oleh Dashboard dengan
+                // penomoran offset — jangan ditimpa dengan waypoint skenario mentah.
+                if (scenario.Waypoints.Count > 0 && !IsDemoRunning())
+                {
+                    await _waypointService.ReplaceWaypointsAsync(scenario.Waypoints);
+                }
+                ApplyGeofence();
+                await SyncFromWaypointServiceAsync();
+            }
+        });
+    }
+
+    /// <summary>Cek apakah demo sedang berjalan (waypoint dikelola oleh Dashboard).</summary>
+    private bool IsDemoRunning()
+    {
+        var hfs = App.Current.Services.GetService<HarvestFunctionalService>();
+        return hfs?.IsDemoModeActive == true;
     }
 
     private void MissionPlannerPage_Unloaded(object sender, RoutedEventArgs e)
@@ -115,6 +183,9 @@ public sealed partial class MissionPlannerPage : Page
         MissionMapControl.WaypointMoved -= MissionMapControl_WaypointMoved;
         if (_mapViewModel != null)
             _mapViewModel.PropertyChanged -= OnMapViewModelPropertyChanged;
+
+        if (_videoScenarioService != null)
+            _videoScenarioService.ScenarioChanged -= OnScenarioChanged;
 
         _waypointService.WaypointsChanged -= WaypointService_WaypointsChanged;
     }
@@ -166,10 +237,28 @@ public sealed partial class MissionPlannerPage : Page
             return;
         }
 
-        // Demo rice field transect in Sukamerta, Rawamerta, Karawang (600m E-W, 5 WPs matching 4 survey sectors)
-        const double centerLat = -6.24361;
-        const double centerLon = 107.36556;
-        const double mPerDegLon = 111320.0 * 0.99407; // cos(-6.24361 deg)
+        var scenario = _videoScenarioService?.CurrentScenario;
+        if (scenario != null && scenario.Waypoints.Count > 0)
+        {
+            foreach (var wp in scenario.Waypoints.OrderBy(w => w.Sequence))
+            {
+                _waypoints.Add(new MissionWaypointItem
+                {
+                    Sequence = wp.Sequence,
+                    Latitude = wp.Latitude,
+                    Longitude = wp.Longitude,
+                    Altitude = wp.Altitude > 0 ? wp.Altitude : 60,
+                });
+            }
+            RefreshWaypointList();
+            RenderMap();
+            return;
+        }
+
+        // Fallback transect
+        double centerLat = scenario?.FieldCenterLat ?? -6.24361;
+        double centerLon = scenario?.FieldCenterLon ?? 107.36556;
+        double mPerDegLon = 111320.0 * Math.Cos(centerLat * Math.PI / 180.0);
         double spacingLon = (600.0 / 4.0) / mPerDegLon;
         double startLon = centerLon - 2.0 * spacingLon;
 
@@ -208,29 +297,53 @@ public sealed partial class MissionPlannerPage : Page
         RenderMap();
     }
 
-    private void MissionMapControl_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    private async void MissionMapControl_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
-        var tapPoint = e.GetPosition(MissionMapControl);
-        var geo = MissionMapControl.GetLatLonFromClick(tapPoint);
+        try
+        {
+            var tapPoint = e.GetPosition(MissionMapControl);
+            var geo = MissionMapControl.GetLatLonFromClick(tapPoint);
 
-        _ = _waypointService.AddWaypointAsync(new WaypointData { Latitude = geo.Lat, Longitude = geo.Lon, Altitude = 150 });
+            await _waypointService.AddWaypointAsync(new WaypointData { Latitude = geo.Lat, Longitude = geo.Lon, Altitude = 150 });
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[MissionPlannerPage] Add waypoint by double-tap failed");
+            WaypointSummaryText.Text = $"Gagal menambah waypoint: {ex.Message}";
+        }
     }
 
     private async void AddWaypointButton_Click(object sender, RoutedEventArgs e)
     {
-        if ((await _waypointService.GetWaypointsAsync()).Count == 0)
+        try
         {
-            await _waypointService.AddWaypointAsync(new WaypointData { Latitude = _defaultLat, Longitude = _defaultLon, Altitude = 150 });
-            return;
-        }
+            if ((await _waypointService.GetWaypointsAsync()).Count == 0)
+            {
+                await _waypointService.AddWaypointAsync(new WaypointData { Latitude = _defaultLat, Longitude = _defaultLon, Altitude = 150 });
+                return;
+            }
 
-        var last = (await _waypointService.GetWaypointsAsync()).OrderBy(w => w.Sequence).Last();
-        await _waypointService.AddWaypointAsync(new WaypointData { Latitude = last.Latitude + 0.0008, Longitude = last.Longitude + 0.0008, Altitude = last.Altitude });
+            var last = (await _waypointService.GetWaypointsAsync()).OrderBy(w => w.Sequence).Last();
+            await _waypointService.AddWaypointAsync(new WaypointData { Latitude = last.Latitude + 0.0008, Longitude = last.Longitude + 0.0008, Altitude = last.Altitude });
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[MissionPlannerPage] Add waypoint failed");
+            WaypointSummaryText.Text = $"Gagal menambah waypoint: {ex.Message}";
+        }
     }
 
     private async void ClearWaypointButton_Click(object sender, RoutedEventArgs e)
     {
-        await _waypointService.ClearWaypointsAsync();
+        try
+        {
+            await _waypointService.ClearWaypointsAsync();
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[MissionPlannerPage] Clear waypoints failed");
+            WaypointSummaryText.Text = $"Gagal menghapus waypoint: {ex.Message}";
+        }
     }
 
     private async void UploadMissionButton_Click(object sender, RoutedEventArgs e)
@@ -249,18 +362,46 @@ public sealed partial class MissionPlannerPage : Page
         }
 
         UploadMissionButton.IsEnabled = false;
-        WaypointSummaryText.Text = "Uploading mission...";
+        WaypointSummaryText.Text = "Validating mission...";
 
         try
         {
             var missionWaypoints = WaypointMapper.ToMissionWaypoints(wps);
+
+            // Enforce validation before pushing to the vehicle. A mission that violates the
+            // limits would be rejected (or worse, flown) silently otherwise.
+            var validation = await _missionService.ValidateMissionAsync(missionWaypoints);
+            if (!validation.IsValid)
+            {
+                WaypointSummaryText.Text = "Mission invalid: " + string.Join("; ", validation.Errors);
+                Serilog.Log.Warning("[MissionPlannerPage] Mission upload blocked: {Errors}",
+                    string.Join("; ", validation.Errors));
+                return;
+            }
+
+            if (validation.Warnings.Count > 0)
+            {
+                Serilog.Log.Information("[MissionPlannerPage] Mission warnings: {Warnings}",
+                    string.Join("; ", validation.Warnings));
+            }
+
+            WaypointSummaryText.Text = "Uploading mission...";
             var success = await _missionService.UploadMissionAsync(missionWaypoints);
-            WaypointSummaryText.Text = success
-                ? $"Uploaded {missionWaypoints.Count} waypoints"
-                : "Mission upload failed";
+            if (success)
+            {
+                var warningSuffix = validation.Warnings.Count > 0
+                    ? $" ({validation.Warnings.Count} warning)"
+                    : string.Empty;
+                WaypointSummaryText.Text = $"Uploaded {missionWaypoints.Count} waypoints{warningSuffix}";
+            }
+            else
+            {
+                WaypointSummaryText.Text = "Mission upload failed";
+            }
         }
         catch (Exception ex)
         {
+            Serilog.Log.Error(ex, "[MissionPlannerPage] Mission upload failed");
             WaypointSummaryText.Text = $"Upload error: {ex.Message}";
         }
         finally
@@ -271,18 +412,26 @@ public sealed partial class MissionPlannerPage : Page
 
     private async void RemoveWaypointButton_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button button) return;
-
-        var sequence = button.Tag switch
+        try
         {
-            int value => value,
-            string text when int.TryParse(text, out var parsed) => parsed,
-            _ => -1
-        };
+            if (sender is not Button button) return;
 
-        if (sequence < 0) return;
+            var sequence = button.Tag switch
+            {
+                int value => value,
+                string text when int.TryParse(text, out var parsed) => parsed,
+                _ => -1
+            };
 
-        await _waypointService.RemoveWaypointAsync(sequence);
+            if (sequence < 0) return;
+
+            await _waypointService.RemoveWaypointAsync(sequence);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[MissionPlannerPage] Remove waypoint failed");
+            WaypointSummaryText.Text = $"Gagal menghapus waypoint: {ex.Message}";
+        }
     }
 
     private void GeofenceRadiusSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
@@ -291,9 +440,33 @@ public sealed partial class MissionPlannerPage : Page
         ApplyGeofence();
     }
 
-    private void MissionMapControl_WaypointMoved(object? sender, SkiaMapControl.WaypointMovedEventArgs e)
+    private async void MissionMapControl_WaypointMoved(object? sender, SkiaMapControl.WaypointMovedEventArgs e)
     {
-        _ = _waypointService.UpdateWaypointAsync(new WaypointData { Sequence = e.Sequence, Latitude = e.NewLat, Longitude = e.NewLon });
+        try
+        {
+            // Preserve the existing altitude and command — the drag event only carries X/Y,
+            // so rebuilding from scratch would silently zero the waypoint's altitude.
+            var existing = await _waypointService.GetWaypointAsync(e.Sequence);
+            var moved = new WaypointData
+            {
+                Sequence = e.Sequence,
+                Latitude = e.NewLat,
+                Longitude = e.NewLon,
+                Altitude = existing?.Altitude ?? 0,
+                Command = existing?.Command ?? WaypointCommand.Waypoint,
+                Param1 = existing?.Param1 ?? 0,
+                Param2 = existing?.Param2 ?? 0,
+                Param3 = existing?.Param3 ?? 0,
+                Param4 = existing?.Param4 ?? 0
+            };
+
+            await _waypointService.UpdateWaypointAsync(moved);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[MissionPlannerPage] Waypoint move failed");
+            WaypointSummaryText.Text = $"Gagal memindahkan waypoint: {ex.Message}";
+        }
     }
 
     private void ResequenceWaypoints()
@@ -385,11 +558,216 @@ public sealed partial class MissionPlannerPage : Page
         }
     }
 
+    private async void DownloadMissionButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_mavLinkService.IsConnected)
+        {
+            WaypointSummaryText.Text = "Vehicle not connected";
+            return;
+        }
+
+        DownloadMissionButton.IsEnabled = false;
+        WaypointSummaryText.Text = "Downloading mission from UAV...";
+        try
+        {
+            var downloaded = await _missionService.DownloadMissionAsync();
+            if (downloaded.Count > 0)
+            {
+                var wps = WaypointMapper.FromMissionWaypoints(downloaded);
+                await _waypointService.ReplaceWaypointsAsync(wps);
+                WaypointSummaryText.Text = $"Downloaded {wps.Count} waypoints from UAV";
+            }
+            else
+            {
+                WaypointSummaryText.Text = "No mission waypoints on UAV";
+            }
+        }
+        catch (Exception ex)
+        {
+            WaypointSummaryText.Text = $"Download error: {ex.Message}";
+        }
+        finally
+        {
+            DownloadMissionButton.IsEnabled = true;
+        }
+    }
+
+    private async void ExportMissionButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var wps = await _waypointService.GetWaypointsAsync();
+            if (wps.Count == 0)
+            {
+                WaypointSummaryText.Text = "No waypoints to export";
+                return;
+            }
+
+            var missionWps = WaypointMapper.ToMissionWaypoints(wps);
+            var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            var filename = $"mission_{timestamp}.waypoints";
+
+            // Resolve a directory that is actually writable on the current platform.
+            // MyDocuments is empty on Android, so a raw Path.Combine would build a path
+            // rooted at an empty string and fail.
+            var exportDir = ResolveMissionExportDirectory();
+            if (string.IsNullOrWhiteSpace(exportDir))
+            {
+                WaypointSummaryText.Text = "Export failed: no writable directory";
+                return;
+            }
+
+            Directory.CreateDirectory(exportDir);
+            var filePath = Path.Combine(exportDir, filename);
+
+            var ok = await _missionService.ExportMissionAsync(missionWps, filePath);
+            WaypointSummaryText.Text = ok ? $"Exported: {filename}" : "Export failed";
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[MissionPlannerPage] Mission export failed");
+            WaypointSummaryText.Text = $"Export error: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Resolves a directory that is actually writable on the current platform. MyDocuments is
+    /// empty on Android, so fall back to the app data directory rather than building a path
+    /// rooted at an empty string.
+    /// </summary>
+    private static string ResolveMissionExportDirectory()
+    {
+        var docs = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        var root = string.IsNullOrWhiteSpace(docs)
+            ? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
+            : docs;
+
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            root = AppContext.BaseDirectory;
+        }
+
+        return string.IsNullOrWhiteSpace(root) ? string.Empty : Path.Combine(root, "HarvestMissions");
+    }
+
+    private async void ImportMissionButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            string? filePath = null;
+            if (_fileService != null)
+            {
+                filePath = await _fileService.PickFileAsync(new[] { ".waypoints", ".txt", ".csv", ".plan" });
+            }
+
+            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+            {
+                // Fallback: check the export directory for the latest mission file
+                var exportDir = ResolveMissionExportDirectory();
+                if (!string.IsNullOrWhiteSpace(exportDir) && Directory.Exists(exportDir))
+                {
+                    var latest = Directory.GetFiles(exportDir, "*.waypoints")
+                        .OrderByDescending(File.GetLastWriteTime)
+                        .FirstOrDefault();
+                    if (latest != null) filePath = latest;
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+            {
+                WaypointSummaryText.Text = "No mission file selected";
+                return;
+            }
+
+            var imported = await _missionService.ImportMissionAsync(filePath);
+            if (imported.Count > 0)
+            {
+                var wps = WaypointMapper.FromMissionWaypoints(imported);
+                await _waypointService.ReplaceWaypointsAsync(wps);
+                WaypointSummaryText.Text = $"Imported {wps.Count} WPs from {Path.GetFileName(filePath)}";
+            }
+            else
+            {
+                WaypointSummaryText.Text = "No valid waypoints in file";
+            }
+        }
+        catch (Exception ex)
+        {
+            WaypointSummaryText.Text = $"Import error: {ex.Message}";
+        }
+    }
+
+    private async void EditWaypointButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (sender is not Button button) return;
+            var sequence = button.Tag switch
+            {
+                int value => value,
+                string text when int.TryParse(text, out var parsed) => parsed,
+                _ => -1
+            };
+            if (sequence < 0) return;
+
+            var existingWps = await _waypointService.GetWaypointsAsync();
+            var targetWp = existingWps.FirstOrDefault(w => w.Sequence == sequence);
+            if (targetWp == null) return;
+
+            var dlg = new WaypointEditDialog(targetWp)
+            {
+                XamlRoot = this.XamlRoot
+            };
+
+            // ShowAsync throws if another ContentDialog is already open on this XamlRoot.
+            var result = await dlg.ShowAsync();
+            if (result == ContentDialogResult.Primary && dlg.ResultWaypoint != null)
+            {
+                await _waypointService.UpdateWaypointAsync(dlg.ResultWaypoint);
+                WaypointSummaryText.Text = $"Updated WP {dlg.ResultWaypoint.Sequence} (Alt: {dlg.ResultWaypoint.Altitude:F0}m)";
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[MissionPlannerPage] Edit waypoint failed");
+            WaypointSummaryText.Text = $"Gagal mengedit waypoint: {ex.Message}";
+        }
+    }
+
     private void RefreshWaypointList()
     {
         WaypointListView.ItemsSource = null;
-        WaypointListView.ItemsSource = _waypoints.OrderBy(w => w.Sequence).ToList();
-        WaypointSummaryText.Text = $"{_waypoints.Count} waypoints";
+        var ordered = _waypoints.OrderBy(w => w.Sequence).ToList();
+        WaypointListView.ItemsSource = ordered;
+
+        if (ordered.Count == 0)
+        {
+            WaypointSummaryText.Text = "0 waypoints";
+            return;
+        }
+
+        double totalDistM = 0;
+        for (int i = 1; i < ordered.Count; i++)
+        {
+            totalDistM += GeoMath.CalculateDistance(
+                ordered[i - 1].Latitude, ordered[i - 1].Longitude,
+                ordered[i].Latitude, ordered[i].Longitude);
+        }
+
+        var speedMps = _videoScenarioService?.CurrentScenario?.CruiseSpeedMps ?? 10.0;
+        if (speedMps <= 0) speedMps = 10.0;
+        int totalSecs = (int)Math.Round(totalDistM / speedMps);
+        int mins = totalSecs / 60;
+        int secs = totalSecs % 60;
+
+        if (totalDistM >= 1000)
+        {
+            WaypointSummaryText.Text = $"{ordered.Count} WPs · {totalDistM / 1000.0:F2} km · Est. {mins:D2}:{secs:D2} @ {speedMps:F0}m/s";
+        }
+        else
+        {
+            WaypointSummaryText.Text = $"{ordered.Count} WPs · {totalDistM:F0} m · Est. {mins:D2}:{secs:D2} @ {speedMps:F0}m/s";
+        }
     }
 
     private static bool IsValidCoordinate(double lat, double lon)

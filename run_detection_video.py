@@ -94,16 +94,23 @@ def main():
             frame = cv2.resize(frame, (PROC_W, int(fh * PROC_W / fw)))
 
         try:
-            regions = segment_regions(frame, HSV_CFG)
-            if classifier and regions:
+            if detector:
+                dets = detector.detect(frame)
+                # Fallback HSV HANYA jika YOLO benar-benar 0 deteksi
+                if len(dets) == 0:
+                    regions = segment_regions(frame, HSV_CFG)
+                    dets += [{"bbox": r["bbox"], "class": r["hsv_display"],
+                              "conf": 0.50, "area": r["area"], "source": "hsv-fallback"}
+                             for r in regions]
+            elif classifier:
+                regions = segment_regions(frame, HSV_CFG)
                 dets = fuse(frame, regions, classifier)
             else:
+                regions = segment_regions(frame, HSV_CFG)
                 dets = [{"bbox": r["bbox"], "class": r["hsv_display"],
                          "conf": 0.60, "area": r["area"], "source": "hsv-only"}
                         for r in regions]
-            if detector:
-                dets = dets + detector.detect(frame)
-            dets    = nms(dets)
+            dets    = nms(dets, per_cls_iou=0.25, cross_iou=0.40, min_area=200)
             fhi_raw = compute_fhi(dets, frame.shape[0] * frame.shape[1])
             fhi     = ema.update("fhi", fhi_raw)
             vis     = draw_stream(frame, dets, fhi)

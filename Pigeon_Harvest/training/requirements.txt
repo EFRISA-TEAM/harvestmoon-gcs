@@ -1,0 +1,30 @@
+# MoonHarvest training environment
+# Python 3.12. Verified working set (NVIDIA RTX 3050 6GB, CUDA 12.1).
+#
+# Install into the dedicated training venv (Pigeon_Harvest/.venv-yolo):
+#   python3.12 -m venv .venv-yolo
+#   .venv-yolo/bin/pip install -r training/requirements.txt
+#
+# For a CPU-only machine, install CPU torch first, e.g.:
+#   pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
+#
+# These pins match the interpreter that produced the models in Assets/models.
+
+ultralytics==8.4.131
+torch==2.5.1
+torchvision==0.20.1
+
+# Export + inference
+onnx==1.22.0
+onnxruntime==1.29.0
+onnxslim==0.1.96
+
+# Data / video pipelines used by the dataset builders
+opencv-python==5.0.0.93
+numpy==2.3.5
+pillow==12.3.0
+
+# Dataset collection helpers
+requests==2.34.2
+tqdm==4.70.0
+PyYAML==6.0.3

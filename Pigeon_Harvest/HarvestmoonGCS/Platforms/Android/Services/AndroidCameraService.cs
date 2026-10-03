@@ -59,7 +59,8 @@ public class AndroidCameraService : ICameraService
 
     // Stub — Android pakai AndroidDemoVideoDecoder untuk demo, bukan HSV stream
     public Task<bool> StartHsvStreamAsync(string source, string? modelPath = null,
-        float maxFps = 15f, bool showOverlay = true, bool demo = true, float playbackRate = 1.0f)
+        float maxFps = 15f, bool showOverlay = true, bool demo = true, float playbackRate = 1.0f,
+        bool yoloEnabled = false)
         => Task.FromResult(false);
 
     public event EventHandler<byte[]>? FrameReceived;

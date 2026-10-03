@@ -14,12 +14,12 @@
         
         <!-- Logo Section -->
         <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="10,0">
-            <Image Source="ms-appx:///Assets/logo/pigeonlogo.png" 
+            <Image Source="ms-appx:///Assets/logo/moonharvest_icon_light.png" 
                    Width="40" Height="40" 
                    Margin="0,0,10,0"
                    VerticalAlignment="Center"/>
             <StackPanel VerticalAlignment="Center">
-                <TextBlock Text="PIGEON" 
+                <TextBlock Text="MOONHARVEST" 
                           FontSize="16" 
                           FontWeight="Bold" 
                           Foreground="White"/>

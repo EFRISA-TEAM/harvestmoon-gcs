@@ -29,7 +29,8 @@ public class DesktopCameraService : ICameraService
 
     // Stub — DesktopCameraService tidak support HSV stream (pakai PythonCameraService di production)
     public Task<bool> StartHsvStreamAsync(string source, string? modelPath = null,
-        float maxFps = 15f, bool showOverlay = true, bool demo = true, float playbackRate = 1.0f)
+        float maxFps = 15f, bool showOverlay = true, bool demo = true, float playbackRate = 1.0f,
+        bool yoloEnabled = false)
         => StartCameraAsync(source);
     
     public event EventHandler<byte[]>? FrameReceived;

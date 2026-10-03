@@ -30,6 +30,7 @@ public sealed partial class MapPage : Page
     private bool _isWPDockHidden = true;
     private readonly ObservabilityService? _observabilityService;
     private readonly IncidentTimelineService? _timelineService;
+    private readonly IVideoScenarioService? _videoScenarioService;
     private bool _isInitialized;
     private NotifyCollectionChangedEventHandler? _waypointsCollectionChangedHandler;
 
@@ -70,6 +71,7 @@ public sealed partial class MapPage : Page
         this.InitializeComponent();
         _observabilityService = App.Current.Services.GetService<ObservabilityService>();
         _timelineService = App.Current.Services.GetService<IncidentTimelineService>();
+        _videoScenarioService = App.Current.Services.GetService<IVideoScenarioService>();
 
         Loaded += MapPage_Loaded;
         Unloaded += MapPage_Unloaded;
@@ -89,9 +91,11 @@ public sealed partial class MapPage : Page
         {
             try
             {
-                // Center on waypoint centroid when demo/mission waypoints are loaded; fall back to Karawang default
-                double centerLat = -6.24361, centerLon = 107.36556;
-                int zoom = 15;
+                // Center on waypoint centroid when demo/mission waypoints are loaded; fall back to active scenario center
+                var scenario = _videoScenarioService?.CurrentScenario;
+                double centerLat = scenario?.FieldCenterLat ?? -6.24361;
+                double centerLon = scenario?.FieldCenterLon ?? 107.36556;
+                int zoom = scenario?.MapZoomLevel ?? 15;
                 if (ViewModel?.Waypoints.Count > 0)
                 {
                     centerLat = ViewModel.Waypoints.Average(w => w.Latitude);
@@ -200,12 +204,33 @@ public sealed partial class MapPage : Page
             }
         }
 
+        if (_videoScenarioService != null)
+        {
+            _videoScenarioService.ScenarioChanged -= OnScenarioChanged;
+            _videoScenarioService.ScenarioChanged += OnScenarioChanged;
+        }
+
         // Inisialisasi tampilan map selalu dijalankan setiap kali halaman ditampilkan
         _ = DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
         {
-            // Center on loaded waypoints when available (e.g. demo), fall back to Karawang default
-            double centerLat = -6.24361, centerLon = 107.36556;
-            int zoom = 15;
+            var scenario = _videoScenarioService?.CurrentScenario;
+            if (ViewModel != null && (ViewModel.Waypoints == null || ViewModel.Waypoints.Count == 0) && scenario != null && scenario.Waypoints.Count > 0)
+            {
+                foreach (var wp in scenario.Waypoints)
+                {
+                    ViewModel.Waypoints.Add(wp);
+                }
+                ViewModel.GeofenceCenterLat = scenario.FieldCenterLat;
+                ViewModel.GeofenceCenterLon = scenario.FieldCenterLon;
+                ViewModel.GeofenceRadius = scenario.GeofenceRadiusMeters;
+                ViewModel.GeofenceType = HarvestmoonGCS.Core.Models.GeofenceType.Circular;
+                ViewModel.IsGeofenceActive = true;
+            }
+
+            // Center on loaded waypoints when available, fall back to active scenario center
+            double centerLat = scenario?.FieldCenterLat ?? -6.24361;
+            double centerLon = scenario?.FieldCenterLon ?? 107.36556;
+            int zoom = scenario?.MapZoomLevel ?? 15;
             if (ViewModel?.Waypoints.Count > 0)
             {
                 centerLat = ViewModel.Waypoints.Average(w => w.Latitude);
@@ -227,8 +252,34 @@ public sealed partial class MapPage : Page
         });
     }
 
+    private void OnScenarioChanged(object? sender, VideoScenarioProfile scenario)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (scenario != null && ViewModel != null)
+            {
+                ViewModel.Waypoints.Clear();
+                foreach (var wp in scenario.Waypoints)
+                {
+                    ViewModel.Waypoints.Add(wp);
+                }
+                ViewModel.GeofenceCenterLat = scenario.FieldCenterLat;
+                ViewModel.GeofenceCenterLon = scenario.FieldCenterLon;
+                ViewModel.GeofenceRadius = scenario.GeofenceRadiusMeters;
+                ViewModel.GeofenceType = HarvestmoonGCS.Core.Models.GeofenceType.Circular;
+                ViewModel.IsGeofenceActive = true;
+                RefreshMapView();
+            }
+        });
+    }
+
     private void MapPage_Unloaded(object sender, RoutedEventArgs e)
     {
+        if (_videoScenarioService != null)
+        {
+            _videoScenarioService.ScenarioChanged -= OnScenarioChanged;
+        }
+
         if (ViewModel != null)
         {
             ViewModel.PropertyChanged -= ViewModel_PropertyChanged;

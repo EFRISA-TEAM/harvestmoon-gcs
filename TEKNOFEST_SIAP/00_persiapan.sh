@@ -46,7 +46,7 @@ done
 
 # ── 3. Cek video demo ──
 echo -e "${YELLOW}[3/5] Mengecek video demo...${NC}"
-for v in stream_v7c_final.mp4 stream_multisector_survey.mp4 YDXJ_fused_only_detected.mp4; do
+for v in stream_multisector_60s.mp4 stream_v7c_final.mp4 YDXJ_fused_only_detected.mp4 YDX_burned.mp4 stream_multisector_survey.mp4; do
     p="$HARVEST/Pigeon_Harvest/HarvestmoonGCS/Assets/demo_videos/$v"
     if [ -f "$p" ]; then
         sz=$(stat -c%s "$p")

@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 """
-MoonHarvest Detection Stream — HSV-First v7c
+MoonHarvest Detection Stream — HSV-First v8
 =============================================
 Pipeline: WB+CLAHE → HSV segmentasi (dikalibrasi untuk sawah 15 hari) →
           connected-component regions → ONNX refinement → YOLO-det fusion →
-          NMS v7c (per_cls=0.20, cross=0.30, min_area=600) → FHI → JSON stdout
+          NMS v8 (agregasi/merge → per_cls NMS → cross NMS → IoS suppression
+          → batas max_display) → FHI → JSON stdout
+
+Parameter tuning (CLI > env > default):
+  --min-conf / MOONHARVEST_*  : lihat argparse di main()
+  Env: MOONHARVEST_MERGE, MOONHARVEST_MERGE_IOU, MOONHARVEST_MERGE_CONF,
+       MOONHARVEST_IOS_SUPPRESS, MOONHARVEST_IOS_THR, MOONHARVEST_MAX_DISPLAY
 
 Protocol output (stdout):
   {"type": "frame",     "data": "<base64_jpeg>"}
@@ -93,17 +99,46 @@ HSV_CFG = {
     # Zona soil: S<=15, V>=75, exg<0.008
     "soil":    {"s_hi": 15, "v_lo": 75, "exg_hi": 0.008},
     # Morfologi
-    "min_area_frac": 0.006,
-    "max_area_frac": 0.20,      # filter box > 20% frame area (cegah lush raksasa)
-    "max_regions":   20,
-    "morph_k":       7,
+    "min_area_frac": 0.003,
+    "max_area_frac": 0.06,      # filter box > 6% frame area (cegah kotak raksasa tumpang-tindih)
+    "max_regions":   None,      # tanpa batas (sebelumnya 14 — dibatasi artifisial)
+    "morph_k":       5,
     # Temporal EMA
     "ema_alpha":     0.30,
 }
 
-# ONNX confidence minimum untuk override HSV — tinggi agar HSV tetap dominan
-ONNX_MIN_CONF  = 0.70
+# ONNX confidence minimum untuk konfirmasi kelas CNN (CNN-first hybrid)
+ONNX_MIN_CONF  = 0.28
 DISPLAY_MIN_CONF = 0.28
+
+# ── Regu agregasi & suppression (v8) ───────────────────────────────────────────
+# Masalah pra-v8: model UAV-det mengeluarkan 80+ box/frame yang saling
+# bertumpuk & nested (IoU rendah tetapi saling mengandung), sehingga hasil
+# akhir masih menyisakan puluhan kotak kecil yang membingungkan ketika
+# ditampilkan. NMS IoU standar tidak mampu menangkap kasus nested (contained).
+# Solusi: (0) merge_adjacent — gabung box berdekatan/mengandung jadi satu,
+#         (3) IoS suppression — buang box kecil yang terkandung dalam box besar.
+# Semua parameter dapat di-override via environment variable agar bisa disetel
+# saat demo tanpa mengubah kode.
+def _env_float(name, default):
+    try:
+        return float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+def _env_int(name, default):
+    try:
+        return int(float(os.environ.get(name, default)))
+    except (TypeError, ValueError):
+        return default
+
+MERGE_ENABLE   = os.environ.get("MOONHARVEST_MERGE", "1") != "0"
+MERGE_IOU      = _env_float("MOONHARVEST_MERGE_IOU", 0.15)   # IoU ambang penggabungan box
+MERGE_CONF     = _env_float("MOONHARVEST_MERGE_CONF", 0.40)  # conf minimum box yang ikut merge
+MERGE_IOS      = _env_float("MOONHARVEST_MERGE_IOS", 0.85)   # IoS (containment) ambang penggabungan
+IOS_SUPPRESS   = os.environ.get("MOONHARVEST_IOS_SUPPRESS", "1") != "0"
+IOS_THR        = _env_float("MOONHARVEST_IOS_THR", 0.85)     # buang box kecil bila IoS >= ambang ini
+MAX_DISPLAY    = _env_int("MOONHARVEST_MAX_DISPLAY", 15)     # batas box final yang digambar/DIHITUNG
 
 # ── Pre-processing ─────────────────────────────────────────────────────────────
 def _wb(bgr):
@@ -140,22 +175,34 @@ def segment_regions(frame, cfg=HSV_CFG):
 
     shadow = V < cfg["shadow_v_max"]
 
+    # Deteksi Bangunan / Struktur Buatan Manusia (atap seng, beton, aspal, terpal)
+    tin_roof         = (V >= 210) & (S <= 40)
+    metal_glare      = (V >= 235) & (S <= 60)
+    blue_tarp        = (H >= 95) & (H <= 130) & (S >= 45) & (V >= 50) & (exg < -0.02)
+    red_metal_roof   = ((H <= 6) | (H >= 174)) & (S >= 60) & (V >= 60) & (exg < -0.03)
+    concrete_asphalt = (S <= 15) & (V >= 65) & (V <= 210) & (np.abs(exg) < 0.01)
+
+    raw_struct = (tin_roof | metal_glare | blue_tarp | red_metal_roof | concrete_asphalt) & ~shadow
+    k_struct = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+    struct_mask = cv2.morphologyEx(raw_struct.astype(np.uint8), cv2.MORPH_OPEN, k_struct)
+    struct_mask = cv2.morphologyEx(struct_mask, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))) > 0
+
     c = cfg["lush"]
     lush = ((H>=c["h"][0]) & (H<=c["h"][1]) & (S>=c["s_lo"]) &
-            (V>=c["v_lo"]) & (exg>=c["exg_min"]) & ~shadow)
+            (V>=c["v_lo"]) & (exg>=c["exg_min"]) & ~shadow & ~struct_mask)
 
     c = cfg["stress"]
     stress = ((H>=c["h"][0]) & (H<=c["h"][1]) & (S>=c["s_lo"]) & (S<=c["s_hi"]) &
               (V>=c["v_lo"]) & (exg>=c["exg_lo"]) & (exg<c["exg_hi"]) &
-              ~lush & ~shadow)
+              ~lush & ~shadow & ~struct_mask)
 
     c = cfg["drought"]
     drought = ((H>=c["h"][0]) & (H<=c["h"][1]) & (S>=c["s_lo"]) & (S<=c["s_hi"]) &
-               (V>=c["v_lo"]) & (exg<c["exg_hi"]) & ~lush & ~stress & ~shadow)
+               (V>=c["v_lo"]) & (exg<c["exg_hi"]) & ~lush & ~stress & ~shadow & ~struct_mask)
 
     c = cfg["soil"]
     soil = ((S<=c["s_hi"]) & (V>=c["v_lo"]) & (exg<c["exg_hi"]) &
-            ~lush & ~stress & ~drought & ~shadow)
+            ~lush & ~stress & ~drought & ~shadow & ~struct_mask)
 
     # v6: Untuk konteks sawah 15 hari (tanaman muda), zona coklat/kuning yang secara HSV
     # memenuhi kriteria "drought" lebih tepat dilabel "Inconsistent Growth" daripada
@@ -165,7 +212,7 @@ def segment_regions(frame, cfg=HSV_CFG):
     zones = [
         (lush,    "lush",    "Lush Green"),
         (stress,  "stress",  "Inconsistent Growth"),
-        (drought, "drought", "Inconsistent Growth"),   # v6: relabel untuk 15d context
+        (drought, "drought", "Drought / Severe Stress"),
         (soil,    "soil",    "Bare Soil / Gap"),
     ]
 
@@ -192,6 +239,15 @@ def segment_regions(frame, cfg=HSV_CFG):
             x2, y2 = min(x+bw, w-1), min(y+bh, h-1)
             if x2 <= x or y2 <= y:
                 continue
+
+            # Tolak region yang berada di atas bangunan / struktur buatan manusia
+            rx1 = int(stats[i, cv2.CC_STAT_LEFT])
+            ry1 = int(stats[i, cv2.CC_STAT_TOP])
+            rx2 = rx1 + int(stats[i, cv2.CC_STAT_WIDTH])
+            ry2 = ry1 + int(stats[i, cv2.CC_STAT_HEIGHT])
+            sub_struct = struct_mask[ry1:ry2, rx1:rx2]
+            if sub_struct.size > 0 and (sub_struct.sum() / float(sub_struct.size)) > 0.20:
+                continue
             # v5: per-region ExG remap — jika drought tapi rata-rata ExG region > threshold,
             # downgrade ke Inconsistent Growth (masih ada kandungan klorofil = stress, bukan kering total)
             actual_zone_disp = zone_disp
@@ -212,13 +268,22 @@ def segment_regions(frame, cfg=HSV_CFG):
                              "hsv_display":actual_zone_disp, "area":area})
 
     regions.sort(key=lambda r: -r["area"])
-    return regions[:cfg["max_regions"]]
+    _max_r = cfg.get("max_regions")
+    return regions[:_max_r] if _max_r else regions
+
+def _get_optimized_ort_session(path):
+    import onnxruntime as ort
+    opts = ort.SessionOptions()
+    opts.intra_op_num_threads = 6
+    opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+    opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    return ort.InferenceSession(str(path), sess_options=opts, providers=["CPUExecutionProvider"])
 
 # ── ONNX Classifier ────────────────────────────────────────────────────────────
 class ONNXClassifier:
     def __init__(self, path):
-        import onnxruntime as ort, ast
-        self.sess  = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+        import ast
+        self.sess  = _get_optimized_ort_session(path)
         inp        = self.sess.get_inputs()[0]
         self.iname = inp.name
         shp        = inp.shape
@@ -235,13 +300,30 @@ class ONNXClassifier:
         sys.stderr.write(f"[ONNX] {Path(path).name}  kelas: {self.names}  imgsz=({self.w},{self.h})  batch={self.batch_size}\n")
         sys.stderr.flush()
 
+    def _preprocess(self, c, w, h):
+        if c is None or c.size == 0:
+            return np.zeros((3, h, w), dtype=np.float32)
+        if len(c.shape) == 3 and c.shape[2] == 3:
+            c = cv2.cvtColor(c, cv2.COLOR_BGR2RGB)
+        ch, cw = c.shape[:2]
+        scale = max(w / cw, h / ch)
+        nw, nh = int(round(cw * scale)), int(round(ch * scale))
+        resized = cv2.resize(c, (nw, nh), interpolation=cv2.INTER_LINEAR)
+        top = max(0, (nh - h) // 2)
+        left = max(0, (nw - w) // 2)
+        cropped = resized[top:top+h, left:left+w]
+        if cropped.shape[0] != h or cropped.shape[1] != w:
+            cropped = cv2.resize(cropped, (w, h))
+        return (cropped.astype(np.float32) / 255.0).transpose(2, 0, 1)
+
     def infer(self, crops, imgsz=None, batch=32):
         if not crops: return []
         out = []
+        w = self.w if imgsz is None else imgsz
+        h = self.h if imgsz is None else imgsz
         if self.batch_size == 1:
             for c in crops:
-                img = cv2.resize(c, (self.w, self.h)).astype(np.float32) / 255.0
-                arr = np.expand_dims(img.transpose(2,0,1), axis=0)
+                arr = np.expand_dims(self._preprocess(c, w, h), axis=0)
                 logits = self.sess.run(None, {self.iname: arr})[0]
                 exp    = np.exp(logits - logits.max(axis=1, keepdims=True))
                 probs  = exp / exp.sum(axis=1, keepdims=True)
@@ -249,12 +331,7 @@ class ONNXClassifier:
                 conf   = float(probs[0][cid])
                 out.append((self.names.get(cid, str(cid)), conf))
         else:
-            w = self.w if imgsz is None else imgsz
-            h = self.h if imgsz is None else imgsz
-            batch_list = []
-            for c in crops:
-                img = cv2.resize(c, (w, h)).astype(np.float32) / 255.0
-                batch_list.append(img.transpose(2,0,1))
+            batch_list = [self._preprocess(c, w, h) for c in crops]
             for s in range(0, len(batch_list), batch):
                 arr    = np.stack(batch_list[s:s+batch])
                 logits = self.sess.run(None, {self.iname: arr})[0]
@@ -295,13 +372,75 @@ def load_classifier(path):
 # ── YOLO Detector (moonharvest-uav-det.onnx) ──────────────────────────────────
 # Mapping kelas YOLO-det → display label
 YOLO_DET_MAP = {
+    # 4 Kelas Standar Baru (v3 detector)
+    "Lush Green":                 "Lush Green",
+    "Inconsistent Growth":        "Inconsistent Growth",
+    "Drought / Severe Stress":    "Drought / Severe Stress",
+    "Bare Soil / Gap":            "Bare Soil / Gap",
+    "lush_green":                 "Lush Green",
+    "inconsistent_growth":        "Inconsistent Growth",
+    "drought_severe_stress":      "Drought / Severe Stress",
+    "bare_soil":                  "Bare Soil / Gap",
+    # Legacy / Backward compatibility
     "crop":                       "Lush Green",
     "crop_row":                   "Lush Green",
     "weed":                       "Inconsistent Growth",
-    # disease_stress_vegetation di-map ke Inconsistent Growth, bukan Drought
-    # karena di video sawah 15d area ini umumnya masih ada kandungan hijau
     "disease_stress_vegetation":  "Inconsistent Growth",
 }
+
+# ── Filter Bangunan & Struktur Buatan Manusia ─────────────────────────────────
+def is_building_or_structure(crop):
+    """
+    Deteksi apakah patch gambar merupakan bangunan (atap seng/galvalum/genteng,
+    beton semen, jalan aspal, atau terpal industri) agar TIDAK dideteksi sebagai
+    tanaman atau tanah pertanian.
+    """
+    if crop is None or crop.size == 0:
+        return False
+
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    H, S, V = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+    b, g, r = cv2.split(crop.astype(np.float32))
+    tot = b + g + r + 1e-6
+    exg = (2 * g - r - b) / tot
+    exg_mean = float(exg.mean())
+    mean_v = float(V.mean())
+    mean_s = float(S.mean())
+    max_v  = float(V.max())
+
+    # 1. ExG negatif (tidak ada klorofil vegetasi, permukaan seng/logam/aspal/beton)
+    if exg_mean < -0.015:
+        return True
+
+    # 2. Pantulan sinar matahari pada atap seng / galvalum (specular glare, saturasi rendah)
+    if max_v >= 235 and mean_s < 35:
+        return True
+
+    # 3. Slab beton / semen abu-abu / jalan aspal netral
+    if mean_s < 16 and mean_v > 80 and exg_mean < 0.005:
+        return True
+
+    # 4. Atap terpal / seng biru industri
+    blue_p = ((H >= 95) & (H <= 130) & (S >= 45) & (V >= 50) & (exg < -0.02)).sum()
+    if blue_p / float(crop.shape[0] * crop.shape[1]) > 0.20:
+        return True
+
+    # 5. Atap merah / oranye industri buatan
+    red_p = (((H <= 6) | (H >= 174)) & (S >= 60) & (V >= 65) & (exg < -0.03)).sum()
+    if red_p / float(crop.shape[0] * crop.shape[1]) > 0.20:
+        return True
+
+    # 6. Analisis garis lurus struktural (Hough Lines) untuk atap / dinding bangunan
+    if crop.shape[0] >= 30 and crop.shape[1] >= 30:
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        edges = cv2.Canny(gray, 60, 180)
+        min_line = min(crop.shape[:2]) * 0.60
+        lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=40,
+                                minLineLength=min_line, maxLineGap=5)
+        if lines is not None and len(lines) >= 6 and exg_mean < 0.015:
+            return True
+
+    return False
 
 class YOLODetector:
     """
@@ -309,19 +448,18 @@ class YOLODetector:
     Hanya mengambil box + kelas dengan conf >= threshold, kemudian scale kembali
     ke koordinat frame asli.
 
-    YOLO-det bersifat SUPPLEMENTARY — confidence-nya dibatasi di bawah HSV (0.60)
-    agar tidak menekan deteksi HSV dalam cross-class NMS.
-    conf_thr dinaikkan ke 0.45 untuk mengurangi false positive disease_stress.
+    YOLO-det mendeteksi crop, crop_row, weed, dan disease_stress secara end-to-end.
+    conf_thr default 0.30 dengan confidence asli dari model tanpa penalti.
     """
-    def __init__(self, path, conf_thr=0.45):
-        import onnxruntime as ort, ast
-        self.sess     = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+    def __init__(self, path, conf_thr=0.30):
+        import ast
+        self.sess     = _get_optimized_ort_session(path)
         inp           = self.sess.get_inputs()[0]
         self.iname    = inp.name
-        # Input shape: [1, 3, H, W] — gunakan ukuran dinamis atau default 640
+        # Input shape: [1, 3, H, W] — gunakan ukuran dinamis atau default 416
         shp           = inp.shape
-        self.h        = shp[2] if isinstance(shp[2], int) and shp[2] > 0 else 640
-        self.w        = shp[3] if isinstance(shp[3], int) and shp[3] > 0 else 640
+        self.h        = shp[2] if isinstance(shp[2], int) and shp[2] > 0 else 416
+        self.w        = shp[3] if isinstance(shp[3], int) and shp[3] > 0 else 416
         self.imgsz    = (self.h, self.w)
         meta          = self.sess.get_modelmeta().custom_metadata_map
         raw           = meta.get("names", "{}")
@@ -342,7 +480,9 @@ class YOLODetector:
                           "conf": float, "area": int, "source": "yolo-det"}
         """
         oh, ow = frame.shape[:2]
-        img    = cv2.resize(frame, (self.w, self.h)).astype(np.float32) / 255.0
+        iw, ih = self.w, self.h
+        rgb    = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) if len(frame.shape) == 3 and frame.shape[2] == 3 else frame
+        img    = cv2.resize(rgb, (iw, ih)).astype(np.float32) / 255.0
         inp    = img.transpose(2, 0, 1)[None]          # [1,3,H,W]
 
         out    = self.sess.run(None, {self.iname: inp})[0]  # [1, 4+nc, anchors]
@@ -373,16 +513,19 @@ class YOLODetector:
             x1 = int((cx - bw/2) * ow);  y1 = int((cy - bh/2) * oh)
             x2 = int((cx + bw/2) * ow);  y2 = int((cy + bh/2) * oh)
             x1, y1 = max(0, x1), max(0, y1)
-            x2, y2 = min(ow-1, x2), min(oh-1, y2)
             if x2 <= x1 or y2 <= y1:
                 continue
 
+            # Filter bangunan / struktur buatan manusia
+            crop = frame[y1:y2, x1:x2]
+            if is_building_or_structure(crop):
+                continue
+
             cname  = self.names.get(cid, str(cid))
-            label  = YOLO_DET_MAP.get(cname, "Inconsistent Growth")
+            label  = YOLO_DET_MAP.get(cname, cname if cname in COLORS else "Inconsistent Growth")
             area   = (x2-x1) * (y2-y1)
-            # YOLO-det confidence dibatasi < 0.58 agar HSV (0.60) tetap dominan
-            # dalam cross-class NMS. Ini mencegah YOLO menindas deteksi HSV.
-            yolo_conf = round(min(0.57, conf * 0.85), 3)
+            # YOLO-det confidence asli dari model ONNX tanpa penalti artifisial
+            yolo_conf = round(float(conf), 3)
             dets.append({"bbox":(x1,y1,x2,y2), "class":label,
                          "conf": yolo_conf,
                          "area": area, "source": "yolo-det"})
@@ -391,44 +534,51 @@ class YOLODetector:
 # ── Fusion HSV + ONNX ──────────────────────────────────────────────────────────
 def fuse(frame, regions, classifier, imgsz=None):
     """
-    HSV sebagai primary. ONNX hanya override jika:
-    - confidence >= ONNX_MIN_CONF (0.70)
-    - label ONNX kompatibel dengan zona HSV
-    Jika tidak memenuhi syarat, label HSV dipertahankan dengan confidence HSV.
+    AI-First Hybrid Pipeline (Teknofest):
+    - HSV bertindak sebagai Region Proposal Heuristic (mendeteksi kluster kanopi/lahan).
+    - ONNX CNN Classifier (moonharvest-health-cls.onnx, akurasi uji 86.67%) menentukan
+      kelas agronomi secara objektif berdasarkan fitur tekstur & visual mendalam.
+    - Jika confidence ONNX >= ONNX_MIN_CONF (0.28), prediksi Deep Learning diadopsi penuh.
+    - HSV fallback hanya jika region sangat tidak jelas (conf < 0.28).
     """
-    if not regions: return []
+    if not regions:
+        return []
+
+    # Tanpa batas crop artifisial (sebelumnya 8). Semua region diproses.
+    MAX_ONNX_CROPS = len(regions)
+    target_regions = regions[:MAX_ONNX_CROPS]
     crops = []
-    for r in regions:
-        x1,y1,x2,y2 = r["bbox"]
+    for r in target_regions:
+        x1, y1, x2, y2 = r["bbox"]
         c = frame[y1:y2, x1:x2]
-        crops.append(c if c.size > 0 else np.zeros((8,8,3), np.uint8))
+        crops.append(c if c.size > 0 else np.zeros((8, 8, 3), np.uint8))
 
     onnx_res = classifier.infer(crops, imgsz=imgsz)
     dets = []
     for i, (oc, oconf) in enumerate(onnx_res):
-        r = regions[i]
-        od = ONNX_MAP.get(oc)
-        compat = ONNX_COMPAT.get(r["hsv_zone"], set())
+        r = target_regions[i]
+        od = ONNX_MAP.get(oc, r["hsv_display"])
 
-        if od and oconf >= ONNX_MIN_CONF and od in compat:
-            # ONNX confident & kompatibel → pakai ONNX, sedikit boost
+        # Deep Learning Classifier decision
+        if od and oconf >= ONNX_MIN_CONF:
             label  = od
-            conf   = min(1.0, oconf * 1.03)
+            conf   = round(float(oconf), 3)
             source = "onnx-confirmed"
-        elif od and oconf >= 0.55 and od in compat:
-            # ONNX moderat & kompatibel → blend HSV + ONNX
-            label  = r["hsv_display"]
-            conf   = max(0.52, oconf * 0.85)
-            source = "hsv+onnx-blend"
         else:
-            # HSV wins — lebih terpercaya secara fisika warna
             label  = r["hsv_display"]
-            conf   = 0.60  # baseline confidence HSV
-            source = "hsv-primary"
+            conf   = 0.50
+            source = "hsv-fallback"
 
-        x1,y1,x2,y2 = r["bbox"]
-        dets.append({"bbox":(x1,y1,x2,y2), "class":label, "conf":round(conf,3),
-                     "area":r["area"], "source":source})
+        x1, y1, x2, y2 = r["bbox"]
+        dets.append({"bbox": (x1, y1, x2, y2), "class": label, "conf": conf,
+                     "area": r["area"], "source": source})
+
+    # Region di luar top crops tetap disertakan dengan fallback HSV
+    for r in regions[MAX_ONNX_CROPS:]:
+        x1, y1, x2, y2 = r["bbox"]
+        dets.append({"bbox": (x1, y1, x2, y2), "class": r["hsv_display"], "conf": 0.50,
+                     "area": r["area"], "source": "hsv-proposal"})
+
     return dets
 
 # ── NMS ────────────────────────────────────────────────────────────────────────
@@ -449,6 +599,88 @@ def _iou_pair(b1, b2):
     a1 = max(0, b1[2]-b1[0]) * max(0, b1[3]-b1[1])
     a2 = max(0, b2[2]-b2[0]) * max(0, b2[3]-b2[1])
     return inter / (a1 + a2 - inter + 1e-6)
+
+def _ios_pair(b1, b2):
+    """Intersection over Smaller area — mengukur derajat 'mengandung'.
+    Bernilai 1.0 bila salah satu box sepenuhnya berada di dalam box lain,
+    terlepas dari IoU-nya (kasus nested yang gagal ditangkap NMS IoU)."""
+    ix1 = max(b1[0], b2[0]); iy1 = max(b1[1], b2[1])
+    ix2 = min(b1[2], b2[2]); iy2 = min(b1[3], b2[3])
+    inter = max(0, ix2-ix1) * max(0, iy2-iy1)
+    a1 = max(0, b1[2]-b1[0]) * max(0, b1[3]-b1[1])
+    a2 = max(0, b2[2]-b2[0]) * max(0, b2[3]-b2[1])
+    return inter / (min(a1, a2) + 1e-6)
+
+def _merge_adjacent(dets, iou_thr=MERGE_IOU, ios_thr=MERGE_IOS, conf_thr=MERGE_CONF,
+                    min_area=200):
+    """
+    Agregasi (Tahap 0): kelompokkan box yang saling berdekatan (IoU > iou_thr)
+    ATAU saling mengandung (IoS > ios_thr) menjadi satu box union. Conf kelas
+    yang dipakai adalah dari anggota ber-conf tertinggi. Mencegah puluhan kotak
+    kecil yang sebenarnya mewakili satu hamparan kanopi yang sama.
+
+    Mengembalikan daftar box hasil gabungan (belum melalui hard NMS).
+    """
+    cand = [d for d in dets if d["conf"] >= conf_thr and d.get("area", 0) >= min_area]
+    if not cand:
+        return []
+    cand.sort(key=lambda d: -d["conf"])
+    n = len(cand)
+    used = [False] * n
+    out = []
+    for i in range(n):
+        if used[i]:
+            continue
+        used[i] = True
+        cluster = [cand[i]]
+        for j in range(i + 1, n):
+            if used[j]:
+                continue
+            # Bandingkan terhadap box perwakilan cluster (yang ber-conf tertinggi)
+            if (_iou_pair(cand[i]["bbox"], cand[j]["bbox"]) > iou_thr or
+                    _ios_pair(cand[i]["bbox"], cand[j]["bbox"]) > ios_thr):
+                cluster.append(cand[j])
+                used[j] = True
+        x1 = min(c["bbox"][0] for c in cluster)
+        y1 = min(c["bbox"][1] for c in cluster)
+        x2 = max(c["bbox"][2] for c in cluster)
+        y2 = max(c["bbox"][3] for c in cluster)
+        rep = max(cluster, key=lambda c: c["conf"])
+        out.append({
+            "bbox":  (x1, y1, x2, y2),
+            "class": rep["class"],
+            "conf":  rep["conf"],
+            "area":  int((x2 - x1) * (y2 - y1)),
+            "source": "merged" if len(cluster) > 1 else rep.get("source", "yolo-det"),
+        })
+    return out
+
+def _ios_suppress(dets, ios_thr=IOS_THR):
+    """
+    Buang box kecil yang sebagian besar terkandung di dalam box yang lebih besar
+    dan ber-confidence lebih tinggi (IoS >= ios_thr). Melengkapi hard NMS yang
+    hanya melihat IoU — khusus menangani kasus box nested.
+    """
+    if len(dets) < 2:
+        return dets
+    order = sorted(range(len(dets)), key=lambda i: -dets[i]["conf"])
+    kept = []
+    for i in order:
+        b = dets[i]["bbox"]
+        b_area = max(0, b[2]-b[0]) * max(0, b[3]-b[1])
+        drop = False
+        for j in kept:
+            bj = dets[j]["bbox"]
+            j_area = max(0, bj[2]-bj[0]) * max(0, bj[3]-bj[1])
+            # Hanya buang box yang lebih kecil; jangan sampai membuang box besar.
+            if b_area > j_area:
+                continue
+            if _ios_pair(b, bj) >= ios_thr:
+                drop = True
+                break
+        if not drop:
+            kept.append(i)
+    return [dets[i] for i in kept]
 
 def _hard_nms(dets, iou_thr):
     """Standard greedy NMS — hapus box ber-IoU > iou_thr dengan box conf lebih tinggi."""
@@ -492,21 +724,40 @@ def _soft_nms(dets, iou_thr, sigma=0.5, min_conf=DISPLAY_MIN_CONF):
     return result
 
 def nms(dets, per_cls_iou=0.20, cross_iou=0.30, min_conf=DISPLAY_MIN_CONF,
-        min_area=600):
+        min_area=600, merge=None, ios_suppress=None, max_display=None):
     """
-    NMS dua tahap (v7c):
-    1. Hard NMS per kelas (IoU=0.20) — sama seperti v6, ketat untuk kelas sama
-    2. Hard NMS cross kelas (IoU=0.30) — sama seperti v6
-    3. min_area=600px² — filter noise box kecil (baru, v6=0)
+    NMS multi-tahap (v8):
+    0. Agregasi (merge_adjacent) — gabung box berdekatan / saling mengandung
+       menjadi satu box union (dapat dimatikan via MERGE_ENABLE).
+    1. Hard NMS per kelas (IoU=0.20) — ketat untuk kelas sama.
+    2. Hard NMS cross kelas (IoU=0.30).
+    3. IoS suppression — buang box kecil yang terkandung di box besar.
+    4. min_conf & min_area — filter noise box kecil / conf rendah.
 
-    v7b (per=0.30, cross=0.35, area=400) lebih buruk dari v6:
-    FHI 82.1 vs 84.5, dets 11.2 vs ~9, IncGrowth 28.4% vs 21.6%.
-    Penyebab: per_cls=0.30 terlalu longgar → duplikat per-kelas tidak disuppresi.
-    v7c: kembali ke threshold v6 yang terbukti bagus, tambah min_area=600 saja.
+    v7c (per=0.20, cross=0.30, area=600) sudah baik secara IoU, namun model
+    UAV-det mengeluarkan 80+ box/frame dengan banyak box nested (IoU rendah,
+    IoS tinggi) sehingga tampilan masih dipenuhi kotak kecil bertumpuk. v8
+    menambah tahap agregasi & IoS suppression untuk menanganinya.
+    Parameter merge/ios/max_display dapat di-override dari pemanggil.
     """
-    # Filter confidence dan area minimum
+    if not dets:
+        return []
+
+    # Ambang configurable (fallback ke konstanta env jika tidak diberikan)
+    _merge_en = MERGE_ENABLE if merge is None else merge
+    _ios_en   = IOS_SUPPRESS if ios_suppress is None else ios_suppress
+    _max_disp = MAX_DISPLAY if max_display is None else max_display
+
+    # Filter confidence dan area minimum (early reject murah)
     dets = [d for d in dets if d["conf"] >= min_conf and d.get("area", 0) >= min_area]
-    if not dets: return []
+    if not dets:
+        return []
+
+    # Tahap 0: Agregasi box berdekatan / nested
+    if _merge_en:
+        merged = _merge_adjacent(dets, conf_thr=min_conf, min_area=min_area)
+        if merged:
+            dets = merged
 
     # Tahap 1: Hard NMS per kelas
     by_cls = {}
@@ -517,7 +768,17 @@ def nms(dets, per_cls_iou=0.20, cross_iou=0.30, min_conf=DISPLAY_MIN_CONF,
         after_per_cls.extend(_hard_nms(lst, per_cls_iou))
 
     # Tahap 2: Hard NMS cross kelas
-    return _hard_nms(after_per_cls, cross_iou)
+    result = _hard_nms(after_per_cls, cross_iou)
+
+    # Tahap 3: IoS suppression (buang box nested kecil)
+    if _ios_en:
+        result = _ios_suppress(result)
+
+    # Tahap 4: batasi jumlah box final yang ditampilkan/dihitung
+    if _max_disp and _max_disp > 0 and len(result) > _max_disp:
+        result = sorted(result, key=lambda d: -d["conf"])[:_max_disp]
+
+    return result
 
 # ── FHI ────────────────────────────────────────────────────────────────────────
 def compute_fhi(dets, frame_area):
@@ -559,64 +820,6 @@ def draw_stream(frame, dets, fhi):
         cv2.putText(out, label, (x1 + 2, ty - 3),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 0), 1, cv2.LINE_AA)
     return out
-
-# ── YOLO-det wrapper (ONNX detect model, supplementary) ─────────────────────────
-YOLO_DET_MAP = {
-    "crop":                      "Lush Green",
-    "crop_row":                  "Lush Green",
-    "weed":                      "Inconsistent Growth",
-    "disease_stress_vegetation": "Inconsistent Growth",
-}
-
-class YOLODetector:
-    def __init__(self, path, conf_thr=0.45):
-        import onnxruntime as ort, ast
-        self.sess  = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
-        inp        = self.sess.get_inputs()[0]
-        self.iname = inp.name
-        shp        = inp.shape
-        self.imgsz = (shp[2] if isinstance(shp[2], int) and shp[2] > 0 else 640,
-                      shp[3] if isinstance(shp[3], int) and shp[3] > 0 else 640)
-        meta       = self.sess.get_modelmeta().custom_metadata_map
-        raw        = meta.get("names", "{}")
-        try:
-            parsed     = ast.literal_eval(raw)
-            self.names = parsed if isinstance(parsed, dict) else {i: v for i, v in enumerate(parsed)}
-        except Exception:
-            self.names = {0: "crop", 1: "weed", 2: "crop_row", 3: "disease_stress_vegetation"}
-        self.conf_thr = conf_thr
-        self.nc       = len(self.names)
-
-    def detect(self, frame):
-        oh, ow = frame.shape[:2]
-        iw, ih = self.imgsz
-        img = cv2.resize(frame, (iw, ih)).astype(np.float32) / 255.0
-        inp = img.transpose(2, 0, 1)[None]
-        out = self.sess.run(None, {self.iname: inp})[0][0]
-        preds = out.T if out.shape[0] < out.shape[1] else out
-        dets = []
-        for pred in preds:
-            cls_scores = pred[4:4 + self.nc]
-            cid  = int(np.argmax(cls_scores))
-            conf = float(cls_scores[cid])
-            if conf < self.conf_thr:
-                continue
-            cx, cy, bw, bh = pred[:4]
-            if cx > 1 or cy > 1:
-                cx /= iw; cy /= ih; bw /= iw; bh /= ih
-            x1 = max(0, int((cx - bw / 2) * ow))
-            y1 = max(0, int((cy - bh / 2) * oh))
-            x2 = min(ow - 1, int((cx + bw / 2) * ow))
-            y2 = min(oh - 1, int((cy + bh / 2) * oh))
-            if x2 <= x1 or y2 <= y1:
-                continue
-            cname = self.names.get(cid, str(cid))
-            label = YOLO_DET_MAP.get(cname, "Inconsistent Growth")
-            area  = (x2 - x1) * (y2 - y1)
-            dets.append({"bbox": (x1, y1, x2, y2), "class": label,
-                         "conf": round(min(0.57, conf * 0.85), 3),
-                         "area": area, "source": "yolo-det"})
-        return dets
 
 # ── Build GCS detection summary ────────────────────────────────────────────────
 def build_gcs_counts(dets, fhi):
@@ -676,16 +879,48 @@ def emit(payload):
 
 # ── Main streaming loop ────────────────────────────────────────────────────────
 def main():
-    global DEMO_MODE
+    global DEMO_MODE, DISPLAY_MIN_CONF
+    global MERGE_ENABLE, MERGE_IOU, MERGE_CONF, MERGE_IOS, IOS_SUPPRESS, IOS_THR, MAX_DISPLAY
 
-    parser = argparse.ArgumentParser(description="MoonHarvest HSV-First stream v7c")
+    parser = argparse.ArgumentParser(description="MoonHarvest HSV-First stream v8")
     parser.add_argument("--source",       required=True, help="Video path or camera index")
     parser.add_argument("--model",        default="",    help="ONNX/PT classifier (opsional)")
     parser.add_argument("--det-model",    default="",    help="YOLO-det ONNX (opsional)")
     parser.add_argument("--max-fps",      type=float, default=15.0)
     parser.add_argument("--playback-rate",type=float, default=1.0)
     parser.add_argument("--demo",         action="store_true")
+    parser.add_argument("--no-yolo",      action="store_true",
+                        help="Disable YOLO detector entirely (HSV/ONNX only)")
+    parser.add_argument("--no-overlay",   action="store_true",
+                        help="Disable bounding box and HUD overlay on video frames (passthrough clean video)")
+    # ── v8: tuning agregasi & suppression box (opsional; override env) ──
+    parser.add_argument("--min-conf",     type=float, default=None,
+                        help=f"Confidence minimum box ditampilkan (default {DISPLAY_MIN_CONF} / env)")
+    parser.add_argument("--merge-iou",    type=float, default=None,
+                        help=f"Ambang IoU penggabungan box berdekatan (default {MERGE_IOU})")
+    parser.add_argument("--merge-conf",   type=float, default=None,
+                        help=f"Confidence minimum box yang ikut digabung (default {MERGE_CONF})")
+    parser.add_argument("--ios-thr",      type=float, default=None,
+                        help=f"Ambang IoS suppression box nested (default {IOS_THR})")
+    parser.add_argument("--max-display",  type=int,   default=None,
+                        help=f"Batas jumlah box final (default {MAX_DISPLAY})")
+    parser.add_argument("--no-merge",     action="store_true",
+                        help="Matikan tahap agregasi/merge box")
+    parser.add_argument("--no-ios",       action="store_true",
+                        help="Matikan tahap IoS suppression")
     args = parser.parse_args()
+
+    # Terapkan override CLI ke konstanta modul (CLI > env > default)
+    if args.min_conf    is not None: DISPLAY_MIN_CONF = args.min_conf
+    if args.merge_iou   is not None: MERGE_IOU       = args.merge_iou
+    if args.merge_conf  is not None: MERGE_CONF      = args.merge_conf
+    if args.ios_thr     is not None: IOS_THR         = args.ios_thr
+    if args.max_display is not None: MAX_DISPLAY     = args.max_display
+    if args.no_merge:                MERGE_ENABLE    = False
+    if args.no_ios:                  IOS_SUPPRESS    = False
+
+    # --no-yolo flag disables YOLO detector entirely
+    no_yolo = args.no_yolo
 
     if args.demo:
         DEMO_MODE = True
@@ -702,10 +937,10 @@ def main():
     # Send preview frame immediately before loading any heavy models
     ret_preview, preview = cap.read()
     if ret_preview and preview is not None:
-        ok, buf = cv2.imencode(".jpg", preview, [cv2.IMWRITE_JPEG_QUALITY, 75])
+        ok, buf = cv2.imencode(".jpg", preview, [cv2.IMWRITE_JPEG_QUALITY, 93])
         if ok:
             emit({"type": "frame", "data": base64.b64encode(buf).decode()})
-        if not isinstance(src, int):
+        if not isinstance(src, int) and not str(src).startswith(("http://", "https://", "rtsp://", "udp://")):
             cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
     # Load ONNX classifier
@@ -721,33 +956,43 @@ def main():
 
     # Load YOLO-det
     detector = None
-    det_path = getattr(args, "det_model", "")
-    if not det_path:
-        det_candidates = [
-            (Path(args.model).parent / "moonharvest-uav-det.onnx") if args.model else None,
-            Path(__file__).parent.parent / "model" / "moonharvest-uav-det.onnx",
-            Path(__file__).parent.parent.parent / "Pigeon_Harvest" / "HarvestmoonGCS" / "Assets" / "models" / "moonharvest-uav-det.onnx",
-            Path("/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/model/moonharvest-uav-det.onnx"),
-            Path("/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/Assets/models/moonharvest-uav-det.onnx"),
-        ]
-        det_path = next((str(p) for p in det_candidates if p and p.exists()), "")
-    if det_path and os.path.isfile(det_path):
-        try:
-            detector = YOLODetector(det_path)
-            emit({"type": "info", "data": f"YOLO-det: {Path(det_path).name}"})
-        except Exception as e:
-            emit({"type": "info", "data": f"YOLO-det load error ({e})"})
+    if not no_yolo:
+        det_path = getattr(args, "det_model", "")
+        if not det_path:
+            det_candidates = [
+                (Path(args.model).parent / "moonharvest-uav-det.onnx") if args.model else None,
+                Path(__file__).parent.parent / "model" / "moonharvest-uav-det.onnx",
+                Path(__file__).parent.parent.parent / "Pigeon_Harvest" / "HarvestmoonGCS" / "Assets" / "models" / "moonharvest-uav-det.onnx",
+                Path("/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/model/moonharvest-uav-det.onnx"),
+                Path("/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/Assets/models/moonharvest-uav-det.onnx"),
+            ]
+            det_path = next((str(p) for p in det_candidates if p and p.exists()), "")
+        if det_path and os.path.isfile(det_path):
+            try:
+                detector = YOLODetector(det_path)
+                emit({"type": "info", "data": f"YOLO-det: {Path(det_path).name}"})
+            except Exception as e:
+                emit({"type": "info", "data": f"YOLO-det load error ({e})"})
+    else:
+        emit({"type": "info", "data": "YOLO disabled via --no-yolo (HSV/ONNX only)"})
 
-    src_fps     = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    # Demo mode: jangan batasi target_fps ke src_fps — video 10fps bisa di-loop lebih cepat
-    # dengan frame interpolation implisit (repeat frame). Ini agar UI tetap smooth 15+ FPS.
-    if DEMO_MODE and not isinstance(src, int):
+    is_live_stream = not isinstance(src, int) and str(src).startswith(("http://", "https://", "rtsp://", "udp://"))
+    src_fps        = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    if is_live_stream:
+        # Live stream jaringan: jangan skip frame secara artifisial, ikuti rate kedatangan paket live
+        target_fps  = float(args.max_fps)
+        step        = 1
+        frame_delay = 0.0
+    elif DEMO_MODE and not isinstance(src, int):
         target_fps = float(args.max_fps)
+        step       = max(1, int(round(src_fps / target_fps))) if target_fps <= src_fps else 1
+        playback_rate = max(0.25, min(2.0, float(args.playback_rate)))
+        frame_delay = (1.0 / target_fps) / playback_rate
     else:
         target_fps  = min(float(args.max_fps), src_fps)
-    step        = max(1, int(round(src_fps / target_fps))) if target_fps <= src_fps else 1
-    playback_rate = max(0.25, min(2.0, float(args.playback_rate)))
-    frame_delay = (1.0 / target_fps) / playback_rate
+        step        = max(1, int(round(src_fps / target_fps))) if target_fps <= src_fps else 1
+        playback_rate = max(0.25, min(2.0, float(args.playback_rate)))
+        frame_delay = (1.0 / target_fps) / playback_rate
 
     PROC_W = 640
     _emit_q: queue.Queue = queue.Queue(maxsize=1)
@@ -763,9 +1008,27 @@ def main():
         fidx   = 0
         eof_retries = 0
 
+        cached_dets = []
+        cached_fhi  = 50.0
+
         while not _stop.is_set():
             ret, frame = cap.read()
             if not ret or frame is None:
+                # Live network stream (drone HTTP/RTSP): coba baca lagi jika terjadi glitch sesaat
+                if not isinstance(src, int) and str(src).startswith(("http://", "https://", "rtsp://", "udp://")):
+                    eof_retries += 1
+                    if eof_retries > 10:
+                        try:
+                            cap.release()
+                            time.sleep(0.5)
+                            cap = cv2.VideoCapture(src)
+                        except Exception:
+                            pass
+                        eof_retries = 0
+                    else:
+                        time.sleep(0.03)
+                    continue
+
                 if DEMO_MODE and not isinstance(src, int):
                     # Demo mode: loop video selamanya tanpa batas
                     eof_retries += 1
@@ -792,24 +1055,45 @@ def main():
                 frame = cv2.resize(frame, (PROC_W, int(fh * PROC_W / fw)))
 
             try:
-                regions = segment_regions(frame, HSV_CFG)
-                if classifier and regions:
-                    dets = fuse(frame, regions, classifier)
+                if getattr(args, "no_overlay", False) and no_yolo:
+                    # Pure clean video stream (pre-annotated video: no double boxes, no CPU overhead)
+                    vis = frame
+                    dets = []
+                    fhi = 85.0
                 else:
-                    dets = [{"bbox": r["bbox"], "class": r["hsv_display"],
-                             "conf": 0.60, "area": r["area"], "source": "hsv-only"}
-                            for r in regions]
-                if detector:
-                    dets = dets + detector.detect(frame)
-                dets = nms(dets)
-                fhi_raw = compute_fhi(dets, frame.shape[0] * frame.shape[1])
-                fhi     = ema.update("fhi", fhi_raw)
-                vis     = draw_stream(frame, dets, fhi)
+                    # ── DETECTION PIPELINE ──
+                    if detector:
+                        dets = detector.detect(frame)
+                        # Fallback HSV HANYA jika YOLO benar-benar 0 deteksi
+                        if len(dets) == 0:
+                            regions = segment_regions(frame, HSV_CFG)
+                            dets += [{"bbox": r["bbox"], "class": r["hsv_display"],
+                                      "conf": 0.50, "area": r["area"], "source": "hsv-fallback"}
+                                     for r in regions]
+                    elif classifier:
+                        regions = segment_regions(frame, HSV_CFG)
+                        dets = fuse(frame, regions, classifier)
+                    else:
+                        regions = segment_regions(frame, HSV_CFG)
+                        dets = [{"bbox": r["bbox"], "class": r["hsv_display"],
+                                 "conf": 0.60, "area": r["area"], "source": "hsv-only"}
+                                for r in regions]
+
+                    dets = nms(dets, per_cls_iou=0.25, cross_iou=0.40, min_area=200,
+                               min_conf=DISPLAY_MIN_CONF)
+                    fhi_raw = compute_fhi(dets, frame.shape[0] * frame.shape[1])
+                    fhi     = ema.update("fhi", fhi_raw)
+                    if getattr(args, "no_overlay", False):
+                        vis = frame
+                    else:
+                        vis = draw_stream(frame, dets, fhi)
+                    cached_dets = dets
+                    cached_fhi  = fhi
             except Exception as exc:
                 emit({"type": "error", "data": str(exc)})
                 continue
 
-            ok, buf = cv2.imencode(".jpg", vis, [cv2.IMWRITE_JPEG_QUALITY, 75])
+            ok, buf = cv2.imencode(".jpg", vis, [cv2.IMWRITE_JPEG_QUALITY, 93])
             if not ok:
                 continue
 
@@ -825,10 +1109,19 @@ def main():
                 "classes": visible,
                 "fhi":     round(fhi, 1),
             }
-            try:
-                _emit_q.put_nowait(payload)
-            except queue.Full:
-                pass
+            if is_live_stream:
+                try:
+                    _emit_q.put_nowait(payload)
+                except queue.Full:
+                    pass
+            else:
+                # Video file / demo playback: do NOT drop frames, wait for consumer to pace at target FPS
+                while not _stop.is_set():
+                    try:
+                        _emit_q.put(payload, timeout=0.1)
+                        break
+                    except queue.Full:
+                        continue
 
     t_compute = threading.Thread(target=compute_loop, daemon=True)
     t_compute.start()
@@ -875,6 +1168,11 @@ def main():
     finally:
         _stop.set()
         cap.release()
+        try:
+            while not _emit_q.empty():
+                _emit_q.get_nowait()
+        except Exception:
+            pass
         t_compute.join(timeout=2.0)
 
     return 0

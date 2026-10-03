@@ -40,6 +40,11 @@ public interface IWaypointService
     Task ClearWaypointsAsync();
 
     /// <summary>
+    /// Replaces all waypoints in the mission with the specified collection
+    /// </summary>
+    Task ReplaceWaypointsAsync(IEnumerable<WaypointData> waypoints);
+
+    /// <summary>
     /// Gets the current waypoint the vehicle is heading to
     /// </summary>
     Task<WaypointData?> GetCurrentWaypointAsync();

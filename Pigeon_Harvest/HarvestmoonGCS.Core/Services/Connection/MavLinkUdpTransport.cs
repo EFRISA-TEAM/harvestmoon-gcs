@@ -138,9 +138,18 @@ public class MavLinkUdpTransport : IMavLinkTransport
             {
                 var result = await _udpClient.ReceiveAsync(ct);
 
-                // Update remote endpoint dinamis jika belum di-set atau belum fix
-                if (_fixedRemoteIp == null)
-                    _remoteEndPoint = result.RemoteEndPoint;
+                // Selalu pelajari endpoint pengirim yang sebenarnya.
+                // Penting untuk setup router (TP-Link): UAV bisa mengirim dari port
+                // berbeda dari remotePort yang dikonfigurasi, sehingga balasan
+                // (heartbeat/command) harus diarahkan ke endpoint yang benar-benar hidup.
+                if (result.RemoteEndPoint != null)
+                {
+                    if (_fixedRemoteIp == null ||
+                        result.RemoteEndPoint.Address.ToString() == _fixedRemoteIp)
+                    {
+                        _remoteEndPoint = result.RemoteEndPoint;
+                    }
+                }
 
                 _lastReceivedUtc = DateTime.UtcNow;
                 OnDataReceived?.Invoke(result.Buffer);

@@ -1,19 +1,20 @@
 {
-  "_comment": "Parameter final MoonHarvest Demo — diupdate 2026-06-25 ke model v4.",
-  "_mode": "Fusion HSV + YOLO v4 (4 kelas)",
-  "_model": "health_train_v4-20260625/weights/best.pt",
+  "_comment": "Parameter final MoonHarvest Demo — diupgrade ke YOLOv8 4-Kelas End-to-End Detector.",
+  "_mode": "YOLOv8 Detection (4 kelas: Lush Green, Inconsistent Growth, Drought / Severe Stress, Bare Soil / Gap)",
+  "_model": "Assets/models/moonharvest-uav-det.onnx",
 
   "demo": {
-    "mode": "fusion",
-    "primary_video": "gabung.mp4",
-    "backup_video": "demo_videos/gabung_fused_only.mp4",
+    "mode": "detector_primary",
+    "primary_video": "stream_multisector_60s.mp4",
+    "backup_video": "demo_videos/stream_v7c_final.mp4",
     "output_dir": "demo_videos/out/"
   },
 
   "yolo": {
-    "weights": "runs/classify/health_train_v5-20260626/weights/best.pt",
-    "imgsz": 224,
-    "min_conf": 0.40,
+    "detector_weights": "Assets/models/moonharvest-uav-det.onnx",
+    "classifier_weights": "Assets/models/moonharvest-health-cls-v5.onnx",
+    "imgsz": 640,
+    "min_conf": 0.30,
     "min_patch_px": 48,
     "max_regions": 80
   },

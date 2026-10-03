@@ -10,6 +10,7 @@ Usage:
 """
 
 import argparse
+import os
 from pathlib import Path
 
 import torch
@@ -21,7 +22,11 @@ TRAINING_DIR  = Path(__file__).parent
 DATA_YAML     = TRAINING_DIR / "datasets/moonharvest-uav/detector/data.yaml"
 PRETRAIN_PT   = TRAINING_DIR / "yolov8n.pt"          # base model YOLOv8n
 OUTPUT_NAME   = "moonharvest_uav_det_v2"
-EXPORT_DIR    = Path("/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/model")
+# TEKNOFEST_SIAP sits next to Pigeon_Harvest/; override with MOONHARVEST_EXPORT_DIR.
+EXPORT_DIR    = Path(os.environ.get(
+    "MOONHARVEST_EXPORT_DIR",
+    TRAINING_DIR.parent.parent / "TEKNOFEST_SIAP" / "model",
+))
 
 
 # ── Hyperparameters (dioptimalkan untuk RTX 3050 6GB) ─────────────────────────
