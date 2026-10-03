@@ -1,0 +1,25 @@
+[Unit]
+Description=Orange Pi 3B Drone Companion - WiFi autoconnect + MAVLink/Video bridge
+After=NetworkManager.service network-online.target
+Wants=NetworkManager.service network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/orangepi/drone_companion
+
+# 1) Tunggu NetworkManager siap, lalu sambungkan ke WiFi router (SSID diisi
+#    otomatis oleh setup_orange_pi_tplink.sh). Autoconnect juga sudah aktif di
+#    profil .nmconnection, jadi langkah ini hanya jaring pengaman.
+# 2) Jalankan companion (telemetri MAVLink 14550 + video H.264 5600).
+ExecStart=/bin/bash /home/orangepi/drone_companion/run_companion_autostart.sh
+
+# Selalu hidupkan ulang bila crash
+Restart=always
+RestartSec=5
+
+# Tunggu sampai benar-benar siap sebelum dianggap started
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

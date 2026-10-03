@@ -20,6 +20,7 @@ using HarvestmoonGCS.Core.Services;
 using HarvestmoonGCS.Core.Services.Optimization;
 using HarvestmoonGCS.Services;
 using HarvestmoonGCS.Controls;
+using HarvestmoonGCS.ViewModels;
 using Serilog;
 using MavLinkNet;
 using ConnectionType = HarvestmoonGCS.Core.Models.ConnectionType;
@@ -41,7 +42,10 @@ public sealed partial class FlightPage : Page, INotifyPropertyChanged
     private bool _yoloReady;
     private string _lastYoloSummary = "YOLO: IDLE";
     private FlightViewModel? _viewModel;
+    private MapViewModel? _mapViewModel;
     private IMavLinkService? _mavLinkService;
+    private IVideoScenarioService? _videoScenarioService;
+    private IWaypointService? _waypointService;
     private RealTimeDataService? _realTimeDataService;
     private DispatcherTimer? _uiRefreshTimer;
     private readonly object _telemetrySync = new();
@@ -160,7 +164,15 @@ public sealed partial class FlightPage : Page, INotifyPropertyChanged
         SizeChanged += OnFlightPageSizeChanged;
 
         _viewModel = App.Current.Services.GetService<FlightViewModel>();
+        _mapViewModel = App.Current.Services.GetService<MapViewModel>();
         _mavLinkService = App.Current.Services.GetService<IMavLinkService>();
+        _videoScenarioService = App.Current.Services.GetService<IVideoScenarioService>();
+        if (_videoScenarioService != null)
+        {
+            _videoScenarioService.ScenarioChanged -= OnScenarioChanged;
+            _videoScenarioService.ScenarioChanged += OnScenarioChanged;
+        }
+        _waypointService = App.Current.Services.GetService<IWaypointService>();
         _optimizedTelemetryHandler = App.Current.Services.GetService<IOptimizedTelemetryHandler>();
         _optimizedRenderer = App.Current.Services.GetService<IOptimizedRenderer>();
         _benchmarkStartedUtc = DateTime.UtcNow;
@@ -249,6 +261,14 @@ public sealed partial class FlightPage : Page, INotifyPropertyChanged
             cameraService.FrameReceived += OnCameraFrameReceived;
             cameraService.StreamingStatusChanged += OnStreamingStatusChanged;
         }
+
+        // RunCam WiFi Link 2: frame & status masuk otomatis setelah Connect.
+        var runcamService = App.Current.Services.GetService<IRuncamWifiLinkService>();
+        if (runcamService != null)
+        {
+            runcamService.FrameReceived += OnCameraFrameReceived;
+            runcamService.StatusChanged += OnRuncamStatusChanged;
+        }
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
@@ -305,6 +325,11 @@ public sealed partial class FlightPage : Page, INotifyPropertyChanged
         if (btn_console_filter != null) btn_console_filter.Click -= OnConsoleFilterButtonClicked;
         if (btn_console_autoscroll != null) btn_console_autoscroll.Click -= OnAutoScrollToggle;
 
+        if (_videoScenarioService != null)
+        {
+            _videoScenarioService.ScenarioChanged -= OnScenarioChanged;
+        }
+
         var cameraService = App.Current.Services.GetService<ICameraService>();
         if (cameraService != null)
         {
@@ -312,8 +337,22 @@ public sealed partial class FlightPage : Page, INotifyPropertyChanged
             cameraService.StreamingStatusChanged -= OnStreamingStatusChanged;
         }
 
+        var runcamService = App.Current.Services.GetService<IRuncamWifiLinkService>();
+        if (runcamService != null)
+        {
+            runcamService.FrameReceived -= OnCameraFrameReceived;
+            runcamService.StatusChanged -= OnRuncamStatusChanged;
+        }
+
         Loaded += OnLoaded;
 
+    }
+
+    /// <summary>RunCam connect/disconnect → sinkronkan indikator live cam flight page.</summary>
+    private void OnRuncamStatusChanged(object? sender, RuncamConnectionStatus status)
+    {
+        bool live = status is RuncamConnectionStatus.CameraOnly or RuncamConnectionStatus.FullyConnected;
+        OnStreamingStatusChanged(this, live || (App.Current.Services.GetService<ICameraService>()?.IsStreaming ?? false));
     }
 
     private void OnFlightPageSizeChanged(object sender, SizeChangedEventArgs e)
@@ -427,11 +466,138 @@ public sealed partial class FlightPage : Page, INotifyPropertyChanged
         }
     }
 
+    private void OnScenarioChanged(object? sender, VideoScenarioProfile scenario)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (scenario != null)
+            {
+                AddConsoleMessage("SCENARIO", $"Switched to: {scenario.Name} ({scenario.RegionName})", "INFO");
+                if (_mapViewModel != null && scenario.Waypoints.Count > 0)
+                {
+                    _mapViewModel.Waypoints.Clear();
+                    foreach (var wp in scenario.Waypoints) _mapViewModel.Waypoints.Add(wp);
+                    _mapViewModel.GeofenceCenterLat = scenario.FieldCenterLat;
+                    _mapViewModel.GeofenceCenterLon = scenario.FieldCenterLon;
+                    _mapViewModel.GeofenceRadius = scenario.GeofenceRadiusMeters;
+                }
+                if (_waypointService != null && scenario.Waypoints.Count > 0)
+                {
+                    _ = _waypointService.ReplaceWaypointsAsync(scenario.Waypoints);
+                }
+                if (mapControl != null)
+                {
+                    mapControl.SetCenter(scenario.FieldCenterLat, scenario.FieldCenterLon, scenario.MapZoomLevel);
+                    SyncMapFromViewModel();
+                }
+            }
+        });
+    }
+
+    public void OnPageActivated()
+    {
+        var scenario = _videoScenarioService?.CurrentScenario;
+        if (scenario != null)
+        {
+            if (_mapViewModel != null)
+            {
+                _mapViewModel.Waypoints.Clear();
+                foreach (var wp in scenario.Waypoints) _mapViewModel.Waypoints.Add(wp);
+                _mapViewModel.GeofenceCenterLat = scenario.FieldCenterLat;
+                _mapViewModel.GeofenceCenterLon = scenario.FieldCenterLon;
+                _mapViewModel.GeofenceRadius = scenario.GeofenceRadiusMeters;
+            }
+            if (mapControl != null)
+            {
+                mapControl.SetCenter(scenario.FieldCenterLat, scenario.FieldCenterLon, scenario.MapZoomLevel);
+            }
+        }
+        SyncMapFromViewModel();
+    }
+
     private void InitializeMapControl()
     {
         if (mapControl == null) return;
-        mapControl.SetCenter(-7.2754, 112.7947, 15); // Surabaya
+        var scenario = _videoScenarioService?.CurrentScenario;
+        double initLat = (_viewModel?.Telemetry?.Latitude != null && _viewModel.Telemetry.Latitude != 0)
+            ? _viewModel.Telemetry.Latitude
+            : (scenario?.FieldCenterLat ?? -6.24361);
+        double initLon = (_viewModel?.Telemetry?.Longitude != null && _viewModel.Telemetry.Longitude != 0)
+            ? _viewModel.Telemetry.Longitude
+            : (scenario?.FieldCenterLon ?? 107.36556);
+        mapControl.SetCenter(initLat, initLon, 15);
+        mapControl.SetFollowVehicle(true);
         mapControl.SetMapControlsVisible(false);
+        SyncMapFromViewModel();
+    }
+
+    private void SyncMapFromViewModel()
+    {
+        if (mapControl == null) return;
+        mapControl.ClearWaypoints();
+        if (_mapViewModel?.Waypoints != null && _mapViewModel.Waypoints.Count > 0)
+        {
+            foreach (var wp in _mapViewModel.Waypoints.OrderBy(w => w.Sequence))
+            {
+                mapControl.AddWaypointMarker(wp.Sequence, wp.Latitude, wp.Longitude, wp.Altitude, wp.Command.ToString());
+            }
+        }
+        if (_mapViewModel?.IsGeofenceActive == true)
+        {
+            mapControl.SetGeofence(true, _mapViewModel.GeofenceCenterLat, _mapViewModel.GeofenceCenterLon, _mapViewModel.GeofenceRadius);
+        }
+        else
+        {
+            mapControl.SetGeofence(true, 0, 0, 0);
+        }
+    }
+
+    private async void OnTakeoffClicked(object sender, RoutedEventArgs e)
+    {
+        if (_mavLinkService == null || !_mavLinkService.IsConnected)
+        {
+            AddConsoleMessage("STATUSTEXT", "Vehicle not connected. Cannot takeoff.", "WARN");
+            return;
+        }
+        btn_takeoff.IsEnabled = false;
+        try
+        {
+            AddConsoleMessage("COMMAND", "Takeoff command sent (altitude: 10m)...");
+            var success = await _mavLinkService.TakeoffAsync(10.0f);
+            AddConsoleMessage("COMMAND_ACK", success ? "Takeoff accepted" : "Takeoff rejected", success ? "INFO" : "WARN");
+        }
+        catch (Exception ex)
+        {
+            AddConsoleMessage("STATUSTEXT", $"Takeoff failed: {ex.Message}", "ERROR");
+        }
+        finally
+        {
+            btn_takeoff.IsEnabled = true;
+        }
+    }
+
+    private async void OnLandClicked(object sender, RoutedEventArgs e)
+    {
+        if (_mavLinkService == null || !_mavLinkService.IsConnected)
+        {
+            AddConsoleMessage("STATUSTEXT", "Vehicle not connected. Cannot land.", "WARN");
+            return;
+        }
+        btn_land.IsEnabled = false;
+        try
+        {
+            AddConsoleMessage("COMMAND", "Land command sent...");
+            var success = await _mavLinkService.LandAsync();
+            AddConsoleMessage("COMMAND_ACK", success ? "Land accepted" : "Land rejected", success ? "INFO" : "WARN");
+        }
+        catch (Exception ex)
+        {
+            AddConsoleMessage("STATUSTEXT", $"Land failed: {ex.Message}", "ERROR");
+        }
+        finally
+        {
+            btn_land.IsEnabled = true;
+        }
     }
 
     private async void OnStartMissionClicked(object sender, RoutedEventArgs e)
@@ -475,19 +641,25 @@ public sealed partial class FlightPage : Page, INotifyPropertyChanged
             Latitude = flightData.GPS.Latitude / 1e7,
             Longitude = flightData.GPS.Longitude / 1e7,
             Altitude = flightData.AltitudeFloat,
-            RelativeAltitude = flightData.AltitudeFloat,
+            // M1: RelativeAltitude dari GLOBAL_POSITION_INT.relative_alt (AGL), bukan MSL
+            RelativeAltitude = flightData.Barometers > 0 ? flightData.Barometers : flightData.AltitudeFloat,
             Barometers = flightData.Barometers > 0 ? flightData.Barometers : flightData.AltitudeFloat,
             Roll = flightData.IMU.Roll,
             Pitch = flightData.IMU.Pitch,
             Yaw = flightData.IMU.Yaw,
             Heading = flightData.IMU.Yaw,
-            GroundSpeed = flightData.Speed,
+            // M2: GroundSpeed dari VFR_HUD.groundspeed, AirSpeed dari VFR_HUD.airspeed (berbeda)
+            GroundSpeed = flightData.GroundSpeed > 0 ? flightData.GroundSpeed : flightData.Speed,
             AirSpeed = flightData.Speed,
-            VerticalSpeed = 0,
+            // H4: VerticalSpeed dari VFR_HUD.climb (m/s), bukan hardcoded 0
+            VerticalSpeed = flightData.VerticalSpeed,
             BatteryVoltage = flightData.BatteryVolt,
             BatteryCurrent = flightData.BatteryCurr,
+            BatteryRemaining = flightData.BatteryRemaining,
+            BatteryPercentage = flightData.BatteryRemaining > 0 ? flightData.BatteryRemaining : 0,
             FlightMode = flightData.FlightMode,
-            IsArmed = flightData.FlightMode != FlightMode.DISARMED,
+            // H2: IsArmed dari BaseMode bit, bukan hanya FlightMode
+            IsArmed = flightData.IsArmed,
             SatelliteCount = flightData.GPS.Sats,
             HDOP = flightData.Hdop / 100.0,
             SignalStrength = flightData.Signal,
@@ -709,7 +881,7 @@ public sealed partial class FlightPage : Page, INotifyPropertyChanged
         Interlocked.Increment(ref _telemetryRenderedTotal);
         _observabilityService?.Track("flight.telemetry.apply");
 
-        // Update Stats Bar
+        // Update Stats Bar — existing fields
         if (tb_alt != null) tb_alt.Text = t.Altitude.ToString("F0");
         if (tb_speed != null) tb_speed.Text = t.AirSpeed.ToString("F1");
         if (tb_roll != null) tb_roll.Text = t.Roll.ToString("F1");
@@ -718,6 +890,63 @@ public sealed partial class FlightPage : Page, INotifyPropertyChanged
 
         int rssiPercent = Math.Clamp(t.SignalStrength, 0, 100);
         if (tb_rssi != null) tb_rssi.Text = rssiPercent.ToString();
+
+        // P1: Satellite count + GPS fix quality
+        if (tb_sats != null) tb_sats.Text = t.SatelliteCount.ToString();
+        if (tb_gps_fix != null)
+        {
+            tb_gps_fix.Text = t.GPSFixType switch
+            {
+                >= 15 => "RTK FIXED",
+                6     => "RTK FLOAT",
+                5     => "3D+SBAS",
+                4     => "DGPS",
+                3     => "3D FIX",
+                2     => "2D FIX",
+                1     => "NO GPS",
+                _     => "NO FIX"
+            };
+            tb_gps_fix.Foreground = t.GPSFixType >= 3
+                ? new SolidColorBrush(Microsoft.UI.Colors.LimeGreen)
+                : new SolidColorBrush(Microsoft.UI.Colors.OrangeRed);
+        }
+
+        // P1: Battery percentage + voltage
+        if (tb_battery != null)
+        {
+            var batPct = t.BatteryRemaining > 0 ? t.BatteryRemaining : (int)t.BatteryPercentage;
+            tb_battery.Text = batPct > 0 ? batPct.ToString() : "--";
+            tb_battery.Foreground = batPct switch
+            {
+                > 50 => new SolidColorBrush(Microsoft.UI.Colors.LimeGreen),
+                > 20 => new SolidColorBrush(Microsoft.UI.Colors.Orange),
+                _    => new SolidColorBrush(Microsoft.UI.Colors.OrangeRed)
+            };
+        }
+        if (tb_batt_volt != null && t.BatteryVoltage > 0)
+            tb_batt_volt.Text = $"{t.BatteryVoltage:F1}V";
+
+        // P1: Vertical speed (climb rate)
+        if (tb_vspeed != null)
+        {
+            tb_vspeed.Text = t.VerticalSpeed.ToString("F1");
+            tb_vspeed.Foreground = t.VerticalSpeed > 0.2
+                ? new SolidColorBrush(Microsoft.UI.Colors.LimeGreen)
+                : t.VerticalSpeed < -0.2
+                    ? new SolidColorBrush(Microsoft.UI.Colors.OrangeRed)
+                    : new SolidColorBrush(Microsoft.UI.Colors.White);
+        }
+
+        // P1: Flight mode + ARM status
+        if (tb_flight_mode != null)
+            tb_flight_mode.Text = t.FlightMode.ToString().Replace("_", " ");
+        if (tb_arm_status != null)
+        {
+            tb_arm_status.Text = t.IsArmed ? "ARMED" : "DISARMED";
+            tb_arm_status.Foreground = t.IsArmed
+                ? new SolidColorBrush(Microsoft.UI.Colors.OrangeRed)
+                : new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(0xFF, 0x9C, 0xA3, 0xAF));
+        }
 
         // Update avionics instruments
         if (ind_attitude != null)
@@ -729,6 +958,9 @@ public sealed partial class FlightPage : Page, INotifyPropertyChanged
         if (ind_airspeed != null) ind_airspeed.Airspeed = (int)t.AirSpeed;
         if (ind_heading != null) ind_heading.Heading = (int)t.Yaw;
         
+        // Update arm button color
+        UpdateArmButton();
+
         // Update map
         if (mapControl != null && Math.Abs(t.Latitude) > 1e-6 && Math.Abs(t.Longitude) > 1e-6)
         {
@@ -1360,18 +1592,30 @@ public sealed partial class FlightPage : Page, INotifyPropertyChanged
         }
     }
 
+    // Bundled assets come first so demo playback works on any machine/OS; the absolute
+    // /home/... entries are a convenience fallback for the developer's own checkout.
     private static readonly string[] _demoVideoCandidates = new[]
     {
-        "/home/fawwazfa/Program/Harvestmoon/test_program/moonharvest_hsv_detector/moonharvest_package/fusion_out/hsvv_fused_only.mp4",
-        "/home/fawwazfa/Program/Harvestmoon/test_program/moonharvest_hsv_detector/moonharvest_package/fusion_out/hsvv_fused.mp4",
-        "/home/fawwazfa/Program/Harvestmoon/runs/uav_detection/derr_detected.mp4",
-        Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..", "derr.mp4")),
+        Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "stream_multisector_60s.mp4"),
+        Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "stream_v7c_final.mp4"),
+        Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "YDXJ_fused_only_detected.mp4"),
+        "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/stream_multisector_60s.mp4",
+        "/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/Assets/demo_videos/stream_multisector_60s.mp4",
+        "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/stream_v7c_final.mp4",
+        "/home/fawwazfa/Program/Harvestmoon/vidio/15d.mp4",
+        "/home/fawwazfa/Program/Harvestmoon/vidio/YDXJ0012_demo(1).mp4",
+        "/home/fawwazfa/Program/Harvestmoon/vidio/YDX_burned.mp4",
+        "/home/fawwazfa/Program/Harvestmoon/vid/15d.mp4",
+        "/home/fawwazfa/Program/Harvestmoon/vid/YDXJ0012_demo.mp4",
+        "/home/fawwazfa/Program/Harvestmoon/vid/YDX_burned.mp4",
     };
 
     private async void OnStartStopStream(object sender, RoutedEventArgs e)
     {
-        var cameraService = App.Current.Services.GetService<ICameraService>();
-        if (cameraService == null) return;
+        try
+        {
+            var cameraService = App.Current.Services.GetService<ICameraService>();
+            if (cameraService == null) return;
 
         if (cameraService.IsStreaming)
         {
@@ -1380,11 +1624,53 @@ public sealed partial class FlightPage : Page, INotifyPropertyChanged
         }
         else
         {
-            var videoPath = Array.Find(_demoVideoCandidates, File.Exists);
+            var scenario = _videoScenarioService?.CurrentScenario;
+            string? videoPath = null;
+            if (scenario != null && _videoScenarioService != null)
+            {
+                videoPath = _videoScenarioService.ResolveVideoFilePath(scenario);
+            }
+            if (string.IsNullOrEmpty(videoPath) || !File.Exists(videoPath))
+            {
+                videoPath = Array.Find(_demoVideoCandidates, File.Exists);
+            }
+
             if (videoPath == null)
             {
-                AddConsoleMessage("CAMERA", "Tidak ada video deteksi ditemukan (hsvv_fused.mp4 / derr_detected.mp4)", "ERROR");
+                AddConsoleMessage("CAMERA", "Tidak ada video deteksi ditemukan", "ERROR");
                 return;
+            }
+
+            // Sync scenario if not matching
+            if (_videoScenarioService != null && (scenario == null || !string.Equals(scenario.VideoFileName, Path.GetFileName(videoPath), StringComparison.OrdinalIgnoreCase)))
+            {
+                scenario = _videoScenarioService.LoadScenarioForVideo(videoPath);
+                _videoScenarioService.SetCurrentScenario(scenario);
+            }
+
+            if (scenario != null)
+            {
+                AddConsoleMessage("MISSION", $"Active Scenario: {scenario.Name} ({scenario.RegionName})", "INFO");
+                AddConsoleMessage("NAV", $"Field: {scenario.FieldCenterLat:F5}, {scenario.FieldCenterLon:F5} | Bear {scenario.BearingDeg:F0}° | Target FHI: {scenario.TargetFhi:F1}%", "INFO");
+
+                // Sync waypoints and map
+                if (_mapViewModel != null && scenario.Waypoints.Count > 0)
+                {
+                    _mapViewModel.Waypoints.Clear();
+                    foreach (var wp in scenario.Waypoints) _mapViewModel.Waypoints.Add(wp);
+                    _mapViewModel.GeofenceCenterLat = scenario.FieldCenterLat;
+                    _mapViewModel.GeofenceCenterLon = scenario.FieldCenterLon;
+                    _mapViewModel.GeofenceRadius = scenario.GeofenceRadiusMeters;
+                }
+                if (_waypointService != null && scenario.Waypoints.Count > 0)
+                {
+                    _ = _waypointService.ReplaceWaypointsAsync(scenario.Waypoints);
+                }
+                if (mapControl != null)
+                {
+                    mapControl.SetCenter(scenario.FieldCenterLat, scenario.FieldCenterLon, 15);
+                    SyncMapFromViewModel();
+                }
             }
 
             AddConsoleMessage("CAMERA", $"Playing: {Path.GetFileName(videoPath)}");
@@ -1392,22 +1678,41 @@ public sealed partial class FlightPage : Page, INotifyPropertyChanged
             if (!success)
                 AddConsoleMessage("CAMERA", $"Gagal membuka {Path.GetFileName(videoPath)}", "ERROR");
         }
+        }
+        catch (Exception ex)
+        {
+            // Unhandled exceptions in async void terminate the process on Windows.
+            Serilog.Log.Error(ex, "[FlightPage] Start/stop stream failed");
+            AddConsoleMessage("CAMERA", $"Stream error: {ex.Message}", "ERROR");
+        }
     }
     
     private async void OnCameraFrameReceived(object? sender, byte[] frameData)
     {
-        _observabilityService?.Track("flight.camera.ingest");
-
-        // Run YOLO inference asynchronously (same pattern as CameraPage)
-        var yoloResult = _yoloReady
-            ? await _yoloProcessor.ProcessAsync(frameData)
-            : null;
-
-        lock (_cameraFrameSync)
+        try
         {
-            _pendingFrameData = frameData;
-            _pendingYoloResult = yoloResult;
-            _hasPendingFrameData = true;
+            _observabilityService?.Track("flight.camera.ingest");
+
+            // Run YOLO inference asynchronously (same pattern as CameraPage).
+            // Gated on the live YOLO toggle so a disabled switch never runs inference.
+            var yoloEnabled = App.Current.Services
+                .GetService<HarvestFunctionalService>()?.IsYoloOptionEnabled == true;
+            var yoloResult = (_yoloReady && yoloEnabled)
+                ? await _yoloProcessor.ProcessAsync(frameData)
+                : null;
+
+            lock (_cameraFrameSync)
+            {
+                _pendingFrameData = frameData;
+                _pendingYoloResult = yoloResult;
+                _hasPendingFrameData = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            // An unhandled exception in an async void frame handler terminates the process,
+            // which was the main "force close" path on Windows. Swallow and log instead.
+            Serilog.Log.Error(ex, "[FlightPage] Camera frame handling failed");
         }
     }
     

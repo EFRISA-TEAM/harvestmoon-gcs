@@ -18,12 +18,12 @@ namespace HarvestmoonGCS.Controls
 {
     public sealed partial class SkiaMapControl : UserControl
     {
-        private double _centerLat = -7.2754; // Surabaya default
-        private double _centerLon = 112.7947;
+        private double _centerLat = -6.24361; // Karawang rice field default
+        private double _centerLon = 107.36556;
         private int _zoomLevel = 15;
         
-        private double _vehicleLat = -7.2754;
-        private double _vehicleLon = 112.7947;
+        private double _vehicleLat = -6.24361;
+        private double _vehicleLon = 107.36556;
         private bool _showVehicle = false;
         private bool _followVehicle = false;
         private double _lastRenderedVehicleLat = double.NaN;
@@ -304,6 +304,46 @@ namespace HarvestmoonGCS.Controls
             {
                 var elapsedMs = (Stopwatch.GetTimestamp() - frameStartTicks) * 1000.0 / Stopwatch.Frequency;
                 _optimizedRenderer.RecordFrameTime(elapsedMs);
+            }
+        }
+
+        /// <summary>
+        /// Renders the current map state (tiles, geofence, waypoints, vehicle marker) to an
+        /// off-screen surface and returns it as PNG bytes — a real snapshot of what the map
+        /// control is showing right now, for evidence/report attachments.
+        /// </summary>
+        public byte[]? CaptureSnapshotPng(int width = 960, int height = 640)
+        {
+            try
+            {
+                var info = new SKImageInfo(Math.Max(1, width), Math.Max(1, height));
+                using var surface = SKSurface.Create(info);
+                var canvas = surface.Canvas;
+                canvas.Clear(SKColors.LightGray);
+
+                DrawMapTiles(canvas, width, height);
+                DrawGeofence(canvas, width, height);
+                DrawWaypointTrail(canvas, width, height);
+                DrawWaypointMarkers(canvas, width, height);
+                if (_showVehicle)
+                {
+                    DrawVehicleMarker(canvas, width, height);
+                }
+                if (_showTracker)
+                {
+                    DrawTrackerMarker(canvas, width, height);
+                }
+                DrawGridLines(canvas, width, height);
+                DrawScale(canvas, width, height);
+
+                using var image = surface.Snapshot();
+                using var data = image.Encode(SKEncodedImageFormat.Png, 90);
+                return data.ToArray();
+            }
+            catch (Exception ex)
+            {
+                Serilog.Log.Warning(ex, "[SkiaMapControl] CaptureSnapshotPng failed");
+                return null;
             }
         }
 
@@ -1282,7 +1322,7 @@ namespace HarvestmoonGCS.Controls
             else
             {
                 // Center on default location if no vehicle
-                SetCenter(-7.2754, 112.7947, _zoomLevel);
+                SetCenter(-6.24361, 107.36556, _zoomLevel);
                 Serilog.Log.Information("[SkiaMapControl] Centered map on default location");
             }
         }

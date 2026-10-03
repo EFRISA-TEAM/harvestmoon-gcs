@@ -61,7 +61,7 @@
                 Visibility="Collapsed">
             <StackPanel>
                 <TextBlock x:Name="txtMapCoordinates" 
-                          Text="Lat: -7.2754, Lon: 112.7947" 
+                          Text="Lat: -6.2436, Lon: 107.3656" 
                           Foreground="White" 
                           FontSize="12"
                           FontFamily="Consolas"/>

@@ -350,6 +350,7 @@ public class JsonSettingsService : ISettingsService
         _settings["Connection.Port"] = _appSettings.Connection.Port;
         _settings["Map.DefaultWaypointRadius"] = _appSettings.Map.DefaultWaypointRadius;
         _settings["AISettings"] = CloneAISettingsWithoutSecrets(_appSettings.AI);
+        _settings["VisionRuntime"] = _appSettings.VisionRuntime;
     }
 
     private void ApplyDictionaryToAppSettings()
@@ -382,6 +383,11 @@ public class JsonSettingsService : ISettingsService
         if (_settings.TryGetValue("AISettings", out var aiSettings))
         {
             _appSettings.AI = ConvertToAISettings(aiSettings, _appSettings.AI);
+        }
+
+        if (_settings.TryGetValue("VisionRuntime", out var visionRuntime))
+        {
+            _appSettings.VisionRuntime = ConvertToVisionRuntimeSettings(visionRuntime, _appSettings.VisionRuntime);
         }
     }
 
@@ -420,6 +426,12 @@ public class JsonSettingsService : ISettingsService
         if (key == "AISettings")
         {
             _appSettings.AI = ConvertToAISettings(value, _appSettings.AI);
+            return;
+        }
+
+        if (key == "VisionRuntime")
+        {
+            _appSettings.VisionRuntime = ConvertToVisionRuntimeSettings(value, _appSettings.VisionRuntime);
         }
     }
 
@@ -433,6 +445,7 @@ public class JsonSettingsService : ISettingsService
             "Connection.Port" => _appSettings.Connection.Port,
             "Map.DefaultWaypointRadius" => _appSettings.Map.DefaultWaypointRadius,
             "AISettings" => _appSettings.AI,
+            "VisionRuntime" => _appSettings.VisionRuntime,
             _ => null
         };
     }
@@ -521,6 +534,35 @@ public class JsonSettingsService : ISettingsService
             if (value is string str)
             {
                 var result = JsonSerializer.Deserialize<AISettings>(str);
+                return result ?? fallback;
+            }
+        }
+        catch
+        {
+        }
+
+        return fallback;
+    }
+
+    private static VisionRuntimeSettings ConvertToVisionRuntimeSettings(object value, VisionRuntimeSettings fallback)
+    {
+        try
+        {
+            if (value is VisionRuntimeSettings direct)
+            {
+                return direct;
+            }
+
+            if (value is JsonElement element)
+            {
+                var json = element.GetRawText();
+                var result = JsonSerializer.Deserialize<VisionRuntimeSettings>(json);
+                return result ?? fallback;
+            }
+
+            if (value is string str)
+            {
+                var result = JsonSerializer.Deserialize<VisionRuntimeSettings>(str);
                 return result ?? fallback;
             }
         }

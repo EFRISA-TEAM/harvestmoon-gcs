@@ -731,14 +731,16 @@ public sealed partial class PIAPanel : UserControl
 
     private async void ViewMaintenanceSchedule_Click(object sender, RoutedEventArgs e)
     {
-        if (_viewModel == null)
+        try
         {
-            return;
-        }
+            if (_viewModel == null)
+            {
+                return;
+            }
 
-        var tasks = _viewModel.MaintenanceTasks
-            .OrderBy(t => t.DueDate)
-            .ToList();
+            var tasks = _viewModel.MaintenanceTasks
+                .OrderBy(t => t.DueDate)
+                .ToList();
 
         var stack = new StackPanel
         {
@@ -808,7 +810,13 @@ public sealed partial class PIAPanel : UserControl
             XamlRoot = XamlRoot
         };
 
-        await dialog.ShowAsync();
+            // ShowAsync throws if another ContentDialog is already open on this XamlRoot.
+            await dialog.ShowAsync();
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[PIAPanel] Maintenance schedule dialog failed");
+        }
     }
 
     private void AttachMessageSubscription(ObservableCollection<ChatMessage> messages)

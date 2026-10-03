@@ -1,0 +1,4 @@
+bare_soil
+drought_severe_stress
+inconsistent_growth
+lush_green

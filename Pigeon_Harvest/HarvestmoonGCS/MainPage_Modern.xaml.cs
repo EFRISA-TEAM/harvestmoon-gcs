@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Media;
 using HarvestmoonGCS.ViewModels;
 using HarvestmoonGCS.Views;
 using HarvestmoonGCS.Core.Services;
+using HarvestmoonGCS.Core.Models;
 using HarvestmoonGCS.Helpers;
 using HarvestmoonGCS.Services;
 using HarvestmoonGCS.Controls;
@@ -30,6 +31,8 @@ public sealed partial class MainPage_Modern : Page
     private readonly IMavLinkService? _mavLinkService;
     private readonly ILocalizationService? _localizationService;
     private readonly PageCacheManager? _pageCacheManager;
+    private readonly IVideoScenarioService? _videoScenarioService;
+    private readonly HarvestFunctionalService? _harvestFunctionalService;
     private DateTime _lastTopBarTelemetryUpdate = DateTime.MinValue;
     private const int TopBarUpdateIntervalMs = 200;
     private (double Battery, int Sats, string Mode, bool IsArmed)? _lastTopBarState;
@@ -67,11 +70,17 @@ public sealed partial class MainPage_Modern : Page
             _pageCacheManager = App.Current.Services.GetService<PageCacheManager>();
             _mavLinkService = App.Current.Services.GetService<IMavLinkService>();
             _observabilityService = App.Current.Services.GetService<ObservabilityService>();
+            _videoScenarioService = App.Current.Services.GetService<IVideoScenarioService>();
+            _harvestFunctionalService = App.Current.Services.GetService<HarvestFunctionalService>();
             App.Current.Services.GetService<MissionLoggingService>();
             if (_mavLinkService != null)
             {
                 _mavLinkService.TelemetryReceived += OnTelemetryReceived;
                 _mavLinkService.ConnectionStatusChanged += OnConnectionStatusChanged;
+            }
+            if (_videoScenarioService != null)
+            {
+                _videoScenarioService.ScenarioChanged += OnScenarioChanged;
             }
 
 #if !__WASM__
@@ -93,6 +102,7 @@ public sealed partial class MainPage_Modern : Page
         DispatcherQueue.TryEnqueue(() =>
         {
             ApplyResponsiveLayout();
+            SynchronizeTopBarConnection();
             NavigateToPage("Dashboard");
             UpdateTopBarForTarget("Dashboard");
             StartNavigationPreload();
@@ -105,10 +115,14 @@ public sealed partial class MainPage_Modern : Page
         this.SizeChanged += MainPage_Modern_SizeChanged;
 
         ApplyResponsiveLayout();
+        SynchronizeTopBarConnection();
         // Navigate to initial page
         NavigateToPage("Dashboard");
         UpdateTopBarForTarget("Dashboard");
         StartNavigationPreload();
+
+        // Auto-connect saat startup DIMATIKAN (sesuai permintaan): koneksi hanya
+        // dibuat ketika pengguna menekan Connect di dialog.
 
 #if !__WASM__
         // Subscribe to PIA button click from sidebar
@@ -122,14 +136,50 @@ public sealed partial class MainPage_Modern : Page
 #endif
     }
 
-    private void MainPage_Modern_Unloaded(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Auto-connect saat aplikasi dibuka: telemetri MAVLink dari UAV (Orange Pi)
+    /// langsung masuk tanpa perlu klik Connect.
+    /// </summary>
+    private async Task TryAutoConnectOnStartupAsync()
     {
-        this.SizeChanged -= MainPage_Modern_SizeChanged;
+        try
+        {
+            // Beri jeda singkat agar UI + service siap.
+            await Task.Delay(1500);
+
+            var connected = await Views.ConnectDialog.TryAutoConnectAsync(
+                _mavLinkService,
+                App.Current.Services.GetService<IRuncamWifiLinkService>(),
+                App.Current.Services.GetService<ISettingsService>());
+
+            if (connected)
+            {
+                Serilog.Log.Information("[MainPage] Auto-connect berhasil (UAV terhubung).");
+                DispatcherQueue.TryEnqueue(SynchronizeTopBarConnection);
+            }
+            else
+            {
+                Serilog.Log.Information("[MainPage] Auto-connect tidak menemukan UAV (bisa connect manual).");
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "[MainPage] Auto-connect gagal");
+        }
+    }
+
+    private void MainPage_Modern_Unloaded(object sender, RoutedEventArgs e)
+    {        this.SizeChanged -= MainPage_Modern_SizeChanged;
 
         if (_mavLinkService != null)
         {
             _mavLinkService.TelemetryReceived -= OnTelemetryReceived;
             _mavLinkService.ConnectionStatusChanged -= OnConnectionStatusChanged;
+        }
+
+        if (_videoScenarioService != null)
+        {
+            _videoScenarioService.ScenarioChanged -= OnScenarioChanged;
         }
 
         if (_observabilityOverlayTimer != null)
@@ -277,7 +327,7 @@ public sealed partial class MainPage_Modern : Page
         }
 
         bool useCompactLayout = IsAndroidPortrait() || pageWidth < 960;
-        bool useVeryCompactLayout = IsAndroidDevice() || pageWidth < 760;
+        bool useVeryCompactLayout = IsAndroidPhone() || pageWidth < 760;
 
         double sidebarWidth = useVeryCompactLayout
             ? VeryCompactSidebarWidth
@@ -313,6 +363,18 @@ public sealed partial class MainPage_Modern : Page
 #if ANDROID
         var orientation = AndroidApp.Context?.Resources?.Configuration?.Orientation;
         return orientation == AndroidOrientation.Portrait;
+#else
+        return false;
+#endif
+    }
+
+    // Treat only small Android handsets as "very compact" by smallest width.
+    // Tablets (>= 600dp) should use compact/default sidebar sizing.
+    private static bool IsAndroidPhone()
+    {
+#if ANDROID
+        var smallestWidthDp = AndroidApp.Context?.Resources?.Configuration?.SmallestScreenWidthDp ?? 0;
+        return smallestWidthDp > 0 && smallestWidthDp < 600;
 #else
         return false;
 #endif
@@ -364,9 +426,9 @@ public sealed partial class MainPage_Modern : Page
         }
 
         _isNavigating = true;
-        bool forceFrameNavigation = target is "ClassicMap" or "Map";
+        bool forceFrameNavigation = target is "Map";
         bool pageAlreadyCached = !forceFrameNavigation && _pageCacheManager?.IsCached(pageType) == true;
-        bool useLoadingOverlay = target is "ClassicMap" or "Map" or "TlogPlayer" && !pageAlreadyCached;
+        bool useLoadingOverlay = target is "Map" && !pageAlreadyCached;
         if (useLoadingOverlay)
         {
             MainLoadingIndicator.IsLoading = true;
@@ -529,7 +591,6 @@ public sealed partial class MainPage_Modern : Page
         yield return typeof(CameraPage);
         yield return typeof(MissionPlannerPage);
         yield return typeof(StatsPage);
-        yield return typeof(AIHarvestPage);
         yield return typeof(AISettingsPage);
         yield return typeof(ReportsHarvestPage);
         yield return typeof(SettingsPage);
@@ -545,18 +606,9 @@ public sealed partial class MainPage_Modern : Page
             "Map" => typeof(MapPage),
             "MissionPlanner" => typeof(MissionPlannerPage),
             "Stats" => typeof(StatsPage),
-            "AIHarvest" => typeof(AIHarvestPage),
             "AISettings" => typeof(AISettingsPage),
             "Tlog" => typeof(ReportsHarvestPage),
-            "LoRa" => typeof(LoRaPage),
             "Settings" => typeof(SettingsPage),
-            "FlightClassic" => typeof(FlightPage),
-            "ClassicMap" => typeof(MapPage),
-            "Calibrate" => typeof(CalibrationPage),
-            "TlogPlayer" => typeof(TlogPage),
-            "Parameter" => typeof(ParameterPage),
-            "Diagnostics" => typeof(DiagnosticsPage),
-            "Theme" => typeof(ThemePage),
             "Flight" => typeof(DashboardPage),
             "EdgeMode" => typeof(EdgeModePage),
             _ => null
@@ -568,6 +620,12 @@ public sealed partial class MainPage_Modern : Page
         if (page is DashboardPage dashboardPage)
         {
             dashboardPage.OnPageActivated();
+            return;
+        }
+
+        if (page is FlightPage flightPage)
+        {
+            flightPage.OnPageActivated();
             return;
         }
 
@@ -583,9 +641,42 @@ public sealed partial class MainPage_Modern : Page
             return;
         }
 
-        if (page is LoRaPage loRaPage)
+        if (page is ReportsHarvestPage reportsPage)
         {
-            loRaPage.OnPageActivated();
+            // Pages are preloaded/cached at startup, so without this the mission list only ever
+            // reflected whatever reports existed at app launch — a live session started later
+            // never appeared until the app was restarted.
+            reportsPage.OnPageActivated();
+            return;
+        }
+
+        if (page is AISettingsPage aiSettingsPage)
+        {
+            aiSettingsPage.OnPageActivated();
+            return;
+        }
+
+        if (page is StatsPage statsPage)
+        {
+            statsPage.OnPageActivated();
+            return;
+        }
+
+        if (page is CameraPage cameraPage)
+        {
+            cameraPage.OnPageActivated();
+            return;
+        }
+
+        if (page is EdgeModePage edgeModePage)
+        {
+            edgeModePage.OnPageActivated();
+            return;
+        }
+
+        if (page is SettingsPage settingsPage)
+        {
+            settingsPage.OnPageActivated();
         }
     }
 
@@ -595,67 +686,51 @@ public sealed partial class MainPage_Modern : Page
             dashboardPage.OnPageDeactivated();
     }
 
+    private void OnScenarioChanged(object? sender, VideoScenarioProfile e)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            UpdateTopBarForTarget(_currentTarget ?? "Dashboard");
+        });
+    }
+
     private void UpdateTopBarForTarget(string target)
     {
+        var scenario = _videoScenarioService?.CurrentScenario;
+        var locationText = scenario != null ? $"{scenario.AreaName}, {scenario.RegionName}" : "Sukamerta, Karawang";
+
         switch (target)
         {
             case "Dashboard":
             case "Flight":
-                TopBar.UpdatePageTitle("Dashboard", "/ Live Operations · Field Site Alpha", "\uE80F");
+                TopBar.UpdatePageTitle("Dashboard", $"/ Live Operations · {locationText}", "\uE80F");
                 break;
             case "Map":
-                TopBar.UpdatePageTitle("Map", "/ Full Map · Waypoints · Geofence · Offline Tiles", "\uE707");
+                TopBar.UpdatePageTitle("Map", $"/ Full Map · Waypoints · Geofence · {scenario?.AreaName ?? "Offline Tiles"}", "\uE707");
                 break;
             case "MissionPlanner":
-                TopBar.UpdatePageTitle("Mission Planner", "/ Field Sector B · Bandung", "\uE707");
+                TopBar.UpdatePageTitle("Mission Planner", $"/ {locationText} · 1050m Transect", "\uE707");
                 break;
             case "Camera":
-                TopBar.UpdatePageTitle("Camera", "/ Live UAV Capture", "\uE714");
+                TopBar.UpdatePageTitle("Camera", $"/ Live UAV Capture · {locationText}", "\uE714");
                 break;
             case "Stats":
-                TopBar.UpdatePageTitle("Crop Analysis", "/ AI Monitoring · Real-time", "\uE9D9");
-                break;
-            case "AIHarvest":
-                TopBar.UpdatePageTitle("AI Vision", "/ Zero-Internet Edge AI · YOLOv8n ONNX", "\uE950");
+                TopBar.UpdatePageTitle("Crop Analysis", $"/ AI Monitoring · {locationText}", "\uE9D9");
                 break;
             case "AISettings":
                 TopBar.UpdatePageTitle("AI Settings", "/ Diagnostics & Models", "\uE7C1");
                 break;
             case "Tlog":
-                TopBar.UpdatePageTitle("Reports", "/ Field Sector B · Bandung", "\uE8A5");
+                TopBar.UpdatePageTitle("Reports", $"/ Mission History & Evidence · {scenario?.RegionName ?? "Karawang"}", "\uE8A5");
                 break;
             case "Settings":
                 TopBar.UpdatePageTitle("Settings", "/ System Preferences", "\uE713");
-                break;
-            case "FlightClassic":
-                TopBar.UpdatePageTitle("Flight Instruments", "/ Pigeon avionics & MAVLink", "\uE709");
-                break;
-            case "ClassicMap":
-                TopBar.UpdatePageTitle("Classic Map", "/ Pigeon map tools", "\uE707");
-                break;
-            case "Calibrate":
-                TopBar.UpdatePageTitle("Calibration", "/ Sensor, radio, ESC, servo", "\uE713");
-                break;
-            case "TlogPlayer":
-                TopBar.UpdatePageTitle("TLOG Player", "/ Telemetry playback", "\uE102");
-                break;
-            case "LoRa":
-                TopBar.UpdatePageTitle("LoRa Relay", "/ Long-range field telemetry", "\uE704");
-                break;
-            case "Parameter":
-                TopBar.UpdatePageTitle("Parameters", "/ Vehicle configuration", "\uE9D9");
-                break;
-            case "Diagnostics":
-                TopBar.UpdatePageTitle("Diagnostics", "/ Runtime health", "\uE7BA");
-                break;
-            case "Theme":
-                TopBar.UpdatePageTitle("Theme", "/ Layout and visual preferences", "\uE771");
                 break;
             case "EdgeMode":
                 TopBar.UpdatePageTitle("Edge Mode", "/ Offline AI · Zero-Internet YOLO Inference", "\uE950");
                 break;
             default:
-                TopBar.UpdatePageTitle("Dashboard", "/ Live Operations", "\uE80F");
+                TopBar.UpdatePageTitle("Dashboard", $"/ Live Operations · {locationText}", "\uE80F");
                 break;
         }
     }
@@ -676,6 +751,105 @@ public sealed partial class MainPage_Modern : Page
         if (result == ContentDialogResult.Primary)
         {
             Application.Current.Exit();
+        }
+    }
+
+    /// <summary>
+    /// Sends a real MAVLink RTL (Return-to-Launch) flight mode change. Previously this button
+    /// only raised an event with no subscriber anywhere in the app — clicking it did nothing.
+    /// </summary>
+    private async void TopBar_RTLClicked(object sender, EventArgs e)
+    {
+        if (_mavLinkService?.IsConnected != true)
+        {
+            await ShowSimpleDialogAsync("RTL", "Vehicle not connected — cannot send Return-to-Launch.");
+            return;
+        }
+
+        var confirm = new ContentDialog
+        {
+            Title = "Return to Launch",
+            Content = "Send RTL command to the connected vehicle now?",
+            PrimaryButtonText = "Send RTL",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = this.XamlRoot
+        };
+        if (await confirm.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        try
+        {
+            var ok = await _mavLinkService.SetFlightModeAsync("RTL");
+            Log.Information("RTL command sent, success={Success}", ok);
+            if (!ok)
+            {
+                await ShowSimpleDialogAsync("RTL", "Vehicle did not acknowledge the RTL command.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Failed to send RTL command");
+            await ShowSimpleDialogAsync("RTL", $"Failed to send RTL: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Starts/pauses the currently-uploaded mission via a real MAVLink command. Previously this
+    /// button only toggled its own label locally — clicking it never sent anything to the
+    /// vehicle. The button's visual state now only changes once the command is confirmed.
+    /// </summary>
+    private async void TopBar_MissionClicked(object sender, EventArgs e)
+    {
+        if (_mavLinkService?.IsConnected != true)
+        {
+            await ShowSimpleDialogAsync("Mission", "Vehicle not connected — cannot start/pause mission.");
+            return;
+        }
+
+        var requestRunning = !TopBar.IsMissionRunning;
+        try
+        {
+            var ok = requestRunning
+                ? await _mavLinkService.StartMissionAsync()
+                : await _mavLinkService.PauseMissionAsync();
+
+            if (ok)
+            {
+                TopBar.SetMissionRunning(requestRunning);
+            }
+            else
+            {
+                await ShowSimpleDialogAsync("Mission", requestRunning
+                    ? "Vehicle did not acknowledge mission start."
+                    : "Vehicle did not acknowledge mission pause.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Failed to send mission start/pause command");
+            await ShowSimpleDialogAsync("Mission", $"Command failed: {ex.Message}");
+        }
+    }
+
+    private async Task ShowSimpleDialogAsync(string title, string message)
+    {
+        try
+        {
+            var dialog = new ContentDialog
+            {
+                Title = title,
+                Content = message,
+                CloseButtonText = "OK",
+                XamlRoot = this.XamlRoot
+            };
+            await dialog.ShowAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Failed to show dialog");
         }
     }
 
@@ -701,6 +875,23 @@ public sealed partial class MainPage_Modern : Page
             Log.Error(ex, "Failed to show ConnectDialog");
         }
     }
+    private void SynchronizeTopBarConnection()
+    {
+        bool isConnected = _mavLinkService?.IsConnected == true;
+        _lastConnectionStatus = isConnected;
+        TopBar.Status = isConnected ? ConnectionStatus.Connected : ConnectionStatus.Disconnected;
+        if (!isConnected)
+        {
+            _lastTopBarState = null;
+            TopBar.Battery = 0;
+            TopBar.GpsSats = 0;
+            TopBar.Mode = "—";
+            TopBar.IsArmed = false;
+            TopBar.SetMissionRunning(false);
+            TopBar.Endpoint = null;
+        }
+    }
+
     private void OnConnectionStatusChanged(object? sender, bool isConnected)
     {
         if (_lastConnectionStatus.HasValue && _lastConnectionStatus.Value == isConnected)
@@ -716,11 +907,27 @@ public sealed partial class MainPage_Modern : Page
                 TopBar.Status = nextStatus;
                 _observabilityService?.Track("topbar.status.update");
             }
+
+            if (!isConnected)
+            {
+                _lastTopBarState = null;
+                TopBar.Battery = 0;
+                TopBar.GpsSats = 0;
+                TopBar.Mode = "—";
+                TopBar.IsArmed = false;
+                TopBar.SetMissionRunning(false);
+                TopBar.Endpoint = null;
+            }
         });
     }
 
     private void OnTelemetryReceived(object? sender, HarvestmoonGCS.Models.FlightData data)
     {
+        if (_mavLinkService?.IsConnected != true)
+        {
+            return;
+        }
+
         var now = DateTime.UtcNow;
         if ((now - _lastTopBarTelemetryUpdate).TotalMilliseconds < TopBarUpdateIntervalMs)
         {
@@ -729,9 +936,8 @@ public sealed partial class MainPage_Modern : Page
 
         _observabilityService?.Track("topbar.telemetry.ingest");
 
-        // Force fixed demo values: GPS fix(15), Battery 93%
-        double batteryPercent = 93.0;
-        int sats = 15;
+        double batteryPercent = data.BatteryRemaining >= 0 ? data.BatteryRemaining : 0;
+        int sats = Math.Max(0, (int)data.Sats);
         string mode = data.FlightMode.ToString().ToUpperInvariant();
         bool isArmed = data.FlightMode != HarvestmoonGCS.Core.Models.FlightMode.DISARMED;
 

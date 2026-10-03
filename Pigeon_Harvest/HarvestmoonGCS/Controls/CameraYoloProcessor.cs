@@ -80,6 +80,23 @@ internal sealed class CameraYoloProcessor : IDisposable
 
         _detector = new YoloDetector();
         IsInitialized = _detector.Initialize(modelPath, classNamesPath, useCuda: true);
+        if (IsInitialized)
+        {
+            try
+            {
+                // Verify OpenCvSharp native methods can be loaded (handles Ubuntu 24.04 vs 22.04 libavcodec mismatch)
+                using var testMat = new Mat(1, 1, MatType.CV_8UC1);
+            }
+            catch (Exception ex)
+            {
+                Serilog.Log.Information("[CameraYoloProcessor] Native OpenCV runtime skipped ({Msg}); relying on Python AI stream.", ex.Message);
+                _detector?.Dispose();
+                _detector = null;
+                IsInitialized = false;
+                Status = "Native OpenCV skipped; Python AI stream active";
+                return false;
+            }
+        }
         Status = IsInitialized ? "YOLO ready" : "Failed to initialize YOLO model";
         return IsInitialized;
 #endif
@@ -99,32 +116,41 @@ internal sealed class CameraYoloProcessor : IDisposable
 #else
             return await Task.Run(() =>
             {
-                var stopwatch = Stopwatch.StartNew();
-                using var frame = Cv2.ImDecode(frameData, ImreadModes.Color);
-                if (frame.Empty() || _detector == null)
+                try
                 {
+                    var stopwatch = Stopwatch.StartNew();
+                    using var frame = Cv2.ImDecode(frameData, ImreadModes.Color);
+                    if (frame.Empty() || _detector == null)
+                    {
+                        return null;
+                    }
+
+                    var detections = _detector.Detect(frame);
+                    var overlays = detections
+                        .Select(detection => new VideoDetectionOverlay
+                        {
+                            Label = detection.ClassName,
+                            Confidence = detection.Confidence,
+                            X = detection.BoundingBox.X,
+                            Y = detection.BoundingBox.Y,
+                            Width = detection.BoundingBox.Width,
+                            Height = detection.BoundingBox.Height
+                        })
+                        .ToList();
+                    stopwatch.Stop();
+
+                    var fps = stopwatch.Elapsed.TotalSeconds > 0
+                        ? 1.0 / stopwatch.Elapsed.TotalSeconds
+                        : 0;
+                    var summary = BuildSummary(detections.Select(d => d.ClassName));
+                    return new YoloFrameResult(frameData, detections.Count, fps, summary, overlays);
+                }
+                catch (Exception ex)
+                {
+                    Serilog.Log.Information("[CameraYoloProcessor] In-process inference disabled ({Msg}); falling back to Python stream", ex.Message);
+                    IsInitialized = false;
                     return null;
                 }
-
-                var detections = _detector.Detect(frame);
-                var overlays = detections
-                    .Select(detection => new VideoDetectionOverlay
-                    {
-                        Label = detection.ClassName,
-                        Confidence = detection.Confidence,
-                        X = detection.BoundingBox.X,
-                        Y = detection.BoundingBox.Y,
-                        Width = detection.BoundingBox.Width,
-                        Height = detection.BoundingBox.Height
-                    })
-                    .ToList();
-                stopwatch.Stop();
-
-                var fps = stopwatch.Elapsed.TotalSeconds > 0
-                    ? 1.0 / stopwatch.Elapsed.TotalSeconds
-                    : 0;
-                var summary = BuildSummary(detections.Select(d => d.ClassName));
-                return new YoloFrameResult(frameData, detections.Count, fps, summary, overlays);
             });
 #endif
         }

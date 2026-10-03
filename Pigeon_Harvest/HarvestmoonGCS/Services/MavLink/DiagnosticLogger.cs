@@ -6,117 +6,124 @@ using HarvestmoonGCS.Core.Diagnostics;
 namespace HarvestmoonGCS.Services;
 
 /// <summary>
-/// Simple diagnostic logger implementation
+/// Simple diagnostic logger implementation.
+///
+/// Fixes:
+///  - _enabled: pakai volatile agar SetEnabled() dari thread lain langsung terlihat
+///    tanpa harus masuk lock (check sebelum lock, hot path)
+///  - TrimLogs: List.RemoveRange(0, n) → Queue (Dequeue) O(1) seperti PerformanceMonitor
+///  - BitConverter.ToString: panjang data bisa lebih kecil dari length → Math.Min safety
 /// </summary>
 internal class DiagnosticLogger : IDiagnosticLogger
 {
-    private readonly List<LogEntry> _logs = new List<LogEntry>();
-    private readonly object _logLock = new object();
+    // Gunakan Queue agar TrimLogs O(1) bukan O(n)
+    private readonly Queue<LogEntry> _logs = new();
+    private readonly object _logLock = new();
     private const int MaxLogEntries = 1000;
-    private bool _enabled = true;
-    
+    // volatile: SetEnabled dari thread lain harus langsung terlihat di hot path
+    private volatile bool _enabled = true;
+
     public void LogTransportData(byte[] data, int length)
     {
         if (!_enabled) return;
-        
+
         lock (_logLock)
         {
-            var hex = BitConverter.ToString(data, 0, Math.Min(16, length)).Replace("-", " ");
-            _logs.Add(new LogEntry
+            // Safety: clamp length agar tidak IndexOutOfRange
+            int safeLen = Math.Min(length, data?.Length ?? 0);
+            var hex     = safeLen > 0
+                ? BitConverter.ToString(data!, 0, Math.Min(16, safeLen)).Replace("-", " ")
+                : "(empty)";
+
+            Enqueue(new LogEntry
             {
                 Timestamp = DateTime.Now,
-                Stage = "Transport",
-                Message = $"Received {length} bytes: {hex}..."
+                Stage     = "Transport",
+                Message   = $"Received {length} bytes: {hex}..."
             });
-            TrimLogs();
         }
     }
-    
+
     public void LogWalkerProcessing(int bytesProcessed, bool success)
     {
         if (!_enabled) return;
-        
+
         lock (_logLock)
         {
-            _logs.Add(new LogEntry
+            Enqueue(new LogEntry
             {
                 Timestamp = DateTime.Now,
-                Stage = "Walker",
-                Message = $"Processed {bytesProcessed} bytes: {(success ? "SUCCESS" : "FAILED")}"
+                Stage     = "Walker",
+                Message   = $"Processed {bytesProcessed} bytes: {(success ? "SUCCESS" : "FAILED")}"
             });
-            TrimLogs();
         }
     }
-    
+
     public void LogPacketParsed(int messageId, int sequenceNumber, byte systemId)
     {
         if (!_enabled) return;
-        
+
         lock (_logLock)
         {
-            _logs.Add(new LogEntry
+            Enqueue(new LogEntry
             {
                 Timestamp = DateTime.Now,
-                Stage = "Parser",
-                Message = $"Packet parsed - ID={messageId}, Seq={sequenceNumber}, SysID={systemId}"
+                Stage     = "Parser",
+                Message   = $"Packet parsed - ID={messageId}, Seq={sequenceNumber}, SysID={systemId}"
             });
-            TrimLogs();
         }
     }
-    
+
     public void LogFlightDataUpdate(string fieldName, object oldValue, object newValue)
     {
         if (!_enabled) return;
-        
+
         lock (_logLock)
         {
-            _logs.Add(new LogEntry
+            Enqueue(new LogEntry
             {
                 Timestamp = DateTime.Now,
-                Stage = "FlightData",
-                Message = $"{fieldName}: {oldValue} → {newValue}"
+                Stage     = "FlightData",
+                Message   = $"{fieldName}: {oldValue} \u2192 {newValue}"
             });
-            TrimLogs();
         }
     }
-    
+
     public void LogTelemetryEvent(DateTime timestamp, string summary)
     {
         if (!_enabled) return;
-        
+
         lock (_logLock)
         {
-            _logs.Add(new LogEntry
+            Enqueue(new LogEntry
             {
-                Timestamp = timestamp,
-                Stage = "TelemetryEvent",
-                Message = summary
+                Timestamp = DateTime.Now,
+                Stage     = "Telemetry",
+                Message   = $"[{timestamp:HH:mm:ss.fff}] {summary}"
             });
-            TrimLogs();
         }
     }
-    
+
     public void LogUIUpdate(string controlName, string propertyName, object value)
     {
         if (!_enabled) return;
-        
+
         lock (_logLock)
         {
-            _logs.Add(new LogEntry
+            Enqueue(new LogEntry
             {
                 Timestamp = DateTime.Now,
-                Stage = "UI",
-                Message = $"{controlName}.{propertyName} = {value}"
+                Stage     = "UI",
+                Message   = $"{controlName}.{propertyName} = {value}"
             });
-            TrimLogs();
         }
     }
-    
+
     public void SetEnabled(bool enabled)
     {
         _enabled = enabled;
     }
-    
+
     public string GetLogSummary()
     {
         lock (_logLock)
@@ -124,20 +131,23 @@ internal class DiagnosticLogger : IDiagnosticLogger
             return string.Join(Environment.NewLine, _logs.Select(l => l.ToString()));
         }
     }
-    
+
     public List<LogEntry> GetRecentLogs(int count = 100)
     {
         lock (_logLock)
         {
-            return _logs.TakeLast(count).ToList();
+            return _logs.TakeLast(Math.Max(0, count)).ToList();
         }
     }
-    
-    private void TrimLogs()
+
+    /// <summary>
+    /// Enqueue log entry dan trim jika melebihi batas. O(1) dengan Queue.
+    /// HARUS dipanggil di dalam lock(_logLock).
+    /// </summary>
+    private void Enqueue(LogEntry entry)
     {
-        if (_logs.Count > MaxLogEntries)
-        {
-            _logs.RemoveRange(0, _logs.Count - MaxLogEntries);
-        }
+        _logs.Enqueue(entry);
+        while (_logs.Count > MaxLogEntries)
+            _logs.Dequeue(); // O(1)
     }
 }

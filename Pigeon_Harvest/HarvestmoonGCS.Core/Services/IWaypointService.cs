@@ -40,6 +40,11 @@ public interface IWaypointService
     Task ClearWaypointsAsync();
 
     /// <summary>
+    /// Replaces all waypoints in the mission with the specified collection
+    /// </summary>
+    Task ReplaceWaypointsAsync(IEnumerable<WaypointData> waypoints);
+
+    /// <summary>
     /// Gets the current waypoint the vehicle is heading to
     /// </summary>
     Task<WaypointData?> GetCurrentWaypointAsync();
@@ -68,4 +73,24 @@ public interface IWaypointService
     /// Saves waypoints to a file
     /// </summary>
     Task SaveWaypointsToFileAsync(string filePath);
+
+    /// <summary>
+    /// Undo the last waypoint change (add/remove/update/replace/clear)
+    /// </summary>
+    Task UndoAsync();
+
+    /// <summary>
+    /// Redo the last undone waypoint change
+    /// </summary>
+    Task RedoAsync();
+
+    /// <summary>
+    /// Whether an undo operation is available
+    /// </summary>
+    bool CanUndo { get; }
+
+    /// <summary>
+    /// Whether a redo operation is available
+    /// </summary>
+    bool CanRedo { get; }
 }

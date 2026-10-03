@@ -50,6 +50,13 @@ public partial class App : Application
 
         this.InitializeComponent();
         Services = ConfigureServices();
+
+        // GlobalExceptionHandler was previously implemented but never instantiated anywhere,
+        // so it never actually subscribed to Application.Current.UnhandledException — any
+        // unhandled exception on the UI thread (e.g. a ContentDialog.ShowAsync() call while
+        // another dialog is already open) crashed the whole app instead of being caught. This
+        // must run as early as possible so it is subscribed before any page loads.
+        Services.GetRequiredService<GlobalExceptionHandler>();
     }
 
     public new static App Current => (App)Application.Current;
@@ -72,7 +79,6 @@ public partial class App : Application
         services.AddSingleton<MapViewModel>();
         services.AddTransient<StatsViewModel>();
         services.AddTransient<TrackerViewModel>();
-        services.AddTransient<CalibrationViewModel>();
         services.AddTransient<LoRaViewModel>();
         services.AddTransient<TlogViewModel>();
 #if !__WASM__
@@ -89,9 +95,14 @@ public partial class App : Application
         services.AddSingleton<PageCacheManager>();
         services.AddSingleton<Serilog.ILogger>(_ => Log.Logger);
         services.AddSingleton<ILoggingService, SerilogLoggingService>();
+        services.AddSingleton<GlobalExceptionHandler>();
 
-        services.AddSingleton<IMavLinkService, HarvestmoonGCS.Core.Services.MavLinkService>();
+        // CRITICAL: Gunakan HarvestmoonGCS.Services.MavLinkService (bukan Core) karena
+        // versi ini memiliki sub-components lengkap: ConnectionManager, HeartbeatManager,
+        // StreamRequestManager, dll. Core.MavLinkService hanya untuk testing.
+        services.AddSingleton<IMavLinkService, HarvestmoonGCS.Services.MavLinkService>();
         services.AddSingleton<IWaypointService, WaypointService>();
+        services.AddSingleton<IVideoScenarioService, VideoScenarioService>();
         services.AddSingleton<IMissionService, MissionService>();
         services.AddSingleton<IStatisticsService, StatisticsService>();
         services.AddSingleton<IGeofenceService, GeofenceService>();
@@ -106,6 +117,8 @@ public partial class App : Application
         services.AddSingleton<ISpeechService, UnoSpeechService>();
         services.AddSingleton<IFileService, UnoFileService>();
         services.AddSingleton<HarvestFunctionalService>();
+        services.AddSingleton<RecommendationService>();
+        services.AddSingleton<BatteryWarningSystem>();
 
 #if __ANDROID__
         // Android needs Context for camera, file, and other platform services
@@ -113,9 +126,18 @@ public partial class App : Application
         services.AddSingleton<ISerialPortService, HarvestmoonGCS.Platforms.Android.Services.AndroidSerialPortService>();
         services.AddSingleton<ICameraService, HarvestmoonGCS.Platforms.Android.Services.AndroidCameraService>();
         services.AddSingleton<IVideoPlayerService, HarvestmoonGCS.Platforms.Android.Services.AndroidVideoPlayerService>();
+        // RunCam WiFi Link 2 – Android: MediaCodec hardware RTSP decode
+        services.AddSingleton<IRuncamWifiLinkService>(sp =>
+            new HarvestmoonGCS.Platforms.Android.Services.AndroidRuncamWifiLinkService(
+                sp.GetRequiredService<Android.Content.Context>(),
+                sp.GetRequiredService<IMavLinkService>()));
 #else
         services.AddSingleton<ISerialPortService, DesktopSerialPortService>();
         services.AddSingleton<ICameraService, PythonCameraService>();
+        // RunCam WiFi Link 2 – Desktop: OpenCvSharp RTSP decode
+        services.AddSingleton<IRuncamWifiLinkService>(sp =>
+            new HarvestmoonGCS.Core.Services.RuncamWifiLinkService(
+                sp.GetRequiredService<IMavLinkService>()));
 #endif
         services.AddSingleton<IVideoRecorderService, VideoRecorderService>();
         services.AddSingleton<IncidentTimelineService>();
@@ -126,7 +148,17 @@ public partial class App : Application
         // AI/PIA services
         services.AddSingleton<IAlertManager, AlertManager>();
         services.AddSingleton<AlertManager>(sp => (AlertManager)sp.GetRequiredService<IAlertManager>());
-        services.AddSingleton<IVoiceRecognitionService, NoOpVoiceRecognitionService>();
+#if __ANDROID__
+        // Native Android SpeechRecognizer — was previously always overridden by the NoOp
+        // fallback below regardless of platform, so Voice Command silently never worked.
+        services.AddSingleton<IVoiceRecognitionService>(sp =>
+            new HarvestmoonGCS.Platforms.Android.Services.AndroidVoiceRecognitionService(
+                sp.GetRequiredService<Android.Content.Context>()));
+#else
+        // Desktop (Windows/Linux/macOS all build under net9.0-desktop): external STT command
+        // adapter, same pattern as PythonCameraService below for ICameraService.
+        services.AddSingleton<IVoiceRecognitionService, DesktopVoiceRecognitionService>();
+#endif
         services.AddAIServices();
 #if !__WASM__
         services.AddSingleton<IPIAHistoryStore, SqlitePIAHistoryStore>();

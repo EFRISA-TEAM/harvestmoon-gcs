@@ -16,6 +16,7 @@ using HarvestmoonGCS.Helpers;
 using System.Linq;
 using System.Threading.Tasks;
 using System.IO;
+using System.Globalization;
 
 namespace HarvestmoonGCS.ViewModels;
 
@@ -453,10 +454,10 @@ public partial class MapViewModel : ViewModelBase
                 
                 if (isMissionPlannerFormat && parts.Length >= 11)
                 {
-                    if (int.TryParse(parts[0], out int seq) &&
-                        double.TryParse(parts[8], out double lat) &&
-                        double.TryParse(parts[9], out double lon) &&
-                        double.TryParse(parts[10], out double alt))
+                    if (int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int seq) &&
+                        double.TryParse(parts[8], NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out double lat) &&
+                        double.TryParse(parts[9], NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out double lon) &&
+                        double.TryParse(parts[10], NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out double alt))
                     {
                         var waypoint = new WaypointData
                         {
@@ -467,7 +468,7 @@ public partial class MapViewModel : ViewModelBase
                             Command = WaypointCommand.Waypoint
                         };
                         
-                        if (int.TryParse(parts[3], out int cmdInt))
+                        if (int.TryParse(parts[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out int cmdInt))
                         {
                             waypoint.Command = (WaypointCommand)cmdInt;
                         }
@@ -477,9 +478,9 @@ public partial class MapViewModel : ViewModelBase
                 }
                 else if (!isMissionPlannerFormat && parts.Length >= 3)
                 {
-                    if (double.TryParse(parts[0], out double lat) &&
-                        double.TryParse(parts[1], out double lon) &&
-                        double.TryParse(parts[2], out double alt))
+                    if (double.TryParse(parts[0], NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out double lat) &&
+                        double.TryParse(parts[1], NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out double lon) &&
+                        double.TryParse(parts[2], NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out double alt))
                     {
                         var waypoint = new WaypointData
                         {

@@ -159,6 +159,36 @@
                         <TextBlock Text="RELAY TOPOLOGY" Foreground="{ThemeResource MutedForegroundBrush}" FontSize="12" 
                                    FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,15"/>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                            <!-- Node 5 -->
+                            <StackPanel>
+                                <Ellipse x:Name="node5_indicator" Width="50" Height="50" 
+                                         Fill="{Binding Node5Status, Converter={StaticResource StatusColorConverter}}"
+                                         Stroke="{ThemeResource BorderBrush}" StrokeThickness="2"/>
+                                <TextBlock Text="Node 5" Foreground="{ThemeResource ForegroundBrush}" FontSize="10" 
+                                           HorizontalAlignment="Center" Margin="0,5,0,0"/>
+                                <TextBlock Text="(End)" Foreground="{ThemeResource MutedForegroundBrush}" FontSize="9" 
+                                           HorizontalAlignment="Center"/>
+                            </StackPanel>
+                            
+                            <!-- Arrow -->
+                            <TextBlock Text="  ──▶  " Foreground="{ThemeResource MutedForegroundBrush}" FontSize="16" 
+                                       VerticalAlignment="Center" Margin="5,0"/>
+                            
+                            <!-- Node 4 -->
+                            <StackPanel>
+                                <Ellipse x:Name="node4_indicator" Width="50" Height="50" 
+                                         Fill="{Binding Node4Status, Converter={StaticResource StatusColorConverter}}"
+                                         Stroke="{ThemeResource BorderBrush}" StrokeThickness="2"/>
+                                <TextBlock Text="Node 4" Foreground="{ThemeResource ForegroundBrush}" FontSize="10" 
+                                           HorizontalAlignment="Center" Margin="0,5,0,0"/>
+                                <TextBlock Text="(End)" Foreground="{ThemeResource MutedForegroundBrush}" FontSize="9" 
+                                           HorizontalAlignment="Center"/>
+                            </StackPanel>
+                            
+                            <!-- Arrow -->
+                            <TextBlock Text="  ──▶  " Foreground="{ThemeResource MutedForegroundBrush}" FontSize="16" 
+                                       VerticalAlignment="Center" Margin="5,0"/>
+                            
                             <!-- Node 3 -->
                             <StackPanel>
                                 <Ellipse x:Name="node3_indicator" Width="50" Height="50" 
@@ -171,8 +201,8 @@
                             </StackPanel>
                             
                             <!-- Arrow -->
-                            <TextBlock Text="  ───▶  " Foreground="{ThemeResource MutedForegroundBrush}" FontSize="16" 
-                                       VerticalAlignment="Center" Margin="10,0"/>
+                            <TextBlock Text="  ──▶  " Foreground="{ThemeResource MutedForegroundBrush}" FontSize="16" 
+                                       VerticalAlignment="Center" Margin="5,0"/>
                             
                             <!-- Node 2 -->
                             <StackPanel>
@@ -186,8 +216,8 @@
                             </StackPanel>
                             
                             <!-- Arrow -->
-                            <TextBlock Text="  ───▶  " Foreground="{ThemeResource MutedForegroundBrush}" FontSize="16" 
-                                       VerticalAlignment="Center" Margin="10,0"/>
+                            <TextBlock Text="  ──▶  " Foreground="{ThemeResource MutedForegroundBrush}" FontSize="16" 
+                                       VerticalAlignment="Center" Margin="5,0"/>
                             
                             <!-- Node 1 -->
                             <StackPanel>
@@ -201,8 +231,8 @@
                             </StackPanel>
                             
                             <!-- Arrow to GCS -->
-                            <TextBlock Text="  ───▶  " Foreground="{ThemeResource InfoBrush}" FontSize="16" 
-                                       VerticalAlignment="Center" Margin="10,0"/>
+                            <TextBlock Text="  ──▶  " Foreground="{ThemeResource InfoBrush}" FontSize="16" 
+                                       VerticalAlignment="Center" Margin="5,0"/>
                             
                             <!-- GCS -->
                             <StackPanel>

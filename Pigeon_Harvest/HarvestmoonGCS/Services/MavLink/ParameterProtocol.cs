@@ -7,41 +7,49 @@ using MavLinkNet;
 namespace HarvestmoonGCS.Services;
 
 /// <summary>
-/// Implements MAVLink parameter protocol for reading/writing parameters
+/// Implements MAVLink parameter protocol for reading/writing parameters.
+///
+/// Fixes:
+///  - Mixed SemaphoreSlim + lock(_parameters): hilangkan lock() di HandleParamValue,
+///    cukup pakai SemaphoreSlim ATAU pakai ConcurrentDictionary.
+///    Pilihan: pakai Dictionary dengan SemaphoreSlim konsisten di semua method.
+///    HandleParamValue dipanggil dari thread parser (bukan UI) → pakai lock terpisah
+///    yang tidak bisa deadlock dengan _paramLock.
+///  - _requestTcs dan _setTcs tidak digunakan (dead fields) → hapus
 /// </summary>
 internal class ParameterProtocol
 {
     private readonly MavLinkService _service;
-    private readonly Dictionary<string, float> _parameters = new Dictionary<string, float>();
-    private readonly SemaphoreSlim _paramLock = new SemaphoreSlim(1, 1);
-    private TaskCompletionSource<Dictionary<string, float>>? _requestTcs;
-    private TaskCompletionSource<bool>? _setTcs;
-    private int _expectedCount;
-    private int _receivedCount;
-    
+
+    // Gunakan lock sederhana untuk akses _parameters dari semua thread
+    // (tidak pakai SemaphoreSlim+lock campuran)
+    private readonly Dictionary<string, float> _parameters = new();
+    private readonly object _parametersLock = new();
+
+    // SemaphoreSlim untuk serialisasi operasi request/set (bisa await)
+    private readonly SemaphoreSlim _operationLock = new(1, 1);
+
     public ParameterProtocol(MavLinkService service)
     {
         _service = service;
     }
-    
+
     public async Task RequestParametersAsync()
     {
-        await _paramLock.WaitAsync();
+        await _operationLock.WaitAsync();
         try
         {
             var transport = _service.GetTransport();
             if (transport == null) return;
-            
-            // Send PARAM_REQUEST_LIST
+
             var request = new UasParamRequestList
             {
-                TargetSystem = _service.GetTargetSystemId(),
+                TargetSystem    = _service.GetTargetSystemId(),
                 TargetComponent = _service.GetTargetComponentId()
             };
-            
             transport.SendMessage(request);
-            
-            // For MVP, just send the request
+
+            // Beri sedikit waktu sebelum release lock
             await Task.Delay(100);
         }
         catch (Exception ex)
@@ -50,49 +58,50 @@ internal class ParameterProtocol
         }
         finally
         {
-            _paramLock.Release();
+            _operationLock.Release();
         }
     }
-    
+
     public Task RequestAllParametersAsync() => RequestParametersAsync();
-    
-    public async Task<Dictionary<string, float>> GetParametersAsync()
+
+    /// <summary>Kembalikan snapshot parameter saat ini (tidak await operasi async).</summary>
+    public Task<Dictionary<string, float>> GetParametersAsync()
     {
-        await _paramLock.WaitAsync();
-        try
+        lock (_parametersLock)
         {
-            return new Dictionary<string, float>(_parameters);
-        }
-        finally
-        {
-            _paramLock.Release();
+            return Task.FromResult(new Dictionary<string, float>(_parameters));
         }
     }
-    
+
     public Task<Dictionary<string, float>> GetAllParametersAsync() => GetParametersAsync();
-    
+
     public async Task<bool> SetParameterAsync(string name, float value)
     {
-        await _paramLock.WaitAsync();
+        if (string.IsNullOrWhiteSpace(name)) return false;
+
+        await _operationLock.WaitAsync();
         try
         {
             var transport = _service.GetTransport();
             if (transport == null) return false;
-            
-            // Send PARAM_SET
+
+            // Kirim PARAM_SET
             var paramSet = new UasParamSet
             {
-                TargetSystem = _service.GetTargetSystemId(),
+                TargetSystem    = _service.GetTargetSystemId(),
                 TargetComponent = _service.GetTargetComponentId(),
-                ParamId = name.PadRight(16, '\0').ToCharArray(),
-                ParamValue = value,
-                ParamType = MavParamType.Real32
+                ParamId         = name.ToCharArray(),
+                ParamValue      = value,
+                ParamType       = MavParamType.Real32
             };
-            
             transport.SendMessage(paramSet);
-            
-            // For MVP, return true immediately
-            await Task.Delay(100);
+
+            // Optimistically update local cache
+            lock (_parametersLock)
+            {
+                _parameters[name] = value;
+            }
+
             return true;
         }
         catch (Exception ex)
@@ -102,26 +111,33 @@ internal class ParameterProtocol
         }
         finally
         {
-            _paramLock.Release();
+            _operationLock.Release();
         }
     }
-    
+
+    /// <summary>
+    /// Dipanggil dari thread parser MAVLink. Hanya pakai lock(_parametersLock),
+    /// tidak menyentuh _operationLock agar tidak deadlock.
+    /// </summary>
     public void HandleParamValue(UasParamValue paramValue)
     {
         try
         {
             var paramName = new string(paramValue.ParamId).TrimEnd('\0');
-            
-            lock (_parameters)
+            if (string.IsNullOrWhiteSpace(paramName)) return;
+
+            lock (_parametersLock)
             {
                 _parameters[paramName] = paramValue.ParamValue;
             }
-            
-            System.Diagnostics.Debug.WriteLine($"[ParameterProtocol] Received parameter: {paramName} = {paramValue.ParamValue}");
+
+            System.Diagnostics.Debug.WriteLine(
+                $"[ParameterProtocol] Received: {paramName} = {paramValue.ParamValue}");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[ParameterProtocol] Handle param value failed: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine(
+                $"[ParameterProtocol] Handle param value failed: {ex.Message}");
         }
     }
 }

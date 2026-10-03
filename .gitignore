@@ -9,9 +9,12 @@ node_modules/
 dist/
 *.pid
 logs/
+.venv/
+.venv-camera
 .venv-camera/
 .venv-yolo/
 .git_backup/
+.~lock.*#
 
 # Large files - videos, models, datasets
 *.mp4
@@ -27,6 +30,12 @@ yolo*.pt
 /datasheet/
 RedEdge/
 Sequoia/
+Pigeon_Harvest/training/datasets/
+Pigeon_Harvest/training/runs/
+Pigeon_Harvest/training/weights/
+*.part
+*.pyc
+__pycache__/
 
 # Temporary outputs
 AFTER_CLEANUP_STATUS.txt
@@ -38,3 +47,10 @@ image copy.png
 # Detection/fusion output directories
 test_program/moonharvest_output/
 test_program/moonharvest_hsv_detector/moonharvest_package/fusion_out/
+*.apk
+Pigeon_Harvest/HarvestmoonGCS/PortableRuntime/
+
+*.exe
+*.zip
+*.tar.gz
+

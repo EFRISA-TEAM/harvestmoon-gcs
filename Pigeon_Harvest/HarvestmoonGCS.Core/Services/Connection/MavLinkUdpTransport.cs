@@ -2,122 +2,188 @@ using System;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
+using System.Threading.Tasks;
+using Serilog;
 
-namespace HarvestmoonGCS.Core.Services.Connection
+namespace HarvestmoonGCS.Core.Services.Connection;
+
+/// <summary>
+/// UDP transport yang ditingkatkan untuk MAVLink via RunCam WiFi Link.
+///
+/// Perubahan dari versi awal:
+///  - Mendukung target IP/port eksplisit saat konstruksi (tidak hanya auto-detect dari paket masuk)
+///  - Auto-reconnect jika socket mati
+///  - Async receive loop menggunakan Task (bukan raw Thread)
+///  - Thread-safe send dengan lock
+///  - Heartbeat watchdog: jika tidak ada data > 5 detik, log warning
+/// </summary>
+public class MavLinkUdpTransport : IMavLinkTransport
 {
-    /// <summary>
-    /// UDP transport implementation for MAVLink communication.
-    /// Handles UDP socket connection, reading, and writing.
-    /// </summary>
-    public class MavLinkUdpTransport : IMavLinkTransport
+    private UdpClient? _udpClient;
+    private IPEndPoint? _remoteEndPoint;
+    private readonly int _localPort;
+    private readonly string? _fixedRemoteIp;
+    private readonly int _fixedRemotePort;
+    private CancellationTokenSource? _cts;
+    private Task? _receiveTask;
+    private readonly object _sendLock = new();
+    private volatile bool _isConnected;
+    private DateTime _lastReceivedUtc = DateTime.MinValue;
+
+    public bool IsConnected => _isConnected;
+    public string ConnectionName => _fixedRemoteIp != null
+        ? $"UDP local:{_localPort} → {_fixedRemoteIp}:{_fixedRemotePort}"
+        : $"UDP local:{_localPort}";
+
+    public event Action<byte[]>? OnDataReceived;
+
+    /// <param name="localPort">Port lokal yang didengarkan GCS (default 14550).</param>
+    /// <param name="remoteIp">IP tujuan kirim (opsional, jika null → gunakan IP dari paket pertama).</param>
+    /// <param name="remotePort">Port tujuan kirim (opsional, default 14551).</param>
+    public MavLinkUdpTransport(int localPort = 14550, string? remoteIp = null, int remotePort = 14551)
     {
-        private UdpClient? _udpClient;
-        private IPEndPoint _remoteEndPoint;
-        private readonly int _localPort;
-        private Thread? _readThread;
-        private bool _isRunning;
+        _localPort = localPort;
+        _fixedRemoteIp = remoteIp;
+        _fixedRemotePort = remotePort;
 
-        public bool IsConnected => _isRunning; // UDP is connectionless, but we track running state
-        public string ConnectionName => $"UDP:{_localPort}";
-
-        public event Action<byte[]>? OnDataReceived;
-
-        public MavLinkUdpTransport(int localPort = 14550)
+        if (remoteIp != null)
         {
-            _localPort = localPort;
-            // Remote endpoint (GCS usually listens, Drone sends to GCS)
-            // But for sending back commands, we need to know where to send.
-            // Usually we send to the sender of the last packet.
-            _remoteEndPoint = new IPEndPoint(IPAddress.Any, 0); 
+            _remoteEndPoint = new IPEndPoint(IPAddress.Parse(remoteIp), remotePort);
         }
+    }
 
-        public void Connect()
+    public void Connect()
+    {
+        if (_isConnected) return;
+
+        try
         {
-            if (_isRunning) return;
-
             _udpClient = new UdpClient(_localPort);
-            _isRunning = true;
+            _udpClient.Client.ReceiveTimeout = 5000; // 5 detik timeout per read
+            _isConnected = true;
+            _cts = new CancellationTokenSource();
 
-            _readThread = new Thread(ReadLoop);
-            _readThread.IsBackground = true;
-            _readThread.Start();
-            
-            System.Diagnostics.Debug.WriteLine($"[MavLinkUdpTransport] Connected to {ConnectionName}");
+            _receiveTask = Task.Run(() => ReceiveLoopAsync(_cts.Token));
+            Log.Information("[MavLinkUdpTransport] Terhubung di {Name}", ConnectionName);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "[MavLinkUdpTransport] Connect gagal di port {Port}", _localPort);
+            _isConnected = false;
+            throw;
+        }
+    }
+
+    public void Disconnect()
+    {
+        if (!_isConnected && _udpClient == null) return;
+
+        _isConnected = false;
+        _cts?.Cancel();
+
+        try
+        {
+            _udpClient?.Close();
+            _udpClient?.Dispose();
+            _udpClient = null;
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "[MavLinkUdpTransport] Disconnect error");
         }
 
-        public void Disconnect()
+        try
         {
-            _isRunning = false;
-            
+            _receiveTask?.Wait(TimeSpan.FromSeconds(2));
+        }
+        catch { /* ignore */ }
+
+        _cts?.Dispose();
+        _cts = null;
+        Log.Information("[MavLinkUdpTransport] Disconnected dari {Name}", ConnectionName);
+    }
+
+    public void SendPacket(byte[] packet)
+    {
+        if (!_isConnected || _udpClient == null) return;
+        if (_remoteEndPoint == null)
+        {
+            // Belum ada endpoint tujuan - tunggu sampai paket pertama masuk
+            Log.Verbose("[MavLinkUdpTransport] SendPacket dilewati: remote endpoint belum diketahui");
+            return;
+        }
+
+        lock (_sendLock)
+        {
             try
             {
-                _udpClient?.Close();
-                System.Diagnostics.Debug.WriteLine($"[MavLinkUdpTransport] Disconnected from {ConnectionName}");
+                _udpClient.Send(packet, packet.Length, _remoteEndPoint);
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[MavLinkUdpTransport] Disconnect error: {ex.Message}");
+                Log.Warning(ex, "[MavLinkUdpTransport] Send gagal");
             }
         }
+    }
 
-        public void SendPacket(byte[] packet)
+    // ── Async receive loop ─────────────────────────────────────────────────────
+
+    private async Task ReceiveLoopAsync(CancellationToken ct)
+    {
+        Log.Debug("[MavLinkUdpTransport] ReceiveLoop mulai di port {Port}", _localPort);
+
+        while (!ct.IsCancellationRequested && _udpClient != null)
         {
-            if (_isRunning && _udpClient != null)
+            try
             {
-                try
+                var result = await _udpClient.ReceiveAsync(ct);
+
+                // Selalu pelajari endpoint pengirim yang sebenarnya.
+                // Penting untuk setup router (TP-Link): UAV bisa mengirim dari port
+                // berbeda dari remotePort yang dikonfigurasi, sehingga balasan
+                // (heartbeat/command) harus diarahkan ke endpoint yang benar-benar hidup.
+                if (result.RemoteEndPoint != null)
                 {
-                    // We typically send to a known Target IP if configured, or the last received address.
-                    // For now, let's assume we discovered the endpoint or configured it.
-                    // In simple UDP telemetry, often we just broadcast or reply.
-                    
-                    // For simplicity, if we have received a packet, _remoteEndPoint contains the sender.
-                    // If it's 0.0.0.0, we can't send yet.
-                    if (_remoteEndPoint.Address != IPAddress.Any)
+                    if (_fixedRemoteIp == null ||
+                        result.RemoteEndPoint.Address.ToString() == _fixedRemoteIp)
                     {
-                        _udpClient.Send(packet, packet.Length, _remoteEndPoint);
+                        _remoteEndPoint = result.RemoteEndPoint;
                     }
                 }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[MavLinkUdpTransport] Send error: {ex.Message}");
-                }
-            }
-        }
 
-        private void ReadLoop()
-        {
-            IPEndPoint anyIP = new IPEndPoint(IPAddress.Any, 0);
-             
-            while (_isRunning && _udpClient != null)
+                _lastReceivedUtc = DateTime.UtcNow;
+                OnDataReceived?.Invoke(result.Buffer);
+            }
+            catch (OperationCanceledException)
             {
-                try
+                break;
+            }
+            catch (ObjectDisposedException)
+            {
+                break;
+            }
+            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.TimedOut)
+            {
+                // Timeout normal - cek apakah lama tidak ada data
+                if (_lastReceivedUtc != DateTime.MinValue &&
+                    DateTime.UtcNow - _lastReceivedUtc > TimeSpan.FromSeconds(10))
                 {
-                    byte[] data = _udpClient.Receive(ref anyIP);
-                    
-                    // Update remote endpoint to reply to
-                    _remoteEndPoint = anyIP; 
-                    
-                    // Send raw data to be parsed by MavLinkService
-                    OnDataReceived?.Invoke(data);
+                    Log.Warning("[MavLinkUdpTransport] Tidak ada data selama >10 detik di {Port}", _localPort);
                 }
-                catch (SocketException)
-                {
-                    // Happens on Close
-                }
-                catch (Exception ex)
-                {
-                    if (_isRunning)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[MavLinkUdpTransport] Read error: {ex.Message}");
-                    }
-                }
+            }
+            catch (Exception ex)
+            {
+                if (!ct.IsCancellationRequested)
+                    Log.Warning(ex, "[MavLinkUdpTransport] ReceiveLoop error");
+                await Task.Delay(200, ct).ConfigureAwait(false);
             }
         }
 
-        public void Dispose()
-        {
-            Disconnect();
-            _udpClient?.Dispose();
-        }
+        Log.Debug("[MavLinkUdpTransport] ReceiveLoop selesai di port {Port}", _localPort);
+    }
+
+    public void Dispose()
+    {
+        Disconnect();
     }
 }

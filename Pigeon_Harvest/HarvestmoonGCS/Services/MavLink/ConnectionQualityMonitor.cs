@@ -14,78 +14,100 @@ public class ConnectionQuality
 }
 
 /// <summary>
-/// Monitors connection quality metrics
+/// Monitors connection quality metrics.
+///
+/// Fixes:
+///  - _packetsExpected: overflow setelah berjam-jam karena terus ditambah tiap detik.
+///    Sekarang hitung loss dalam window terakhir (sliding window 60 detik).
+///  - Stop() pakai Interlocked.Exchange agar tidak race dengan Start()
+///  - Reset() saat koneksi baru agar data lama tidak campur
 /// </summary>
 internal class ConnectionQualityMonitor : IDisposable
 {
     private readonly MavLinkService _service;
     private Timer? _monitorTimer;
-    private long _packetsReceived;
-    private long _packetsExpected;
+
+    // Pakai Interlocked untuk counter agar tidak perlu lock di OnPacketReceived (hot path)
+    private long _packetsReceivedWindow;
+    private long _packetsExpectedWindow;
+
+    // Untuk hitung latency, tetap pakai lock karena baca+tulis DateTime
     private DateTime _lastPacketTime = DateTime.MinValue;
-    private readonly object _statsLock = new object();
-    
-    public ConnectionQuality Quality { get; private set; } = new ConnectionQuality();
-    
+    private readonly object _timeLock = new();
+
+    public ConnectionQuality Quality { get; private set; } = new();
+
     public ConnectionQualityMonitor(MavLinkService service)
     {
         _service = service;
     }
-    
+
     public void Start()
     {
+        Reset();
         Stop();
         _monitorTimer = new Timer(UpdateQuality, null, 1000, 1000);
     }
-    
+
     public void Stop()
     {
-        _monitorTimer?.Dispose();
-        _monitorTimer = null;
+        var t = Interlocked.Exchange(ref _monitorTimer!, null);
+        t?.Dispose();
     }
-    
+
+    /// <summary>Reset counter saat koneksi baru agar data lama tidak campur.</summary>
+    public void Reset()
+    {
+        Interlocked.Exchange(ref _packetsReceivedWindow, 0);
+        Interlocked.Exchange(ref _packetsExpectedWindow, 0);
+        lock (_timeLock) { _lastPacketTime = DateTime.MinValue; }
+    }
+
+    /// <summary>Dipanggil dari hot path parser thread — gunakan Interlocked.</summary>
     public void OnPacketReceived()
     {
-        lock (_statsLock)
-        {
-            _packetsReceived++;
-            _lastPacketTime = DateTime.Now;
-        }
+        Interlocked.Increment(ref _packetsReceivedWindow);
+        lock (_timeLock) { _lastPacketTime = DateTime.Now; }
     }
-    
+
     private void UpdateQuality(object? state)
     {
-        lock (_statsLock)
+        // Ambil dan reset window counter agar tidak overflow
+        long received = Interlocked.Exchange(ref _packetsReceivedWindow, 0);
+        // Expected: ~10 paket/detik (timer 1 detik)
+        const int expectedPerSecond = 10;
+        Interlocked.Exchange(ref _packetsExpectedWindow, 0);
+
+        double timeSinceLastPacket;
+        lock (_timeLock)
         {
-            var timeSinceLastPacket = _lastPacketTime == DateTime.MinValue 
-                ? double.MaxValue 
+            timeSinceLastPacket = _lastPacketTime == DateTime.MinValue
+                ? double.MaxValue
                 : (DateTime.Now - _lastPacketTime).TotalSeconds;
-            
-            // Expected packets: roughly 10 per second
-            var expectedPackets = Math.Max(1, (int)(timeSinceLastPacket * 10));
-            _packetsExpected += expectedPackets;
-            
-            var packetLoss = 0.0;
-            if (_packetsExpected > 0)
-            {
-                var lost = Math.Max(0, _packetsExpected - _packetsReceived);
-                packetLoss = (lost / (double)_packetsExpected) * 100.0;
-            }
-            
-            var latencyMs = (int)(timeSinceLastPacket * 1000);
-            var signalStrength = Math.Max(0, Math.Min(100, (int)(100 - packetLoss)));
-            
-            Quality = new ConnectionQuality
-            {
-                PacketLossPercentage = Math.Round(packetLoss, 2),
-                LatencyMs = latencyMs,
-                SignalStrength = signalStrength
-            };
         }
+
+        // Hitung berdasarkan window 1 detik ini
+        long expected    = Math.Max(1, expectedPerSecond);
+        long lost        = Math.Max(0, expected - received);
+        double packetLoss = Math.Min(100.0, (lost / (double)expected) * 100.0);
+
+        // Clamp latency agar tidak overflow int
+        int latencyMs = timeSinceLastPacket >= int.MaxValue / 1000.0
+            ? int.MaxValue
+            : (int)Math.Min(timeSinceLastPacket * 1000.0, int.MaxValue);
+
+        int signalStrength = Math.Max(0, Math.Min(100, (int)(100.0 - packetLoss)));
+
+        Quality = new ConnectionQuality
+        {
+            PacketLossPercentage = Math.Round(packetLoss, 2),
+            LatencyMs            = latencyMs,
+            SignalStrength       = signalStrength
+        };
     }
-    
+
     public void Dispose()
     {
-        _monitorTimer?.Dispose();
+        Stop();
     }
 }

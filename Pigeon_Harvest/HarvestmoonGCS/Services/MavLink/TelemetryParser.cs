@@ -85,19 +85,18 @@ internal class TelemetryParser
     {
         lock (_dataLock)
         {
-            // Update flight mode - just use custom mode, ignore base mode for now
+            // Update flight mode
             _currentData.FlightMode = MapFlightMode(heartbeat.CustomMode);
             
+            // H2: IsArmed dari MAV_MODE_FLAG_SAFETY_ARMED bit di base_mode
+            _currentData.IsArmed = ((byte)heartbeat.BaseMode & 0x80) != 0;
+
             // Extract vehicle type from HEARTBEAT (MAV_TYPE)
-            // Default to FixedWing (1) if type is 0 (GENERIC) or undefined
             int vehicleType = (int)heartbeat.Type;
-            if (vehicleType == 0)
-            {
-                vehicleType = 1; // MavType.FixedWing as default
-            }
+            if (vehicleType == 0) vehicleType = 1;
             _currentData.Type = vehicleType;
             
-            System.Diagnostics.Debug.WriteLine($"[TelemetryParser] Heartbeat: Mode={_currentData.FlightMode}, VehicleType={vehicleType} ({heartbeat.Type})");
+            System.Diagnostics.Debug.WriteLine($"[TelemetryParser] Heartbeat: Mode={_currentData.FlightMode}, Armed={_currentData.IsArmed}, VehicleType={vehicleType}");
         }
         
         // Raise telemetry event
@@ -155,16 +154,20 @@ internal class TelemetryParser
     {
         lock (_dataLock)
         {
-            // Speed (m/s)
+            // H4: AirSpeed dari VFR_HUD.airspeed, GroundSpeed dari VFR_HUD.groundspeed — berbeda!
             _currentData.Speed = hud.Airspeed;
+            _currentData.GroundSpeed = hud.Groundspeed;
             
             // Altitude (m)
             _currentData.AltitudeFloat = hud.Alt;
             
+            // H4: VerticalSpeed dari VFR_HUD.climb (m/s naik positif)
+            _currentData.VerticalSpeed = hud.Climb;
+            
             // Throttle (0-100%)
             _currentData.ThrottlePercent = (int)hud.Throttle;
             
-            System.Diagnostics.Debug.WriteLine($"[TelemetryParser] VFR_HUD: Speed={_currentData.Speed:F1}m/s, Alt={_currentData.AltitudeFloat:F1}m, Throttle={_currentData.ThrottlePercent}%");
+            System.Diagnostics.Debug.WriteLine($"[TelemetryParser] VFR_HUD: Air={_currentData.Speed:F1}m/s, Ground={_currentData.GroundSpeed:F1}m/s, Alt={_currentData.AltitudeFloat:F1}m, Climb={_currentData.VerticalSpeed:F1}m/s, Throttle={_currentData.ThrottlePercent}%");
         }
         
         // Raise telemetry event
@@ -175,13 +178,16 @@ internal class TelemetryParser
     {
         lock (_dataLock)
         {
-            // Battery voltage (mV to ushort)
+            // Battery voltage (mV)
             _currentData.BatteryVolt = status.VoltageBattery;
             
-            // Battery current (cA to ushort)
+            // Battery current (cA → dA)
             _currentData.BatteryCurr = (ushort)(status.CurrentBattery / 10);
             
-            System.Diagnostics.Debug.WriteLine($"[TelemetryParser] SYS_STATUS: Voltage={_currentData.BatteryVolt}mV, Current={_currentData.BatteryCurr}");
+            // H2: Battery remaining percentage (-1 = unknown)
+            _currentData.BatteryRemaining = status.BatteryRemaining;
+            
+            System.Diagnostics.Debug.WriteLine($"[TelemetryParser] SYS_STATUS: Voltage={_currentData.BatteryVolt}mV, Current={_currentData.BatteryCurr}, Remaining={_currentData.BatteryRemaining}%");
         }
         
         // Raise telemetry event
@@ -225,21 +231,33 @@ internal class TelemetryParser
     
     private FlightMode MapFlightMode(uint customMode)
     {
-        // Map custom mode to flight mode
-        // Note: This mapping is for ArduPilot Copter
+        // Map ArduPilot Copter custom mode numbers → FlightMode enum
+        // L-6 fix: tambah mode 8 (AUTO_TUNE), 11 (DRIFT), 13 (SPORT),
+        //          15 (BRAKE), 17 (AVOID), 19 (POSHOLD), dll.
         return customMode switch
         {
-            0 => FlightMode.MANUAL,
-            1 => FlightMode.MANUAL, // ACRO
-            2 => FlightMode.MANUAL, // ALT_HOLD
-            3 => FlightMode.AUTO,
-            4 => FlightMode.AUTO, // GUIDED
-            5 => FlightMode.LOITER,
-            6 => FlightMode.RTL,
-            7 => FlightMode.MANUAL, // CIRCLE
-            9 => FlightMode.LAND,
-            16 => FlightMode.MANUAL, // POSHOLD
-            _ => FlightMode.MANUAL
+            0  => FlightMode.MANUAL,     // STABILIZE
+            1  => FlightMode.MANUAL,     // ACRO
+            2  => FlightMode.HOLD_ALTITUDE, // ALT_HOLD
+            3  => FlightMode.AUTO,       // AUTO
+            4  => FlightMode.AUTO,       // GUIDED
+            5  => FlightMode.LOITER,     // LOITER
+            6  => FlightMode.RTL,        // RTL
+            7  => FlightMode.LOITER,     // CIRCLE
+            8  => FlightMode.AUTO,       // AUTO_TUNE → AUTO (closest)
+            9  => FlightMode.LAND,       // LAND
+            10 => FlightMode.RTL,        // OF_LOITER → RTL
+            11 => FlightMode.MANUAL,     // DRIFT
+            13 => FlightMode.MANUAL,     // SPORT
+            14 => FlightMode.MANUAL,     // FLIP
+            15 => FlightMode.MANUAL,     // AUTO_TUNE (duplicate in some firmwares)
+            16 => FlightMode.LOITER,     // POSHOLD
+            17 => FlightMode.HOLD_ALTITUDE, // BRAKE
+            18 => FlightMode.MANUAL,     // THROW
+            19 => FlightMode.AUTO,       // AVOID_ADSB
+            20 => FlightMode.AUTO,       // GUIDED_NOGPS
+            21 => FlightMode.RTL,        // SMART_RTL
+            _  => FlightMode.MANUAL
         };
     }
 }

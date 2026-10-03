@@ -218,25 +218,41 @@ namespace HarvestmoonGCS.Core.Helpers
             return results;
         }
 
-        // Maps internal model class names (v3) → display labels
+        // Maps internal model class names → display labels.
+        // The bundled moonharvest-uav-det.onnx emits exactly these four classes (verified from
+        // the ONNX metadata: Lush Green / Inconsistent Growth / Drought / Severe Stress /
+        // Bare Soil / Gap). The legacy v3 agri names are kept as aliases so older models still
+        // render sensibly.
         private static readonly Dictionary<string, string> _classDisplayMap = new(StringComparer.OrdinalIgnoreCase)
         {
-            { "lush_green",          "Lush Green"          },
-            { "well_irrigated",      "Well Irrigated"      },
-            { "inconsistent_growth", "Inconsistent Growth" },
-            { "soil_issues",         "Soil Issues"         },
-            { "disease",             "Disease"             },
-            { "pest",                "Pest"                },
+            // 4-class MoonHarvest detector (current)
+            { "Lush Green",              "Lush Green"          },
+            { "Inconsistent Growth",     "Inconsistent Growth" },
+            { "Drought / Severe Stress", "Drought / Severe Stress" },
+            { "Bare Soil / Gap",         "Bare Soil / Gap"     },
+            // snake_case variants produced by the classifier / older exports
+            { "lush_green",              "Lush Green"          },
+            { "inconsistent_growth",     "Inconsistent Growth" },
+            { "drought_severe_stress",   "Drought / Severe Stress" },
+            { "bare_soil",               "Bare Soil / Gap"     },
+            { "bare_soil_gap",           "Bare Soil / Gap"     },
+            // Legacy v3 agri classes
+            { "well_irrigated",          "Well Irrigated"      },
+            { "soil_issues",             "Soil Issues"         },
+            { "disease",                 "Disease"             },
+            { "pest",                    "Pest"                },
         };
 
         private static readonly Dictionary<string, Scalar> _demoColorMap = new(StringComparer.OrdinalIgnoreCase)
         {
-            { "Lush Green",          new Scalar(50,  205,  50)  },  // green  (BGR)
-            { "Well Irrigated",      new Scalar(200, 150,   2)  },  // teal
-            { "Inconsistent Growth", new Scalar(0,   200, 255)  },  // yellow
-            { "Soil Issues",         new Scalar(55,   64,  93)  },  // brown
-            { "Disease",             new Scalar(0,    60, 255)  },  // red
-            { "Pest",                new Scalar(0,   140, 255)  },  // orange
+            { "Lush Green",              new Scalar(50,  205,  50)  },  // green  (BGR)
+            { "Inconsistent Growth",     new Scalar(0,   200, 255)  },  // yellow
+            { "Drought / Severe Stress", new Scalar(0,    90, 255)  },  // orange-red
+            { "Bare Soil / Gap",         new Scalar(140, 140, 140)  },  // grey/brown
+            { "Well Irrigated",          new Scalar(200, 150,   2)  },  // teal (legacy)
+            { "Soil Issues",             new Scalar(55,   64,  93)  },  // brown (legacy)
+            { "Disease",                 new Scalar(0,    60, 255)  },  // red (legacy)
+            { "Pest",                    new Scalar(0,   140, 255)  },  // orange (legacy)
         };
 
         /// <summary>

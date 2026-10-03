@@ -27,6 +27,7 @@ public sealed partial class AISettingsPage : Page
     private LLMServiceFactory? _llmServiceFactory;
     private HarvestFunctionalService? _harvestFunctionalService;
     private IFileService? _fileService;
+    private IAnomalyDetectionService? _anomalyDetectionService;
 
     public AISettingsPage()
     {
@@ -34,19 +35,31 @@ public sealed partial class AISettingsPage : Page
         this.Loaded += AISettingsPage_Loaded;
         ProviderCombo.SelectionChanged += ProviderCombo_SelectionChanged;
         FallbackProviderCombo.SelectionChanged += FallbackProviderCombo_SelectionChanged;
-    }
 
-    protected override void OnNavigatedTo(NavigationEventArgs e)
-    {
-        base.OnNavigatedTo(e);
-        
+        // Resolved in the constructor, not OnNavigatedTo: this app's sidebar navigation caches
+        // pages and swaps Frame.Content directly (PageCacheManager.GetOrCreatePage) instead of
+        // calling Frame.Navigate, so OnNavigatedTo never actually fires for cached pages. With
+        // resolution only in OnNavigatedTo, every field here stayed null forever and clicking
+        // Save Settings crashed with a NullReferenceException on _settingsService!.
         _settingsService = App.Current.Services.GetService(typeof(ISettingsService)) as ISettingsService;
         _apiKeyStore = App.Current.Services.GetService(typeof(IApiKeyStore)) as IApiKeyStore;
         _llmServiceFactory = App.Current.Services.GetService(typeof(LLMServiceFactory)) as LLMServiceFactory;
         _harvestFunctionalService = App.Current.Services.GetService(typeof(HarvestFunctionalService)) as HarvestFunctionalService;
         _fileService = App.Current.Services.GetService(typeof(IFileService)) as IFileService;
-        
+        _anomalyDetectionService = App.Current.Services.GetService(typeof(IAnomalyDetectionService)) as IAnomalyDetectionService;
+
         LoadSettings();
+    }
+
+    /// <summary>Reloads settings each time this cached page becomes the active tab.</summary>
+    public void OnPageActivated()
+    {
+        LoadSettings();
+    }
+
+    protected override void OnNavigatedTo(NavigationEventArgs e)
+    {
+        base.OnNavigatedTo(e);
     }
 
     private void AISettingsPage_Loaded(object sender, RoutedEventArgs e)
@@ -280,6 +293,7 @@ public sealed partial class AISettingsPage : Page
             _aiSettings.Models.Fallback = TextOrFallback(FallbackModelBox.Text, _aiSettings.Models.Fallback);
 
             ApplyVisionRuntimeSettings();
+            await RestartAnomalyDetectionIfRunningAsync();
 
             _settingsService.Settings.AI = _aiSettings;
             await _settingsService.SetSettingAsync("AISettings", _aiSettings);
@@ -348,26 +362,50 @@ public sealed partial class AISettingsPage : Page
     private void LoadVisionRuntimeSettings()
     {
         var baseDirectory = AppContext.BaseDirectory;
-        // Android: prefer INT8 model (smaller, faster via NNAPI); desktop: full FP32
+        // moonharvest-uav-det is the default: it's a detector with a 3-D YOLOv8-style output that
+        // YoloDetector.PostProcessYoloV8 actually knows how to read. moonharvest-health-cls is a
+        // classifier (2-D output) used in Python stream mode. Android:
+        // prefer INT8 (smaller, faster via NNAPI); desktop: full FP32.
 #if __ANDROID__
-        var preferredModelName = "moonharvest-health-cls-int8.onnx";
+        var preferredModelName = "moonharvest-uav-det-int8.onnx";
+        var preferredClassName = "classes-moonharvest-uav-det.txt";
 #else
-        var preferredModelName = "moonharvest-health-cls.onnx";
+        var preferredModelName = "moonharvest-uav-det.onnx";
+        var preferredClassName = "classes-moonharvest-uav-det.txt";
 #endif
         var defaultModelPath = Path.Combine(baseDirectory, "Assets", "models", preferredModelName);
         // Fallback to FP32 if INT8 file is missing (e.g. first install before asset copy)
         if (!File.Exists(defaultModelPath))
-            defaultModelPath = Path.Combine(baseDirectory, "Assets", "models", "moonharvest-health-cls.onnx");
-        var defaultClassPath = Path.Combine(baseDirectory, "Assets", "models", "classes-moonharvest-health.txt");
+            defaultModelPath = Path.Combine(baseDirectory, "Assets", "models", "moonharvest-uav-det.onnx");
+        var defaultClassPath = Path.Combine(baseDirectory, "Assets", "models", preferredClassName);
+        if (!File.Exists(defaultClassPath))
+            defaultClassPath = Path.Combine(baseDirectory, "Assets", "models", "classes-moonharvest-uav-det.txt");
 
-        VisionModelPathBox.Text = _harvestFunctionalService?.RuntimeModelPath
-            ?? (File.Exists(defaultModelPath) ? defaultModelPath : string.Empty);
-        VisionClassPathBox.Text = _harvestFunctionalService?.RuntimeClassPath
-            ?? (File.Exists(defaultClassPath) ? defaultClassPath : string.Empty);
+        var currentModel = _harvestFunctionalService?.RuntimeModelPath;
+        var currentClass = _harvestFunctionalService?.RuntimeClassPath;
+
+        bool isModelValid = !string.IsNullOrWhiteSpace(currentModel) && File.Exists(Path.IsPathRooted(currentModel) ? currentModel : Path.Combine(baseDirectory, currentModel));
+        bool isClassValid = !string.IsNullOrWhiteSpace(currentClass) && File.Exists(Path.IsPathRooted(currentClass) ? currentClass : Path.Combine(baseDirectory, currentClass));
+
+        if (!isModelValid) currentModel = defaultModelPath;
+        if (!isClassValid) currentClass = defaultClassPath;
+
+        VisionModelPathBox.Text = currentModel;
+        VisionClassPathBox.Text = currentClass;
         VisionConfidenceBox.Text = (_harvestFunctionalService?.RuntimeConfidenceThreshold ?? 0.4f)
             .ToString("0.00", CultureInfo.InvariantCulture);
         VisionNmsBox.Text = (_harvestFunctionalService?.RuntimeNmsThreshold ?? 0.4f)
             .ToString("0.00", CultureInfo.InvariantCulture);
+
+        if (_harvestFunctionalService != null)
+        {
+            _harvestFunctionalService.ConfigureYoloRuntime(
+                currentModel, 
+                currentClass, 
+                _harvestFunctionalService.RuntimeConfidenceThreshold, 
+                _harvestFunctionalService.RuntimeNmsThreshold);
+        }
+
         VisionRuntimeStatusText.Text = _harvestFunctionalService?.YoloStatusMessage ?? "Vision runtime standby.";
     }
 
@@ -390,33 +428,67 @@ public sealed partial class AISettingsPage : Page
             : _harvestFunctionalService.YoloStatusMessage;
     }
 
-    private async void BrowseVisionModelButton_Click(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// The RuleBased/Statistical/AI anomaly-detection toggles above now write into the same
+    /// <see cref="AnomalyDetectionConfig"/> instance the running <see cref="IAnomalyDetectionService"/>
+    /// reads (see ServiceCollectionExtensions.AddPIAIntelligence). RuleBased is checked live on
+    /// every telemetry snapshot, but the Statistical/AI timers are only created in StartAsync,
+    /// so a stop/start is needed for those two toggles to take effect immediately.
+    /// </summary>
+    private async Task RestartAnomalyDetectionIfRunningAsync()
     {
-        if (_fileService == null)
+        if (_anomalyDetectionService == null || !_anomalyDetectionService.IsRunning)
         {
-            VisionRuntimeStatusText.Text = "File picker tidak tersedia.";
             return;
         }
 
-        var path = await _fileService.PickFileAsync(new[] { ".onnx" });
-        if (!string.IsNullOrWhiteSpace(path))
+        await _anomalyDetectionService.StopAsync();
+        await _anomalyDetectionService.StartAsync();
+    }
+
+    private async void BrowseVisionModelButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
         {
-            VisionModelPathBox.Text = path;
+            if (_fileService == null)
+            {
+                VisionRuntimeStatusText.Text = "File picker tidak tersedia.";
+                return;
+            }
+
+            var path = await _fileService.PickFileAsync(new[] { ".onnx" });
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                VisionModelPathBox.Text = path;
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[AISettingsPage] Browse vision model failed");
+            VisionRuntimeStatusText.Text = $"Gagal memilih model: {ex.Message}";
         }
     }
 
     private async void BrowseVisionClassButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_fileService == null)
+        try
         {
-            VisionRuntimeStatusText.Text = "File picker tidak tersedia.";
-            return;
-        }
+            if (_fileService == null)
+            {
+                VisionRuntimeStatusText.Text = "File picker tidak tersedia.";
+                return;
+            }
 
-        var path = await _fileService.PickFileAsync(new[] { ".txt", ".names" });
-        if (!string.IsNullOrWhiteSpace(path))
+            var path = await _fileService.PickFileAsync(new[] { ".txt", ".names" });
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                VisionClassPathBox.Text = path;
+            }
+        }
+        catch (Exception ex)
         {
-            VisionClassPathBox.Text = path;
+            Serilog.Log.Error(ex, "[AISettingsPage] Browse vision class failed");
+            VisionRuntimeStatusText.Text = $"Gagal memilih file kelas: {ex.Message}";
         }
     }
 

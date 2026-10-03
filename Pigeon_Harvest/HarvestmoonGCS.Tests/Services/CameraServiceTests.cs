@@ -18,6 +18,7 @@ public class CameraServiceTests
     {
         public bool IsStreaming { get; private set; }
         public bool IsRecording { get; private set; }
+        public bool IsClassificationStream { get; private set; }
         public bool IsInitialized { get; private set; }
         public string CurrentSource { get; private set; } = "";
         public string LastPictureFilename { get; private set; } = "";
@@ -65,6 +66,11 @@ public class CameraServiceTests
             return Task.FromResult(true);
         }
 
+        public Task<bool> StartHsvStreamAsync(string source, string? modelPath = null,
+            float maxFps = 15f, bool showOverlay = true, bool demo = true, float playbackRate = 1.0f,
+            bool yoloEnabled = false)
+            => StartCameraAsync(source);
+
         public Task StopCameraAsync()
         {
             IsStreaming = false;
@@ -111,6 +117,27 @@ public class CameraServiceTests
             LastCommand = command;
             LastCommandValue = value;
             return Task.CompletedTask;
+        }
+
+        public Task<bool> StartHsvStreamAsync(
+            string source,
+            string? modelPath = null,
+            float maxFps = 15f,
+            bool showOverlay = true,
+            bool demo = true,
+            float playbackRate = 1.0f)
+        {
+            if (!IsInitialized)
+            {
+                ConnectionError?.Invoke(this, "Camera not initialized");
+                return Task.FromResult(false);
+            }
+
+            CurrentSource = source;
+            IsStreaming = true;
+            IsClassificationStream = true;
+            StreamingStatusChanged?.Invoke(this, true);
+            return Task.FromResult(true);
         }
     }
 

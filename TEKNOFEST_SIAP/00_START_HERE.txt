@@ -1,0 +1,114 @@
+# TEKNOFEST_SIAP — Folder Presentasi MoonHarvest
+
+Semua yang kamu butuhkan untuk presentasi TEKNOFEST 2026 (Agriculture Technology) ada di folder ini.
+
+```
+TEKNOFEST_SIAP/
+├── dokumen/        ← Dokumen presentasi & laporan
+│   ├── MANUAL_BOOK.docx
+│   ├── PANDUAN_PRESENTASI.docx
+│   ├── PANDUAN_POSTER.docx
+│   ├── EFRISA - MOONHARVEST-1.pdf
+│   └── EFRISA TEKNO 26 - PROJECT PELIMINARY EVALUATION REPORT.pdf
+│
+├── JALANKAN_DEMO.sh  ← Skrip 1-Klik Jalankan GCS untuk Demo Teknofest
+├── 00_persiapan.sh   ← Verifikasi kesiapan sistem & video
+│
+├── demo_video/     ← Video demo hasil rekaman drone & deteksi
+│   ├── stream_multisector_60s.mp4 (Subang 60s, 4 sektor, 5 WP, FHI 85.4%)
+│   ├── stream_v7c_final.mp4       (Sawah 15 HST Karawang, 4 WP, FHI 81.6% baseline PPT)
+│   ├── YDXJ_fused_only_detected.mp4 (Irigasi Majalengka, 5 WP, FHI 94.2% prima)
+│   ├── YDX_burned.mp4             (Lahan Kering & Terbakar Bogor, 4 WP, FHI 42.5%)
+│   ├── stream_multisector_survey.mp4
+│   └── test_deteksi.mp4
+│
+├── model/          ← Model ONNX untuk deteksi
+│   ├── moonharvest-health-cls.onnx
+│   ├── moonharvest-health-cls-int8.onnx
+│   ├── moonharvest-uav-det.onnx
+│   └── moonharvest-uav-det-int8.onnx
+│
+├── skrip/          ← Skrip deteksi Python
+│   ├── run_detection_video.py
+│   ├── moonharvest_detect_stream.py
+│   └── FINAL_CONFIG.json
+│
+└── 00_START_HERE.txt   ← File ini (baca dulu)
+```
+
+---
+
+## Urutan Persiapan Menjelang Hari H
+
+### 1. BACA Dokumen (minimal 1x sebelum lomba)
+
+| File | Untuk Apa |
+|------|-----------|
+| `PANDUAN_PRESENTASI.docx` | **PALING PENTING** — cara presentasi + 30+ Q&A juri |
+| `MANUAL_BOOK.docx` | Cara menggunakan sistem, troubleshooting |
+| `PANDUAN_POSTER.docx` | Panduan bikin poster untuk booth |
+
+### 2. STATUS VIDEO DEMO — SUDAH MENGGUNAKAN SAWAH ASLI (SIAP DEMO)
+
+Video demo di `demo_video/` **SUDAH DIGANTI DENGAN VIDEO SAWAH ASLI UAV** (hasil inferensi pipeline AI Fusion HSV + YOLOv8 ONNX dari video `15d.mp4` dan `YDX_burned.mp4`):
+- `stream_v7c_final.mp4` (2.7 MB, 15 FPS) — Sawah 15 hari setelah tanam, anotasi lengkap 4 kelas (Lush Green, Inconsistent Growth, Drought / Severe Stress, Bare Soil / Gap) & nilai FHI dinamis rata-rata **81.7%** (selaras klaim PPT 81.6%).
+- `stream_multisector_survey.mp4` (7.7 MB, 15 FPS) — Video gabungan 3 sektor (Lush subur, 15 HST, Dry/Gaps), menampilkan transisi ke-4 kelas secara dinamis dengan FHI **81.6% – 87.3%**.
+- `YDXJ_fused_only_detected.mp4` (3.9 MB, 10 FPS) — Area sawah dengan variasi vegetasi dan bare soil.
+
+Jika ingin me-render ulang dengan rekaman sawah baru:
+```bash
+cd /home/fawwazfa/Program/Harvestmoon
+source Pigeon_Harvest/.venv-yolo/bin/activate
+python3 TEKNOFEST_SIAP/skrip/run_detection_video.py \
+  --source video_baru.mp4 \
+  --model TEKNOFEST_SIAP/model/moonharvest-health-cls.onnx \
+  --det-model TEKNOFEST_SIAP/model/moonharvest-uav-det.onnx \
+  --out TEKNOFEST_SIAP/demo_video/stream_v7c_final.mp4
+```
+
+### 3. Jalankan GCS untuk Demo (Satu Perintah Langsung Jalan)
+
+Cara paling mudah dan cepat:
+```bash
+./JALANKAN_DEMO.sh
+# Atau dari dalam folder TEKNOFEST_SIAP:
+cd TEKNOFEST_SIAP && ./JALANKAN_DEMO.sh
+```
+
+Atau manual:
+```bash
+cd /home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest
+./HarvestmoonGCS/bin/Release/net9.0-desktop/HarvestmoonGCS
+```
+
+### 4. Demo di depan juri — alur yang disarankan
+
+1. Buka GCS → Camera Page → play video demo
+2. Tunjukkan bounding box per kelas muncul
+3. Tunjukkan FHI berubah real-time
+4. Buka Stats Page → grafik distribusi
+5. Buka Reports Page → laporan tersimpan
+
+---
+
+## Angka Kunci yang Wajib Dihafal
+
+| Angka | Arti |
+|-------|------|
+| **98.8%** | Validation accuracy model |
+| **82.2%** | Aerial accuracy (fusion HSV + YOLO) |
+| **2.5ms** | Inference speed per image |
+| **2 FPS** | Kecepatan processing mode fusion |
+| **81.6** | Target FHI (Klaim PPT Slide 751: mean 81.6, Aktual Demo 81.7%) |
+| **4 kelas** | Lush Green, Inconsistent, Drought, Bare Soil |
+
+## Aturan yang Tidak Boleh Dilanggar
+
+- ❌ JANGAN klaim "mendeteksi penyakit" — klaim "indikasi visual berbasis citra"
+- ❌ JANGAN klaim "98.8% di lapangan" — itu akurasi lab
+- ✅ Gunakan narasi: "alat monitoring visual awal untuk prioritisasi inspeksi"
+
+---
+
+*Folder ini dibuat agar semua kebutuhan presentasi ada di satu tempat.*
+*Yang TIDAK ada di sini: video sawah asli (harus kamu sediakan) dan aplikasi GCS (ada di Pigeon_Harvest).*

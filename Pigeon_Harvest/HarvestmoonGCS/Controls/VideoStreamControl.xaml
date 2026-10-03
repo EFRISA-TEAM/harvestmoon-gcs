@@ -26,5 +26,28 @@
                   VerticalAlignment="Top"
                   HorizontalAlignment="Right"
                   Visibility="Collapsed" />
+
+        <!-- Status overlay: shown via ShowStatus()/hidden via HideOverlay() for camera/stream feedback -->
+        <Grid x:Name="StatusOverlay"
+              Background="#B3000000"
+              Visibility="Collapsed">
+            <StackPanel HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Spacing="12">
+                <ProgressRing x:Name="StatusLoadingRing"
+                              IsActive="False"
+                              Width="32"
+                              Height="32"
+                              Foreground="White"
+                              Visibility="Collapsed" />
+                <TextBlock x:Name="StatusText"
+                           Text=""
+                           Foreground="White"
+                           FontSize="14"
+                           TextAlignment="Center"
+                           TextWrapping="Wrap"
+                           MaxWidth="320" />
+            </StackPanel>
+        </Grid>
     </Grid>
 </UserControl>

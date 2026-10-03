@@ -27,7 +27,9 @@
 
                 <controls:ModernTopBar x:Name="TopBar" Grid.Row="0"
                                        ExitClicked="TopBar_ExitClicked"
-                                       ConnectClicked="TopBar_ConnectClicked"/>
+                                       ConnectClicked="TopBar_ConnectClicked"
+                                       RTLClicked="TopBar_RTLClicked"
+                                       MissionClicked="TopBar_MissionClicked"/>
 
                 <!-- Frame tanpa animasi untuk performance lebih baik -->
                 <Frame x:Name="ContentFrame" Grid.Row="1" />

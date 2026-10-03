@@ -381,6 +381,49 @@
                         </StackPanel>
                     </StackPanel>
                 </Border>
+
+                <!-- SATS — satellite count + GPS fix quality -->
+                <Border Background="{ThemeResource CardBrush80}" CornerRadius="6" BorderBrush="{ThemeResource BorderBrush}" BorderThickness="1" Padding="6" MinWidth="60">
+                    <StackPanel HorizontalAlignment="Center">
+                        <TextBlock Text="SATS" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" HorizontalAlignment="Center" CharacterSpacing="120"/>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="2">
+                            <TextBlock x:Name="tb_sats" Text="0" FontSize="16" FontWeight="Bold" FontFamily="Consolas" Foreground="{ThemeResource ForegroundBrush}"/>
+                        </StackPanel>
+                        <TextBlock x:Name="tb_gps_fix" Text="NO FIX" FontSize="9" HorizontalAlignment="Center" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- BATTERY — percentage + voltage -->
+                <Border Background="{ThemeResource CardBrush80}" CornerRadius="6" BorderBrush="{ThemeResource BorderBrush}" BorderThickness="1" Padding="6" MinWidth="70">
+                    <StackPanel HorizontalAlignment="Center">
+                        <TextBlock Text="BATTERY" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" HorizontalAlignment="Center" CharacterSpacing="120"/>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="2">
+                            <TextBlock x:Name="tb_battery" Text="--" FontSize="16" FontWeight="Bold" FontFamily="Consolas" Foreground="{ThemeResource ForegroundBrush}"/>
+                            <TextBlock Text="%" FontSize="10" VerticalAlignment="Bottom" Foreground="{ThemeResource MutedForegroundBrush}" Margin="0,0,0,1"/>
+                        </StackPanel>
+                        <TextBlock x:Name="tb_batt_volt" Text="0.0V" FontSize="9" HorizontalAlignment="Center" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- VSPEED — vertical speed (climb rate) -->
+                <Border Background="{ThemeResource CardBrush80}" CornerRadius="6" BorderBrush="{ThemeResource BorderBrush}" BorderThickness="1" Padding="6" MinWidth="70">
+                    <StackPanel HorizontalAlignment="Center">
+                        <TextBlock Text="V.SPEED" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" HorizontalAlignment="Center" CharacterSpacing="120"/>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="2">
+                            <TextBlock x:Name="tb_vspeed" Text="0.0" FontSize="16" FontWeight="Bold" FontFamily="Consolas" Foreground="{ThemeResource ForegroundBrush}"/>
+                            <TextBlock Text="m/s" FontSize="10" VerticalAlignment="Bottom" Foreground="{ThemeResource MutedForegroundBrush}" Margin="0,0,0,1"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- MODE — flight mode + ARM status -->
+                <Border Background="{ThemeResource CardBrush80}" CornerRadius="6" BorderBrush="{ThemeResource BorderBrush}" BorderThickness="1" Padding="6" MinWidth="80">
+                    <StackPanel HorizontalAlignment="Center">
+                        <TextBlock Text="MODE" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" HorizontalAlignment="Center" CharacterSpacing="120"/>
+                        <TextBlock x:Name="tb_flight_mode" Text="MANUAL" FontSize="14" FontWeight="Bold" FontFamily="Consolas" HorizontalAlignment="Center" Foreground="{ThemeResource ForegroundBrush}"/>
+                        <TextBlock x:Name="tb_arm_status" Text="DISARMED" FontSize="9" HorizontalAlignment="Center" Foreground="#EF4444"/>
+                    </StackPanel>
+                </Border>
             </ItemsControl>
             </ScrollViewer>
 
@@ -437,9 +480,11 @@
                                     Background="{ThemeResource SecondaryBrush}" Foreground="{ThemeResource ForegroundBrush}"/>
 
                             <Button x:Name="btn_takeoff" Grid.Row="2" Grid.Column="0" HorizontalAlignment="Stretch" Content="TAKEOFF" Margin="0,0,3,0" CornerRadius="6"
-                                    Background="{ThemeResource SecondaryBrush}" Foreground="{ThemeResource ForegroundBrush}"/>
+                                    Background="{ThemeResource SecondaryBrush}" Foreground="{ThemeResource ForegroundBrush}"
+                                    Click="OnTakeoffClicked"/>
                             <Button x:Name="btn_land" Grid.Row="2" Grid.Column="1" HorizontalAlignment="Stretch" Content="LAND" Margin="3,0,0,0" CornerRadius="6"
-                                    Background="{ThemeResource SecondaryBrush}" Foreground="{ThemeResource ForegroundBrush}"/>
+                                    Background="{ThemeResource SecondaryBrush}" Foreground="{ThemeResource ForegroundBrush}"
+                                    Click="OnLandClicked"/>
                         </Grid>
                     </StackPanel>
                 </StackPanel>

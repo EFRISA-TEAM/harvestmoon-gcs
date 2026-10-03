@@ -1,0 +1,1294 @@
+AGRICULTURAL TECHNOLOGY COMPETITION
+PROJECT PRESENTATION
+PROJECT NAME: MOONHARVEST - PRECISION AGRICULTURE
+MONITORING SYSTEM
+TOPIC TITLE: CROSS-PLATFORM GROUND CONTROL STATION WITH
+REAL-TIME COMPUTER VISION
+TEAM NAME: EFRISA
+TEAM ID: 783316
+APPLICATION ID: 4800877
+
+PROJECT TEAM
+
+TEAM PROFILE
+
+PROJECT SUMMARY, SCOPE
+AND TARGET AUDIENCE
+
+TEAM STRUCTURE
+
+TEAM ADVISOR
+
+TEAM CAPTAIN
+
+MEMBER 1
+ELECTRICAL DIVISION
+3RD INDUSTRIAL
+ELECTRONICS ENGINEERING
+
+MEMBER 4
+ELECTRICAL DIVISION
+2ND ELECTRONICS
+ENGINEERING
+
+MEMBER 2
+MEVHANICAL DIVISION
+1ST ELECTRONICS
+ENGINEERING
+
+MEMBER 5
+NON-TECHNICAL DIVISION
+1ST TELECOMMUNICATIONS
+ENGINEERING
+
+PROJECT OBJECTIVE
+AND SOCIAL BENEFIT
+DEFINITION AND SIGNIFICANCE
+OF THE PROBLEM
+PROPOSED SOLUTION
+METHOD
+PROTOTYPE / DESIGN
+AND FUNCTIONING
+
+MEMBER 3
+ELECTRICAL DIVISION
+1ST ELECTRONICS
+ENGINEERING
+
+COMPARISON WITH
+EXISTING SOLUTIONS
+COMMERCIALISATION
+POTENTIAL AND SUSTAINABILITY
+PROJECT TIMELINE
+
+2026 AGRICULTURAL TECHNOLOGY COMPETITION
+PROJECT PRESENTATION
+
+EFRISA
+783316
+4800877
+
+PROJECT SUMMARY, SCOPE AND TARGET AUDIENCE
+
+MoonHarvest - Precision Agriculture Monitoring System
+Target Audience
+
+Solution Approach
+
+MAIN IDEA
+
+An affordable, offline ground
+control station that turns any lowcost UAV into a real-time crophealth scanner using on-board
+AI.
+
+Directly supports digital agriculture, sustainable
+production, and accessible smart farming.
+
+Smallholder (1–10 ha) and
+medium (10–50 ha) farmers,
+cooperatives, and agronomy
+consultants
+in
+emerging
+markets.
+
+One
+cross-platform
+app
+(Windows / Linux / Android)
+streams drone video, runs YOLO
+locally, overlays vegetation
+health, and plans flights without
+internet.
+
+MoonHarvest
+
+TEAM PROFILE
+PROJECT SUMMARY, SCOPE
+AND TARGET AUDIENCE
+
+PROJECT OBJECTIVE
+AND SOCIAL BENEFIT
+DEFINITION AND SIGNIFICANCE
+OF THE PROBLEM
+PROPOSED SOLUTION
+METHOD
+
+Expected Impact
+
+Early disease detection, 15–25%
+less pesticide (target), safer
+harvests for farmers who can't
+afford expensive drones.
+
+Theme Alignment
+
+Affordable smart farming for
+smallholders using an Android
+phone & a cheap drone, with no
+internet.
+
+PROTOTYPE / DESIGN
+AND FUNCTIONING
+COMPARISON WITH
+EXISTING SOLUTIONS
+COMMERCIALISATION
+POTENTIAL AND SUSTAINABILITY
+PROJECT TIMELINE
+
+2026 AGRICULTURAL TECHNOLOGY COMPETITION
+PROJECT PRESENTATION
+
+EFRISA
+783316
+4800877
+
+PROJECT OBJECTIVE & SOCIAL BENEFIT
+
+Project Objective & Social Benefit
+
+TEAM PROFILE
+PROJECT SUMMARY, SCOPE
+AND TARGET AUDIENCE
+
+OBJECTIVE
+
+Democratize precision agriculture by delivering professional-grade aerial crop
+monitoring on affordable hardware that works fully offline.
+
+PROJECT OBJECTIVE
+AND SOCIAL BENEFIT
+
+DEFINITION AND SIGNIFICANCE
+OF THE PROBLEM
+PROPOSED SOLUTION
+METHOD
+
+Rationale
+
+Core Problem
+
+Social Contribution
+
+Farmer Benefit
+
+Existing precision-agriculture
+tools can cost USD 10k–30k
+and often require connectivity,
+making them inaccessible to
+many smallholder farmers.
+
+Crop stress is often detected
+too late, while existing
+monitoring tools remain
+costly and connectivitydependent.
+
+Stronger food security, less
+chemical runoff, and higher
+smallholder income across
+emerging markets.
+
+An affordable, offline tool
+brings early detection,
+targeted spraying, less
+labor, and higher yields.
+
+PROTOTYPE / DESIGN
+AND FUNCTIONING
+COMPARISON WITH
+EXISTING SOLUTIONS
+COMMERCIALISATION
+POTENTIAL AND SUSTAINABILITY
+PROJECT TIMELINE
+
+2026 AGRICULTURAL TECHNOLOGY COMPETITION
+PROJECT PRESENTATION
+
+EFRISA
+783316
+4800877
+
+DEFINITION AND SIGNIFICANCE OF THE PROBLEM
+
+The Problem in Five Dimensions
+
+TEAM PROFILE
+PROJECT SUMMARY, SCOPE
+AND TARGET AUDIENCE
+
+40%
+
+4–6 hrs
+
+15–25%
+
+PRODUCTION
+
+LABOR
+
+ENVIRONMENT
+
+$220M $10k–30k
+LOCAL ECONOMY
+
+ACCESS GAP
+
+PROJECT OBJECTIVE
+AND SOCIAL BENEFIT
+DEFINITION AND SIGNIFICANCE
+OF THE PROBLEM
+
+PROPOSED SOLUTION
+Of global crop yield lost
+to pests & disease each
+year (USD 220B, FAO).
+
+To manually scout 10 ha
+done infrequently, so
+problems are caught
+late.
+
+Pesticide over-applied
+via blanket spraying,
+polluting soil & water.
+
+Estimated annual cropdisease loss in Indonesia
+(Panotra, 2025).
+
+Cost of existing
+precision-ag platforms
+and they still need
+connectivity.
+
+METHOD
+PROTOTYPE / DESIGN
+AND FUNCTIONING
+COMPARISON WITH
+EXISTING SOLUTIONS
+
+SIGNIFICANCE
+
+MoonHarvest directly addresses these five gaps by enabling earlier detection, automated scouting, targeted
+treatment, lower losses, and offline access at a lower cost.
+
+2026 AGRICULTURAL TECHNOLOGY COMPETITION
+PROJECT PRESENTATION
+
+EFRISA
+783316
+4800877
+
+COMMERCIALISATION
+POTENTIAL AND SUSTAINABILITY
+PROJECT TIMELINE
+
+DEFINITION AND SIGNIFICANCE OF THE PROBLEM
+
+Who Is Affected and Why Now?
+FROM LATE DETECTION TO LOST INCOME
+
+1
+
+Manual, infrequent field scouting
+
+▼
+2
+
+Crop stress & disease detected too late
+
+▼
+3
+
+PROJECT SUMMARY, SCOPE
+AND TARGET AUDIENCE
+
+MULTI-DIMENSIONAL EVIDENCE
+
+PROJECT OBJECTIVE
+AND SOCIAL BENEFIT
+
+80%
+
+1/3
+
+DEMOGRAPHIC
+
+FOOD SUPPLY
+
+of the world’s 570M farms
+are smallholders least
+equipped to absorb losses
+(FAO).
+
+of the world’s food is
+grown by smallholders, so
+their losses hit supply
+directly (FAO).
+
+DEFINITION AND SIGNIFICANCE
+OF THE PROBLEM
+
+Yield & quality losses
+
+▼
+Lower income & weaker food security
+
+PROPOSED SOLUTION
+METHOD
+PROTOTYPE / DESIGN
+AND FUNCTIONING
+
+Problems spread across the field
+
+▼
+4
+
+TEAM PROFILE
+
+50–60%
+
+$220B
+
+TEMPORAL TREND
+
+ECONOMIC
+
+projected rise in global
+food demand by 2050,
+raising the cost of every
+lost harvest (FAO).
+
+lost to pests & disease
+across world agriculture
+every single year.
+
+2026 AGRICULTURAL TECHNOLOGY COMPETITION
+PROJECT PRESENTATION
+
+COMPARISON WITH
+EXISTING SOLUTIONS
+
+EFRISA
+783316
+4800877
+
+COMMERCIALISATION
+POTENTIAL AND SUSTAINABILITY
+PROJECT TIMELINE
+
+PROPOSED SOLUTION
+
+How MoonHarvest Works
+
+TEAM PROFILE
+PROJECT SUMMARY, SCOPE
+AND TARGET AUDIENCE
+
+OPERATING LOGIC
+
+PROJECT OBJECTIVE
+AND SOCIAL BENEFIT
+
+▶
+
+Live video +
+MAVLink telemetry
+
+▶
+
+DEFINITION AND SIGNIFICANCE
+OF THE PROBLEM
+
+Low-cost UAV
+
+PROPOSED SOLUTION
+
+YOLO / ONNX + Classify 4 states (Lush Green, Inconsistent
+Growth, Drought/Severe Stress, Bare Soil/Gap)
+
+WHY IT IS EFFECTIVE
+
+1
+
+METHOD
+PROTOTYPE / DESIGN
+AND FUNCTIONING
+
+Fully offline & fast
+
+Runs entirely on-device at >15 FPS on a
+standard laptop works in fields with no
+internet.
+
+2
+
+Earlier, targeted action
+
+Detects stress before it is visible, enabling
+targeted spraying instead of blanket
+spraying (15–25% less chemicals).
+
+3
+
+Faster fieldwork
+
+One automated flight maps 10 ha in
+minutes work that took 4–6 hours by
+hand.
+
+COMPARISON WITH
+EXISTING SOLUTIONS
+COMMERCIALISATION
+POTENTIAL AND SUSTAINABILITY
+PROJECT TIMELINE
+
+DAILY USE A farmer or cooperative flies a 10–50 ha block, watches the live health map, and treats flagged zones the same day.
+
+2026 AGRICULTURAL TECHNOLOGY COMPETITION
+PROJECT PRESENTATION
+
+EFRISA
+783316
+4800877
+
+PROPOSED SOLUTION
+
+Inside the System & Real-World Use
+
+TEAM PROFILE
+PROJECT SUMMARY, SCOPE
+AND TARGET AUDIENCE
+
+KEY CAPABILITIES
+
+PROJECT OBJECTIVE
+AND SOCIAL BENEFIT
+
+Mission Planner Waypoint & geofence
+
+DEFINITION AND SIGNIFICANCE
+OF THE PROBLEM
+PROPOSED SOLUTION
+
+Live Video + MAVLink telemetry
+
+METHOD
+PROTOTYPE / DESIGN
+AND FUNCTIONING
+
+Real-Time AI on device 4 class YOLO detection
+(>15 FPS, F1 > 80%)
+
+Offline-First works without internet
+
+Geofencing health map
+
+COMPARISON WITH
+EXISTING SOLUTIONS
+
+Plan
+
+Fly & Scan
+
+Flag
+
+Act
+
+Autonomous survey
+over a 30 ha block
+
+Live video classified by
+YOLO in real time
+
+Stress/disease zones
+auto-pinpointed on the
+map
+
+Same-day treatment 4–6
+hrs scouting becomes
+one flight
+
+2026 AGRICULTURAL TECHNOLOGY COMPETITION
+PROJECT PRESENTATION
+
+EFRISA
+783316
+4800877
+
+COMMERCIALISATION
+POTENTIAL AND SUSTAINABILITY
+PROJECT TIMELINE
+
+METHOD
+
+Method & Workflow
+
+TEAM PROFILE
+PROJECT SUMMARY, SCOPE
+AND TARGET AUDIENCE
+
+DEVELOPMENT PIPELINE
+
+1
+
+2
+Data
+
+1000 images/class
+
+›
+
+Label
+4 classes
+
+›
+
+3
+
+Train
+YOLOv8n
+
+›
+
+4
+
+Export
+ONNX
+
+›
+
+5 Integrate
+into GCS
+
+›
+
+6 Validate
+SITL
+
+›
+
+7
+
+PROJECT OBJECTIVE
+AND SOCIAL BENEFIT
+
+Field
+Test
+
+DEFINITION AND SIGNIFICANCE
+OF THE PROBLEM
+PROPOSED SOLUTION
+
+Technologies & Tools
+
+Approach
+
+Iterative
+develop-andvalidate, using Software-inthe-Loop (SITL) simulation
+before real field tests.
+
+Uno Platform (C#, one
+codebase
+→
+Win/Linux/Android), ONNX
+Runtime,
+OpenCV,
+MAVLink, ArduPilot / PX4
+SITL.
+
+Analysis
+
+Materials
+
+METHOD
+
+PROTOTYPE / DESIGN
+AND FUNCTIONING
+
+Inference at 416×416 with
+frame-skipping & async
+pipeline to sustain >15 FPS;
+target detection F1 > 80%.
+
+Low-cost UAV ($300–800
+class), companion laptop /
+tablet, telemetry radio.
+
+COMPARISON WITH
+EXISTING SOLUTIONS
+COMMERCIALISATION
+POTENTIAL AND SUSTAINABILITY
+PROJECT TIMELINE
+
+2026 AGRICULTURAL TECHNOLOGY COMPETITION
+PROJECT PRESENTATION
+
+EFRISA
+783316
+4800877
+
+METHOD
+
+Methodology & AI Validation
+METHODOLOGY — DEVELOP & VALIDATE
+
+1
+
+2
+
+Data & Augmentation
+1000 image / class, 4 balanced classes, flip /
+scale / brightness augmentation
+
+Model Training
+YOLOv8n transfer learning , 200 epochs,
+416×416 input resolution
+
+TEAM PROFILE
+
+AI VALIDATION & RESULTS
+
+Target Metriks - Validation Goals
+
+≥ 0.85
+
+≥ 0.82
+
+> 0.80
+
+≥ 0.85
+
+> 15
+
+Precision
+
+Recall
+
+F1-score
+
+mAP@0.5
+
+Inferences (FPS)
+
+3
+
+4
+
+5
+
+SITL Simulation
+ArduPilot / PX4 software-in-the-loop, mission &
+telemetry checks
+
+Controlled Field Trials
+Real low-cost UAV flights, accuracy benchmarked
+vs manual scouting
+
+PROJECT OBJECTIVE
+AND SOCIAL BENEFIT
+DEFINITION AND SIGNIFICANCE
+OF THE PROBLEM
+PROPOSED SOLUTION
+
+VALIDATION PROTOCOL
+Per-class precision/recall/F1 from labeled validation set, field accuracy benchmarked against manual
+agronomist scouting, target false-positive rate <10%
+
+Validation
+Per-class confusion matrix on labeled validation
+set
+
+PROJECT SUMMARY, SCOPE
+AND TARGET AUDIENCE
+
+Detection Class
+
+Detections
+
+Share
+
+Avg Conf
+
+Lush Green
+
+40,689
+
+48.0%
+
+0.75
+
+Inconsistent Growth
+
+20,769
+
+24.5%
+
+0.68
+
+Drought/Severe Stress
+
+19,435
+
+22.9%
+
+0.71
+
+Bare Soil/Gap
+
+3,848
+
+4.5%
+
+0.76
+
+Status
+
+✔ High
+✔ Moderate
+✔ High
+✔ High
+
+Detection log — 20-min controlled validation run (recorded flight video): 12,000 frames · 84,741 detections · mean FHI 81.6.
+Real field-flight benchmarking vs manual agronomist scouting is in progress (WP6).
+
+EFRISA
+783316
+4800877
+
+METHOD
+
+PROTOTYPE / DESIGN
+AND FUNCTIONING
+COMPARISON WITH
+EXISTING SOLUTIONS
+COMMERCIALISATION
+POTENTIAL AND SUSTAINABILITY
+PROJECT TIMELINE
+
+PROTOTYPE / DESIGN & FUNCTIONING
+
+Prototype Design & Architecture
+
+TEAM PROFILE
+
+SYSTEM ECOSYSTEM
+
+PROJECT SUMMARY, SCOPE
+AND TARGET AUDIENCE
+
+▶
+
+Low-cost UAV
+$300–800 · RGB camera + MAVLink
+
+Companion Device
+Laptop / tablet / Android
+
+▶
+
+GCS App
+YOLO + mission planner
+
+▶
+
+Farmer Action
+Treat flagged zones
+
+PROJECT OBJECTIVE
+AND SOCIAL BENEFIT
+DEFINITION AND SIGNIFICANCE
+OF THE PROBLEM
+PROPOSED SOLUTION
+
+TECHNOLOGY STACK
+
+HARDWARE
+
+METHOD
+
+SOFTWARE
+
+Low-cost UAV ($300–800 class)
+
+Uno Platform (C#, 1 codebase → 3 OS)
+
+RGB camera / live video feed
+
+PROTOTYPE / DESIGN
+AND FUNCTIONING
+
+ONNX Runtime (on-device YOLOv8n)
+
+Telemetry radio (MAVLink)
+
+OpenCV vegetation-health overlay
+
+COMPARISON WITH
+EXISTING SOLUTIONS
+
+Companion laptop / tablet / Android
+
+COMMERCIALISATION
+POTENTIAL AND SUSTAINABILITY
+
+MAVLink · ArduPilot / PX4 SITL
+
+PROJECT TIMELINE
+
+2026 AGRICULTURAL TECHNOLOGY COMPETITION
+PROJECT PRESENTATION
+
+EFRISA
+783316
+4800877
+
+PROTOTYPE / DESIGN & FUNCTIONING
+
+Prototype Functioning & Evidence
+
+TEAM PROFILE
+PROJECT SUMMARY, SCOPE
+AND TARGET AUDIENCE
+PROJECT OBJECTIVE
+AND SOCIAL BENEFIT
+DEFINITION AND SIGNIFICANCE
+OF THE PROBLEM
+PROPOSED SOLUTION
+METHOD
+PROTOTYPE / DESIGN
+AND FUNCTIONING
+
+COMPARISON WITH
+EXISTING SOLUTIONS
+Windows / Desktop
+
+COMMERCIALISATION
+POTENTIAL AND SUSTAINABILITY
+
+Android Tablet
+
+Software build complete — live YOLO detection · vegetation overlay · MAVLink telemetry · waypoint & geofence · fully offline (Edge Mode).
+Currently in field validation (WP6) — verifying real-flight accuracy & usability vs manual scouting.
+
+EFRISA
+783316
+4800877
+
+PROJECT TIMELINE
+
+COMPARISON WITH EXISTING SOLUTIONS
+
+Why MoonHarvest Is Different
+TEAM PROFILE
+PROJECT SUMMARY, SCOPE
+AND TARGET AUDIENCE
+
+Solution
+
+Entry cost
+
+Connectivity
+
+Real-time AI
+
+Hardware / best fit
+
+MoonHarvest
+
+$300–800 + free app
+
+Fully offline
+
+On-device YOLO
+
+Any MAVLink UAV · smallholders
+
+DJI Agras / Terra
+
+$10k–30k
+
+Desktop / cloud
+
+Limited / cloud
+
+Multispectral, vendor-locked ·
+large farms
+
+DEFINITION AND SIGNIFICANCE
+OF THE PROBLEM
+
+Pix4Dfields
+
+Paid desktop license
+
+Offline maps, no live AI
+
+Post-process only
+
+DJI & others · field mapping
+
+PROPOSED SOLUTION
+
+DroneDeploy
+
+Subscription
+
+Cloud-based
+
+Cloud analytics
+
+Multi-drone · enterprise
+
+METHOD
+
+EOS / Sentera
+
+Sensor + subscription
+
+Connectivity-dependent
+
+Cloud / limited
+
+Multispectral · large ops
+
+PROTOTYPE / DESIGN
+AND FUNCTIONING
+
+Manual scouting
+
+Low cash, high time
+
+—
+
+None
+
+Human walk · very small plots
+
+COMPARISON WITH
+EXISTING SOLUTIONS
+
+ORIGINAL CONTRIBUTIONS Zero-internet edge AI · One C# codebase → 3 platforms · Runtime-swappable YOLO models
+
+Built for smallholder and cooperative use in emerging markets, especially areas with limited internet access and limited access to
+expensive agricultural drones.
+
+2026 AGRICULTURAL TECHNOLOGY COMPETITION
+PROJECT PRESENTATION
+
+EFRISA
+783316
+4800877
+
+PROJECT OBJECTIVE
+AND SOCIAL BENEFIT
+
+COMMERCIALISATION
+POTENTIAL AND SUSTAINABILITY
+PROJECT TIMELINE
+
+COMMERCIALISATION POTENTIAL AND SUSTAINABILITY
+
+Market & Value
+
+TEAM PROFILE
+PROJECT SUMMARY, SCOPE
+AND TARGET AUDIENCE
+
+USD 9.5B
+
+10–40×
+
+3× lower
+
+Precision-ag software market
+
+Cheaper entry
+
+Maintenance cost
+
+12.7% CAGR
+
+than commercial systems
+
+one codebase, open stack
+
+PROJECT OBJECTIVE
+AND SOCIAL BENEFIT
+DEFINITION AND SIGNIFICANCE
+OF THE PROBLEM
+PROPOSED SOLUTION
+
+Value Proposition
+With low-cost UAV hardware
+and
+license-free
+core
+software,
+MoonHarvest
+lowers the entry barrier for
+precision agriculture by an
+estimated 10–40×.
+
+Producible Now
+
+Partnerships
+
+Sustainability
+
+METHOD
+PROTOTYPE / DESIGN
+AND FUNCTIONING
+
+Built on commodity hardware
+and mature open frameworks
+no
+exotic
+components
+required.
+
+Agricultural
+cooperatives,
+agritech distributors, and
+university extension services.
+
+Runtime-swappable AI keeps
+it
+current;
+cooperative
+distribution and recurring
+updates sustain value.
+
+COMPARISON WITH
+EXISTING SOLUTIONS
+COMMERCIALISATION
+POTENTIAL AND SUSTAINABILITY
+
+PROJECT TIMELINE
+
+2026 AGRICULTURAL TECHNOLOGY COMPETITION
+PROJECT PRESENTATION
+
+EFRISA
+783316
+4800877
+
+COMMERCIALISATION POTENTIAL AND SUSTAINABILITY
+
+Business Model & Go-to-Market
+BUSINESS MODEL
+
+REVENUE STREAMS
+
+Premium Analytics
+
+Open-core + Freemium
+
+1
+
+SaaS subscription
+Mid-size farms & agronomists
+
+Free offline GCS app
+
+TEAM PROFILE
+
+GO-TO-MARKET
+
+PROJECT SUMMARY, SCOPE
+AND TARGET AUDIENCE
+
+Pilot · 2027
+Co-ops & demo farms validate value
+
+DEFINITION AND SIGNIFICANCE
+OF THE PROBLEM
+
+Drives fast, low-friction adoption
+
+Cooperative Licensing
+Paid premium analytics
+Recurring SaaS upsell on free base
+
+2
+
+Annual per-cooperative
+Farmer co-ops & estates
+
+PROJECT OBJECTIVE
+AND SOCIAL BENEFIT
+
+Extend · 2028
+University extension & training
+programs
+
+PROPOSED SOLUTION
+METHOD
+
+Cooperative licensing
+Annual contracts stable revenue
+
+Training & Support
+
+3
+
+Onboarding & service packs
+Extension agencies
+
+Low acquisition cost
+
+Distribute · 2029
+Regional agritech distributor partners
+
+COMPARISON WITH
+EXISTING SOLUTIONS
+
+Reach via co-ops & universities
+
+Custom AI Models
+10–40× cheaper entry vs DJI Agras
+Payback < 1 growing season
+
+4
+
+Per-crop model dev
+Agritech & gov programs
+
+PROTOTYPE / DESIGN
+AND FUNCTIONING
+
+Scale · 2030
+Premium SaaS tier & multi-crop
+models
+
+COMMERCIALISATION
+POTENTIAL AND SUSTAINABILITY
+
+PROJECT TIMELINE
+
+Market USD 9.5B @ 12.7% CAGR · License-free open-source core keeps margins high and maintenance 3× lower · Year-1 target: 5 pilot
+cooperatives → 1,000+ ha monitored
+
+EFRISA
+783316
+4800877
+
+PROJECT TIMELINE
+
+Roadmap to TEKNOFEST 2026
+TEAM PROFILE
+
+Work
+Package
+No
+
+WORK PACKAGE NAME
+
+SUB-ACTIVITIES
+
+START DATE
+
+FINISH DATE
+
+1
+
+Concept & Requirements
+
+Problem research, target users,
+requirements
+
+Jan 2026
+
+Feb 2026
+
+2
+
+Dataset & AI Model
+
+Image collection, labeling, YOLOv8n
+training, ONNX export
+
+Feb 2026
+
+Apr 2026
+
+GCS Core Development
+
+Uno Platform app, video + telemetry,
+mission planner
+
+Mar 2026
+
+On-device inference, OpenCV
+overlay, optimize >15 FPS
+
+Apr 2026
+
+Software-in-the-loop testing, F1
+evaluation
+
+May 2026
+
+Real UAV flights, accuracy & usability
+validation
+
+Jun 2026
+
+3
+4
+5
+6
+
+AI Integration
+SITL Validation
+Field Testing
+
+May 2026
+May 2026
+Jun 2026
+Jul 2026
+
+PROJECT SUMMARY, SCOPE
+AND TARGET AUDIENCE
+PROJECT OBJECTIVE
+AND SOCIAL BENEFIT
+DEFINITION AND SIGNIFICANCE
+OF THE PROBLEM
+PROPOSED SOLUTION
+METHOD
+PROTOTYPE / DESIGN
+AND FUNCTIONING
+COMPARISON WITH
+EXISTING SOLUTIONS
+COMMERCIALISATION
+POTENTIAL AND SUSTAINABILITY
+PROJECT TIMELINE
+
+7
+
+Docs
+
+Documentation
+
+2026 AGRICULTURAL TECHNOLOGY COMPETITION
+PROJECT PRESENTATION
+
+Jul 2026
+
+Aug 2026
+
+EFRISA
+783316
+4800877
+
+THANK YOU
+Democratizing Precision Agriculture,
+One Frame at a Time.
+
+2026 AGRICULTURAL TECHNOLOGY COMPETITION
+PROJECT PRESENTATION
+
+EFRISA
+783316
+4800877
+
+

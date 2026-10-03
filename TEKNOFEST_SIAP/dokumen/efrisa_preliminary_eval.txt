@@ -1,0 +1,342 @@
+AGRICULTURAL TECHNOLOGIES
+COMPETITION
+UNIVERSITY AND ABOVE LEVEL
+PRELIMINARY EVALUATION
+REPORT
+CATEGORY NAME: AGRICULTURE
+TECHNOLOGIES COMPETITION
+TEAM NAME: EFRISA
+APPLICATION ID: 4800877
+TEAM ID: 783316
+
+CONTENTS
+1.
+
+PROJECT SUMMARY (20 POINTS) .................................................................... 3
+
+1.1. Project Summary and Project Scope (10 POINTS) ...........................................3
+1.2. Project Purpose and Social Benefit (10 POINTS) ............................................. 3
+2.
+
+PROBLEM DEFINITION (15 POINTS) ................................................................. 3
+
+3.
+
+SOLUTION PROPOSAL AND ORIGINAL THINKING (30 POINTS) .................... 3
+3.1. Solution Idea (12 POINTS) ............................................................................... 3
+3.2. Comparison with Existing Solutions (8 POINTS) .............................................. 3
+3.3. Original Thinking (10 POINTS) ......................................................................... 4
+
+4.
+
+PROJECT DEVELOPMENT PROCESS AND WORKING METHOD (15 POINTS)
+..............................................................................................................................5
+
+5.
+
+MARKET EVALUATION AND INNOVATION (20 POINTS) ..................................5
+
+6.
+
+PROJECT TEAM .................................................................................................. 5
+
+7.
+
+SOURCES ............................................................................................................ 6
+
+1. PROJECT SUMMARY (20 POINTS)
+1.1. Project Summary and Project Scope (10 POINTS)
+
+MoonHarvest – Precision Agriculture Monitoring System is a cross-platform
+Ground Control Station (GCS) that integrates real-time computer vision with UAV
+technology for crop monitoring. The project addresses the limitations of manual field
+inspection, which is time-consuming and often leads to late detection of crop stress,
+pests, and irrigation issues. By processing live UAV video using a YOLO-based
+model, the system provides instant analysis directly within the GCS.
+The system targets smallholder and medium-scale farmers as well as
+agricultural operators who need efficient and accessible monitoring tools. A UAV
+transmits video and telemetry via MAVLink, while the GCS analyzes and displays
+results in real time on Windows, Linux, and Android using a single C# codebase. This
+enables faster decision-making, reduces crop losses, and supports efficient resource
+use, aligning with sustainable and technology-driven agriculture.
+
+1.2. Project Purpose and Social Benefit (10 POINTS)
+
+MoonHarvest gives farmers an automated, real-time crop monitoring tool
+without manual field walking. The UAV surveys the field while the GCS processes the
+live feed using computer vision, identifying anomalies instantly on any device the
+farmer already owns laptop or Android phone.
+Social benefit operates on three levels: (1) faster detection enables earlier
+intervention, reducing crop losses; (2) precise localization of affected areas enables
+targeted pesticide and fertilizer application, reducing chemical overuse and
+environmental impact; (3) native Android support removes the device barrier for
+farmers who only have a smartphone. The project uses entirely open-source tools
+Uno Platform, OpenCVSharp, ONNX Runtime, MAVLink with no licensing costs.
+
+2. PROBLEM DEFINITION (15 POINTS)
+
+Manual field inspection requires 4-6 person-hours per 10 hectares, often
+detecting stress too late. Globally, late detection causes 40% crop loss (USD 220
+billion) and drives 15-25% excessive pesticide use, degrading environments (FAO,
+2025). While UAVs offer aerial views, current workflows are fragmented and slow:
+farmers must fly the drone, extract SD cards, and use expensive, cloud-dependent
+software for post-flight analysis (Panotra, 2025; Zaivyi, 2025). Standard Ground
+Control Stations (GCS) only manage flight, lacking integrated crop health analysis.
+This creates a critical latency bottleneck, leaving smallholders without an affordable,
+real-time tool to make instant interventions in the field.
+
+3. SOLUTION PROPOSAL AND ORIGINAL THINKING (30 POINTS)
+3.1. Solution Idea (12 POINTS)
+
+MoonHarvest consists of a UAV platform and the MoonHarvest GCS. The
+UAV (ArduPilot/PX4) transmits live video and telemetry via MAVLink over UDP, TCP,
+or serial. The GCS built with Uno Platform on .NET compiles one C# codebase to
+
+3
+
+native Windows, Linux, and Android applications, ensuring accessibility on any
+device.
+
+Figure 1. MoonHarvest System Architecture — UAV to Cross-Platform GCS data flow.
+
+The GCS integrates four key modules: (a) YOLO Crop Detection: Each
+camera frame is processed through a YOLO pipeline (ONNX Runtime) for real-time
+detection, with bounding boxes and confidence scores displayed on the live feed.
+Model (.onnx) and classes are configurable at runtime to support different crop types.
+(b) Vegetation Analysis Overlay: An OpenCV-based module applies color
+transformations to generate a real-time map of vegetation health. (c) MAVLink
+Telemetry: Provides real-time data including attitude, GPS, altitude, airspeed, and
+flight mode via UDP, TCP, or serial connections. (d) Waypoint & Geofence: Enables
+waypoint-based autonomous flight planning with boundary enforcement, real-time
+alerts, and telemetry logging.
+
+Figure 2. MoonHarvest GCS Desktop Interface showing real-time YOLO detection overlay and
+telemetry.
+
+3.2. Comparison with Existing Solutions (8 POINTS)
+
+MoonHarvest integrates UAV control, live video, and automated crop analysis
+into a single cross-platform application eliminating the workflow gap that makes
+existing solutions impractical for real-time field decisions.
+Feature
+
+Satellite
+
+DJI / Commercial
+
+Real-time CV
+analysis
+Cross-platform
+Win/Linux/Android
+Open-source &
+customizable
+Native Android GCS
+
+✗
+
+✗ (separate app)
+
+QGC / Mission
+Planner
+✗
+
+MoonHarvest
+
+N/A
+
+✗ proprietary
+
+✗ limited
+
+✗
+
+✗
+
+Partial
+
+✓ single
+codebase
+✓
+
+✗
+
+✗
+
+✗
+
+✓
+
+✓ YOLO built-in
+
+4
+
+3.3. Original Thinking (10 POINTS)
+
+Figure 3. MoonHarvest low-latency Computer Vision pipeline executing per fram
+
+(1) Zero-Internet Edge Al: MoonHarvest runs YOLO inference entirely offline on the
+local GCS. This eliminates cloud dependency and post-flight analysis, ensuring
+instant decision-making even in remote fields without internet access. (2) One
+codebase, three platforms: Using Uno Platform, a single C# codebase runs natively
+on Windows, Linux, and Android with full hardware access, unlike typical web-based
+GCS solutions. (3) Future-Proof Adaptability: YOLO models (onnx) and thresholds
+are dynamically swappable at runtime. This allows users to instantly adapt the same
+GCS for different seasons, crops, or emerging pests without requiring any software
+updates or coding skills.
+
+4. PROJECT DEVELOPMENT PROCESS AND WORKING METHOD
+(15 POINTS)
+
+Stage 1 Concept (Month 1): Literature review identified the lack of real-time
+analysis in existing UAVs. Stage 2 Design (Month 2): Modular GCS designed via Uno
+Platform, OpenCV, ONNX, and MAVLink. Stage 3 Development (Month 3-4):
+Integrated MAVLink, camera pipeline, and YOLO. Risk Mitigation: INT8 quantization
+prevents Android bottlenecks. Stage 4 Testing (Month 5-6): Conducted SITL
+simulations and cross-platform tests, targeting >15 FPS on mid-range Androids
+detection accuracy), performance testing (frame rate under CV load), and crossplatform compatibility (Windows, Linux, Android). ArduPilot SITL used for UAV
+simulation.
+
+5. MARKET EVALUATION AND INNOVATION (20 POINTS)
+
+Precision agriculture is a $9.5B market (12.7% CAGR). Commercial drones
+($10k-$30k) exclude smallholders, while open-source tools lack automated analysis.
+MoonHarvest fills this gap as a license-free system on existing Androids/laptops, with
+compatible UAVs costing just $300-$800. Distribution: Initial adoption via agricultural
+cooperatives.
+Technical Feasibility: Built via open-source tools (Uno Platform, OpenCVSharp,
+ONNX, MAVLink) needing no proprietary hardware.Sustainability: Supports dynamic
+YOLO updates without code changes for new pests. Targeted analysis reduces
+pesticide costs and environmental impact.
+
+6. PROJECT TEAM
+Rank
+
+Role in the Team
+
+Education Level
+
+Grade
+
+Member
+Role
+
+5
+
+–
+
+Advisor
+
+Master’s Degree
+
+Graduate
+
+Guide
+
+1
+
+Team Leader
+(Programming Division)
+
+Bachelor's Degree
+
+2nd
+
+Student
+
+2
+
+Member (Mechanical
+Division)
+
+Bachelor's Degree
+
+2nd
+
+Student
+
+3
+
+Member (Mechanical
+Division)
+
+Bachelor's Degree
+
+1st
+
+Student
+
+4
+
+Member (Electrical
+Division)
+
+Bachelor's Degree
+
+2nd
+
+Student
+
+5
+
+Member (Electrical
+Division)
+
+Bachelor's Degree
+
+1st
+
+Student
+
+6
+
+Member (Non-Technical
+Research &
+Development)
+
+Bachelor's Degree
+
+1st
+
+Student
+
+7. SOURCES
+
+FAO., (2025) The State of Food and Agriculture 2025: Addressing Land Degradation
+Across
+Landholding
+Scales,
+March
+29,
+2026,
+https://openknowledge.fao.org/server/api/core/bitstreams/aafcd4ea-7248-4e4bb00c-051df49bcd54/content
+FAO., (2025) Food Outlook – Biannual Report on Global Food Markets, Rome.
+Jocher,
+G.,
+(2024)
+Ultralytics
+YOLOv8/v10,
+March
+29,
+2026,
+https://github.com/ultralytics/ultralytics
+OpenCV., (2025) Open Source Computer Vision Library, March 29, 2026,
+https://opencv.org
+Uno Platform., (2025) Build Native Apps for Windows, Linux, and Android, March 29,
+2026, https://platform.uno
+ONNX Runtime., (2025) Cross-platform, High Performance ML Inferencing, March 29,
+2026, https://onnxruntime.ai
+ArduPilot., (2025) Open Source Autopilot, March 29, 2026, https://ardupilot.org
+MAVLink., (2025) Micro Air Vehicle Communication Protocol, March 29, 2026,
+https://mavlink.io
+Panotra, N., (2025) Advances in Precision Agriculture: A Review of Technologies,
+Applications and Future Prospects, Archives of Current Research International,
+25(8), 722–737.
+Zaivyi, R., (2025) Data Transmission Between a Drone Swarm and a Ground Base:
+Modern Methods and Technologies A Narrative Review, Premier Science.
+Nisa’, K., (2025) Sistem Aplikasi NEST-GCS (Next-Generation Embedded for
+Telemetry – Ground Control Station), Politeknik Elektronika Negeri Surabaya.
+Nisa’, K., (2025) Desain UAV TANDUR (Technological Agriculture Navigation with
+Dual Mode UAV Reconnaissance), Politeknik Elektronika Negeri Surabaya
+6
+
+

@@ -30,6 +30,7 @@ public sealed partial class MapPage : Page
     private bool _isWPDockHidden = true;
     private readonly ObservabilityService? _observabilityService;
     private readonly IncidentTimelineService? _timelineService;
+    private readonly IVideoScenarioService? _videoScenarioService;
     private bool _isInitialized;
     private NotifyCollectionChangedEventHandler? _waypointsCollectionChangedHandler;
 
@@ -70,6 +71,7 @@ public sealed partial class MapPage : Page
         this.InitializeComponent();
         _observabilityService = App.Current.Services.GetService<ObservabilityService>();
         _timelineService = App.Current.Services.GetService<IncidentTimelineService>();
+        _videoScenarioService = App.Current.Services.GetService<IVideoScenarioService>();
 
         Loaded += MapPage_Loaded;
         Unloaded += MapPage_Unloaded;
@@ -89,9 +91,11 @@ public sealed partial class MapPage : Page
         {
             try
             {
-                // Center on waypoint centroid when demo/mission waypoints are loaded; fall back to default
-                double centerLat = -7.2754, centerLon = 112.7947;
-                int zoom = 15;
+                // Center on waypoint centroid when demo/mission waypoints are loaded; fall back to active scenario center
+                var scenario = _videoScenarioService?.CurrentScenario;
+                double centerLat = scenario?.FieldCenterLat ?? -6.24361;
+                double centerLon = scenario?.FieldCenterLon ?? 107.36556;
+                int zoom = scenario?.MapZoomLevel ?? 15;
                 if (ViewModel?.Waypoints.Count > 0)
                 {
                     centerLat = ViewModel.Waypoints.Average(w => w.Latitude);
@@ -200,12 +204,33 @@ public sealed partial class MapPage : Page
             }
         }
 
+        if (_videoScenarioService != null)
+        {
+            _videoScenarioService.ScenarioChanged -= OnScenarioChanged;
+            _videoScenarioService.ScenarioChanged += OnScenarioChanged;
+        }
+
         // Inisialisasi tampilan map selalu dijalankan setiap kali halaman ditampilkan
         _ = DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
         {
-            // Center on loaded waypoints when available (e.g. demo), fall back to default
-            double centerLat = -7.2754, centerLon = 112.7947;
-            int zoom = 15;
+            var scenario = _videoScenarioService?.CurrentScenario;
+            if (ViewModel != null && (ViewModel.Waypoints == null || ViewModel.Waypoints.Count == 0) && scenario != null && scenario.Waypoints.Count > 0)
+            {
+                foreach (var wp in scenario.Waypoints)
+                {
+                    ViewModel.Waypoints.Add(wp);
+                }
+                ViewModel.GeofenceCenterLat = scenario.FieldCenterLat;
+                ViewModel.GeofenceCenterLon = scenario.FieldCenterLon;
+                ViewModel.GeofenceRadius = scenario.GeofenceRadiusMeters;
+                ViewModel.GeofenceType = HarvestmoonGCS.Core.Models.GeofenceType.Circular;
+                ViewModel.IsGeofenceActive = true;
+            }
+
+            // Center on loaded waypoints when available, fall back to active scenario center
+            double centerLat = scenario?.FieldCenterLat ?? -6.24361;
+            double centerLon = scenario?.FieldCenterLon ?? 107.36556;
+            int zoom = scenario?.MapZoomLevel ?? 15;
             if (ViewModel?.Waypoints.Count > 0)
             {
                 centerLat = ViewModel.Waypoints.Average(w => w.Latitude);
@@ -227,8 +252,34 @@ public sealed partial class MapPage : Page
         });
     }
 
+    private void OnScenarioChanged(object? sender, VideoScenarioProfile scenario)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (scenario != null && ViewModel != null)
+            {
+                ViewModel.Waypoints.Clear();
+                foreach (var wp in scenario.Waypoints)
+                {
+                    ViewModel.Waypoints.Add(wp);
+                }
+                ViewModel.GeofenceCenterLat = scenario.FieldCenterLat;
+                ViewModel.GeofenceCenterLon = scenario.FieldCenterLon;
+                ViewModel.GeofenceRadius = scenario.GeofenceRadiusMeters;
+                ViewModel.GeofenceType = HarvestmoonGCS.Core.Models.GeofenceType.Circular;
+                ViewModel.IsGeofenceActive = true;
+                RefreshMapView();
+            }
+        });
+    }
+
     private void MapPage_Unloaded(object sender, RoutedEventArgs e)
     {
+        if (_videoScenarioService != null)
+        {
+            _videoScenarioService.ScenarioChanged -= OnScenarioChanged;
+        }
+
         if (ViewModel != null)
         {
             ViewModel.PropertyChanged -= ViewModel_PropertyChanged;
@@ -507,19 +558,112 @@ public sealed partial class MapPage : Page
     private void FollowVehicle_Click(object sender, RoutedEventArgs e)
     {
         _isFollowingVehicle = !_isFollowingVehicle;
-        
+
+        if (followVehicleBorder != null)
+        {
+            followVehicleBorder.Background = new SolidColorBrush(_isFollowingVehicle
+                ? Color.FromArgb(0xFF, 0x00, 0xC8, 0x53)   // hijau terang saat aktif
+                : Color.FromArgb(0xFF, 0x53, 0xDF, 0xFA));  // biru muda saat nonaktif
+        }
+
         if (_isFollowingVehicle)
         {
-            if (followVehicleBorder != null)
-                followVehicleBorder.Background = new SolidColorBrush(Color.FromArgb(255, 0, 255, 0));
-            
+            mapControl.SetFollowVehicle(true);
             if (ViewModel.VehiclePosition != null)
                 CenterMapOnPosition(ViewModel.VehiclePosition.Latitude, ViewModel.VehiclePosition.Longitude);
+            _timelineService?.Add("map", "Follow vehicle aktif", "info");
         }
         else
         {
-            if (followVehicleBorder != null)
-                followVehicleBorder.Background = new SolidColorBrush(Color.FromArgb(0xFF, 0x53, 0xDF, 0xFA));
+            mapControl.SetFollowVehicle(false);
+        }
+    }
+
+    private async void DownloadMission_Click(object sender, RoutedEventArgs e)
+    {
+        var mavLinkService = App.Current.Services.GetService<IMavLinkService>();
+        if (mavLinkService == null || !mavLinkService.IsConnected)
+        {
+            // Tampilkan pesan ke user
+            var dlg = new ContentDialog
+            {
+                Title = "Download Mission",
+                Content = "UAV tidak terhubung. Hubungkan drone via MAVLink terlebih dahulu.",
+                CloseButtonText = "OK",
+                XamlRoot = this.XamlRoot
+            };
+            await dlg.ShowAsync();
+            return;
+        }
+
+        // Update UI saat download
+        if (btn_start_mission != null)
+        {
+            btn_start_mission.IsEnabled = false;
+            if (btn_start_mission.Content is StackPanel sp)
+            {
+                foreach (var child in sp.Children.OfType<TextBlock>())
+                    child.Text = "DOWNLOADING...";
+            }
+        }
+
+        try
+        {
+            var waypoints = await mavLinkService.DownloadMissionAsync();
+            if (waypoints == null || waypoints.Count == 0)
+            {
+                var dlg = new ContentDialog
+                {
+                    Title = "Download Mission",
+                    Content = "Tidak ada waypoint di drone, atau download gagal.",
+                    CloseButtonText = "OK",
+                    XamlRoot = this.XamlRoot
+                };
+                await dlg.ShowAsync();
+                return;
+            }
+
+            // Load ke MapViewModel
+            ViewModel.Waypoints.Clear();
+            foreach (var wp in waypoints.OrderBy(w => w.Sequence))
+                ViewModel.Waypoints.Add(wp);
+
+            // Center peta ke centroid waypoint
+            var centerLat = waypoints.Average(w => w.Latitude);
+            var centerLon = waypoints.Average(w => w.Longitude);
+            mapControl.SetCenter(centerLat, centerLon, 14);
+
+            RebuildWaypointDock();
+            UpdateWaypointsOnMap();
+            UpdateTotalDistance();
+
+            _timelineService?.Add("waypoint",
+                $"Download mission sukses · {waypoints.Count} waypoint", "success");
+            Serilog.Log.Information("[MapPage] Downloaded {Count} waypoints from drone", waypoints.Count);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[MapPage] Download mission failed");
+            var dlg = new ContentDialog
+            {
+                Title = "Download Mission Gagal",
+                Content = $"Error: {ex.Message}",
+                CloseButtonText = "OK",
+                XamlRoot = this.XamlRoot
+            };
+            await dlg.ShowAsync();
+        }
+        finally
+        {
+            if (btn_start_mission != null)
+            {
+                btn_start_mission.IsEnabled = true;
+                if (btn_start_mission.Content is StackPanel sp)
+                {
+                    foreach (var child in sp.Children.OfType<TextBlock>())
+                        child.Text = "DOWNLOAD MISSION";
+                }
+            }
         }
     }
 

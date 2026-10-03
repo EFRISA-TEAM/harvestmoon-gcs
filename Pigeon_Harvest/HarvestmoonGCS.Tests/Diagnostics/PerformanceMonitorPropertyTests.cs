@@ -22,7 +22,8 @@ public class PerformanceMonitorPropertyTests
     [Property(MaxTest = 20)]
     public Property StageLatencyMeasurement(NonEmptyString stageNameGen, PositiveInt latencyMs)
     {
-        var stageName = stageNameGen?.Get ?? "TestStage";
+        var stageName = stageNameGen?.Get;
+        if (string.IsNullOrWhiteSpace(stageName)) stageName = "TestStage";
         var latency = TimeSpan.FromMilliseconds(latencyMs.Get % 10000); // Cap at 10 seconds
 
         // Arrange
@@ -201,7 +202,8 @@ public class PerformanceMonitorPropertyTests
     [Property(MaxTest = 20)]
     public Property MultipleLatencyMeasurementsCalculateCorrectStats(NonEmptyString stageNameGen)
     {
-        var stageName = stageNameGen?.Get ?? "TestStage";
+        var stageName = stageNameGen?.Get;
+        if (string.IsNullOrWhiteSpace(stageName)) stageName = "TestStage";
 
         // Arrange
         var monitor = new PerformanceMonitor();

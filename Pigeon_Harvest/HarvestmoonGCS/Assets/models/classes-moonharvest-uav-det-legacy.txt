@@ -1,0 +1,4 @@
+crop
+weed
+crop_row
+disease_stress_vegetation

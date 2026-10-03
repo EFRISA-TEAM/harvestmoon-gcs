@@ -116,6 +116,68 @@ public class MavLinkService : IMavLinkService
         _telemetryEventInterval = TimeSpan.FromMilliseconds(Math.Clamp(intervalMs, 20, 500));
     }
 
+    // ── RunCam WiFi Link / external transport injection ────────────────────────
+    /// <summary>
+    /// Menghubungkan MavLinkService menggunakan transport yang sudah dibuat dari luar
+    /// (misalnya oleh RuncamWifiLinkService yang sudah tahu IP/port kamera).
+    /// Transport di-wrap dengan MavLinkTransportAdapter agar sesuai ITransport.
+    /// </summary>
+    public async Task ConnectWithTransportAsync(HarvestmoonGCS.Core.Services.Connection.IMavLinkTransport transport)
+    {
+        if (_isInPlaybackMode) return;
+
+        await _connectionGate.WaitAsync();
+        try
+        {
+            _manualDisconnectRequested = false;
+
+            if (_isConnected)
+                await DisconnectInternalAsync(isManualRequest: false);
+
+            var adapter = new HarvestmoonGCS.Core.Transport.MavLinkTransportAdapter(transport);
+
+            // Transport sudah di-Connect oleh pemanggil, langsung pakai
+            _transport = adapter;
+
+            // Buat parser baru
+            _parser = new MavLinkAsyncWalker();
+            _parser.PacketReceived += OnPacketReceived;
+
+            _isConnected = true;
+            _hasReceivedHeartbeatSinceConnect = false;
+            _manualDisconnectRequested = false;
+
+            StartHeartbeatWatchdog();
+
+            // Mulai kirim request telemetry stream (sama seperti ConnectAsync normal)
+            _ = Task.Run(RequestTelemetryStreams);
+            _streamRequestTimer?.Dispose();
+            _streamRequestTimer = new Timer(
+                _ => RequestTelemetryStreams(),
+                null,
+                TimeSpan.FromSeconds(2),
+                TimeSpan.FromSeconds(2));
+
+            _receiveCts = new CancellationTokenSource();
+            _ = Task.Run(() => ReceiveLoopAsync(_receiveCts.Token));
+
+            ConnectionStatusChanged?.Invoke(this, true);
+            Serilog.Log.Information("[MavLinkService] ConnectWithTransportAsync: terhubung via {Name}", transport.ConnectionName);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[MavLinkService] ConnectWithTransportAsync gagal");
+            _transport?.Dispose();
+            _transport = null;
+            _parser = null;
+            throw;
+        }
+        finally
+        {
+            _connectionGate.Release();
+        }
+    }
+
     // Connection management
     public async Task<bool> ConnectAsync(ConnectionConfig config)
     {
@@ -586,7 +648,14 @@ public class MavLinkService : IMavLinkService
 
             var result = await operationTcs.Task;
             _diagnosticLogger.LogTelemetryEvent(DateTime.Now, $"Mission upload {(result ? "succeeded" : "failed")}");
-            
+            lock (_missionLock)
+            {
+                if (ReferenceEquals(_missionOperationTcs, operationTcs))
+                {
+                    _missionOperationTcs = null;
+                }
+                _missionToUpload = null;
+            }
             return result;
         }
         catch (Exception ex)
@@ -678,6 +747,66 @@ public class MavLinkService : IMavLinkService
     }
 
     // Parameter operations
+    public async Task<bool> SetGeofenceAsync(IEnumerable<(double Latitude, double Longitude)> points)
+    {
+        if (!_isConnected || _transport == null || _parser == null)
+        {
+            System.Diagnostics.Debug.WriteLine("[MavLinkService.Core] SetGeofenceAsync: not connected");
+            return false;
+        }
+
+        var pointList = points.ToList();
+        if (pointList.Count < 3)
+        {
+            System.Diagnostics.Debug.WriteLine("[MavLinkService.Core] SetGeofenceAsync: need at least 3 points");
+            return false;
+        }
+
+        try
+        {
+            byte totalCount = (byte)(pointList.Count + 1);
+
+            // Return point (idx 0) = centroid
+            double centerLat = pointList.Average(p => p.Latitude);
+            double centerLon = pointList.Average(p => p.Longitude);
+
+            var returnPoint = new UasFencePoint
+            {
+                TargetSystem    = (byte)_targetSystemId,
+                TargetComponent = (byte)_targetComponentId,
+                Idx             = 0,
+                Count           = totalCount,
+                Lat             = (float)centerLat,
+                Lng             = (float)centerLon
+            };
+            SendMessage(returnPoint);
+            await Task.Delay(50);
+
+            for (int i = 0; i < pointList.Count; i++)
+            {
+                var fp = new UasFencePoint
+                {
+                    TargetSystem    = (byte)_targetSystemId,
+                    TargetComponent = (byte)_targetComponentId,
+                    Idx             = (byte)(i + 1),
+                    Count           = totalCount,
+                    Lat             = (float)pointList[i].Latitude,
+                    Lng             = (float)pointList[i].Longitude
+                };
+                SendMessage(fp);
+                await Task.Delay(50);
+            }
+
+            System.Diagnostics.Debug.WriteLine($"[MavLinkService.Core] SetGeofenceAsync: sent {totalCount} fence points");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MavLinkService.Core] SetGeofenceAsync failed: {ex.Message}");
+            return false;
+        }
+    }
+
     public async Task<Dictionary<string, float>> GetParametersAsync()
     {
         if (_parser == null || (!_isConnected && !_isInPlaybackMode))
@@ -899,6 +1028,84 @@ public class MavLinkService : IMavLinkService
         }
     }
 
+    public async Task<bool> SendMotorTestAsync(int motorInstance, float throttle, float timeoutSeconds, int motorCount = 1, int throttleType = 0)
+    {
+        try
+        {
+            await SendCommandLongAsync(209, motorInstance, throttleType, throttle, timeoutSeconds, motorCount, 0, 0);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _diagnosticLogger.LogTelemetryEvent(DateTime.Now, $"Motor test failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    public async Task<bool> SendPusherMotorTestAsync(float pwm = 1200, float timeoutSeconds = 5)
+    {
+        return await SendMotorTestAsync(5, pwm, timeoutSeconds, 1, 0);
+    }
+
+    public async Task<bool> SendEmergencyStopAsync()
+    {
+        try
+        {
+            // Force Disarm magic key = 21196
+            await SendCommandLongAsync((int)MavCmd.ComponentArmDisarm, 0.0f, 21196.0f, 0, 0, 0, 0, 0);
+            // Flight termination
+            await SendCommandLongAsync(185, 1.0f, 0, 0, 0, 0, 0, 0);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _diagnosticLogger.LogTelemetryEvent(DateTime.Now, $"Emergency stop failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    public async Task<bool> StartCompassCalibration42424Async(byte magMask = 0)
+    {
+        try
+        {
+            await SendCommandLongAsync(42424, magMask, 1, 1, 0, 0, 0, 0);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _diagnosticLogger.LogTelemetryEvent(DateTime.Now, $"Start mag cal 42424 failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    public async Task<bool> AcceptCompassCalibration42425Async(byte magMask = 0)
+    {
+        try
+        {
+            await SendCommandLongAsync(42425, magMask, 0, 0, 0, 0, 0, 0);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _diagnosticLogger.LogTelemetryEvent(DateTime.Now, $"Accept mag cal 42425 failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    public async Task<bool> CancelCompassCalibration42426Async(byte magMask = 0)
+    {
+        try
+        {
+            await SendCommandLongAsync(42426, magMask, 0, 0, 0, 0, 0, 0);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _diagnosticLogger.LogTelemetryEvent(DateTime.Now, $"Cancel mag cal 42426 failed: {ex.Message}");
+            return false;
+        }
+    }
+
     /// <summary>
     /// Send a command and wait for acknowledgment
     /// </summary>
@@ -1110,6 +1317,44 @@ public class MavLinkService : IMavLinkService
         catch (Exception ex)
         {
             _diagnosticLogger.LogTelemetryEvent(DateTime.Now, $"Error in VTOL transition: {ex.Message}");
+            return false;
+        }
+    }
+
+    public async Task<bool> TakeoffAsync(float altitudeMeters = 10f)
+    {
+        if (!_isConnected || _transport == null || _parser == null)
+            return false;
+        try
+        {
+            // MAV_CMD_NAV_TAKEOFF (22): param7 = altitude in meters
+            var result = await SendCommandLongWithAckAsync(
+                MavCmd.NavTakeoff,
+                0, 0, 0, float.NaN, float.NaN, float.NaN, altitudeMeters);
+            return result == MavResult.Accepted;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MavLinkService] TakeoffAsync failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    public async Task<bool> LandAsync()
+    {
+        if (!_isConnected || _transport == null || _parser == null)
+            return false;
+        try
+        {
+            // MAV_CMD_NAV_LAND (21)
+            var result = await SendCommandLongWithAckAsync(
+                MavCmd.NavLand,
+                0, 0, 0, float.NaN, float.NaN, float.NaN, 0);
+            return result == MavResult.Accepted;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MavLinkService] LandAsync failed: {ex.Message}");
             return false;
         }
     }

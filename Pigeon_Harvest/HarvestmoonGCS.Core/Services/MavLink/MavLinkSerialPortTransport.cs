@@ -299,7 +299,47 @@ namespace MavLinkNet
 
                 if (mSendQueue.TryDequeue(out msg))
                 {
-                    SendMavlinkMessage(msg);
+                    // Unplugging/bumping the USB cable makes the next Write() throw on this
+                    // ThreadPool thread; previously nothing here caught it, which crashes the
+                    // entire process (unhandled ThreadPool-thread exceptions are fatal in .NET
+                    // and are NOT caught by Application.Current.UnhandledException). Mirror the
+                    // same recoverable-vs-fatal handling already used by ContinuousReadLoop/DataReceived.
+                    try
+                    {
+                        SendMavlinkMessage(msg);
+                    }
+                    catch (TimeoutException ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MavLinkSerialPortTransport] ProcessSendQueue: Timeout (recoverable): {ex.Message}");
+                    }
+                    catch (System.IO.IOException ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MavLinkSerialPortTransport] ProcessSendQueue: IO error — port likely unplugged: {ex.Message}");
+                        if (mSerialPort == null || !mSerialPort.IsOpen)
+                        {
+                            mIsActive = false;
+                            break;
+                        }
+                    }
+                    catch (UnauthorizedAccessException ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MavLinkSerialPortTransport] ProcessSendQueue: Port access lost — likely unplugged: {ex.Message}");
+                        mIsActive = false;
+                        break;
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MavLinkSerialPortTransport] ProcessSendQueue: Invalid operation (port may be closed): {ex.Message}");
+                        if (mSerialPort == null || !mSerialPort.IsOpen)
+                        {
+                            mIsActive = false;
+                            break;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MavLinkSerialPortTransport] ProcessSendQueue: Unexpected error (continuing): {ex.Message}");
+                    }
                 }
                 else
                 {
@@ -309,10 +349,12 @@ namespace MavLinkNet
                     if (!mIsActive) break;
                 }
             }
+
+            HandleReceptionEnded(this);
         }
 
         private void SendMavlinkMessage(UasMessage msg)
-        {            
+        {
             byte[] buffer = mMavLink.SerializeMessage(msg, MavlinkSystemId, MavlinkComponentId, true);
 
             mSerialPort.Write(buffer, 0, buffer.Length);

@@ -51,6 +51,8 @@ public interface IMavLinkService
     Task SendCommandAsync(Command command, params float[] parameters);
     Task<bool> ArmDisarmAsync(bool arm);
     Task<bool> SetFlightModeAsync(string mode);
+    Task<bool> TakeoffAsync(float altitudeMeters = 10f);
+    Task<bool> LandAsync();
     
     // VTOL specific operations
     Task<bool> VtolTransitionAsync(MavLinkNet.MavVtolState targetState);
@@ -79,6 +81,9 @@ public interface IMavLinkService
     // Mission operations
     Task<bool> UploadMissionAsync(IEnumerable<WaypointData> waypoints);
     Task<List<WaypointData>> DownloadMissionAsync();
+
+    // Geofence operations
+    Task<bool> SetGeofenceAsync(IEnumerable<(double Latitude, double Longitude)> points);
     
     // Parameter operations
     Task<Dictionary<string, float>> GetParametersAsync();
@@ -86,9 +91,15 @@ public interface IMavLinkService
     Task RequestParameters();
     Task RequestParametersAsync();
     
-    // Calibration operations
+    // Calibration & Real-Flight Pre-Flight Operations
     Task SendCommandLongAsync(int command, float param1, float param2, float param3, 
                               float param4, float param5, float param6, float param7);
+    Task<bool> SendMotorTestAsync(int motorInstance, float throttle, float timeoutSeconds, int motorCount = 1, int throttleType = 0);
+    Task<bool> SendPusherMotorTestAsync(float pwm = 1200, float timeoutSeconds = 5);
+    Task<bool> SendEmergencyStopAsync();
+    Task<bool> StartCompassCalibration42424Async(byte magMask = 0);
+    Task<bool> AcceptCompassCalibration42425Async(byte magMask = 0);
+    Task<bool> CancelCompassCalibration42426Async(byte magMask = 0);
     
     // Low-level message operations
     void SendMessage(UasMessage message);
@@ -96,6 +107,10 @@ public interface IMavLinkService
     void InjectPacket(MavLinkPacketBase packet);
     void ProcessTlogPacket(byte[] rawPacket);
     
+    // Transport injection — digunakan oleh RuncamWifiLinkService untuk
+    // menyambungkan UDP transport yang sudah dibuat ke MavLinkService.
+    Task ConnectWithTransportAsync(HarvestmoonGCS.Core.Services.Connection.IMavLinkTransport transport);
+
     // Playback mode management
     bool EnterPlaybackMode();
     void ExitPlaybackMode();

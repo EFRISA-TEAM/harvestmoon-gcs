@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using HarvestmoonGCS.Core.Services;
 using HarvestmoonGCS.Core.ViewModels;
@@ -14,26 +15,64 @@ namespace HarvestmoonGCS.Views;
 public sealed partial class SettingsPage : Page
 {
     private SettingsViewModel? _viewModel;
+    private readonly IMavLinkService? _mavLinkService;
+    private DispatcherTimer? _connectionStatusTimer;
 
     public SettingsPage()
     {
         this.InitializeComponent();
-        this.Loaded += SettingsPage_Loaded;
-    }
 
-    protected override void OnNavigatedTo(NavigationEventArgs e)
-    {
-        base.OnNavigatedTo(e);
-        
+        // Resolved here rather than only in OnNavigatedTo: this app's sidebar navigation caches
+        // pages and swaps Frame.Content directly instead of calling Frame.Navigate, so
+        // OnNavigatedTo never actually fires for a cached page — the view model stayed null
+        // forever and Save/Reset silently did nothing while still showing a "Success" dialog.
+        _mavLinkService = App.Current.Services.GetService<IMavLinkService>();
         _viewModel = new SettingsViewModel();
         this.DataContext = _viewModel;
-        
         LoadSettings();
+
+        this.Loaded += SettingsPage_Loaded;
+        this.Unloaded += SettingsPage_Unloaded;
+    }
+
+    /// <summary>Reloads settings each time this cached page becomes the active tab.</summary>
+    public void OnPageActivated()
+    {
+        LoadSettings();
+        RefreshConnectionStatus();
     }
 
     private void SettingsPage_Loaded(object sender, RoutedEventArgs e)
     {
         Debug.WriteLine("SettingsPage loaded");
+        RefreshConnectionStatus();
+        _connectionStatusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _connectionStatusTimer.Tick += (_, _) => RefreshConnectionStatus();
+        _connectionStatusTimer.Start();
+    }
+
+    private void SettingsPage_Unloaded(object sender, RoutedEventArgs e)
+    {
+        _connectionStatusTimer?.Stop();
+        _connectionStatusTimer = null;
+    }
+
+    /// <summary>
+    /// Reflects the real MAVLink connection state. Previously this pill was a hardcoded
+    /// "Connected" badge in XAML with no binding at all — it showed green even when nothing
+    /// was connected.
+    /// </summary>
+    private void RefreshConnectionStatus()
+    {
+        bool connected = _mavLinkService?.IsConnected == true;
+        var color = connected
+            ? Windows.UI.Color.FromArgb(0xFF, 0x22, 0xC5, 0x5E)
+            : Windows.UI.Color.FromArgb(0xFF, 0x9C, 0xA3, 0xAF);
+        ConnPillDot.Fill = new SolidColorBrush(color);
+        ConnPillText.Foreground = new SolidColorBrush(color);
+        ConnPillText.Text = connected
+            ? $"Connected · {_mavLinkService!.ConnectionString}"
+            : "Disconnected";
     }
 
     private void LoadSettings()
@@ -76,35 +115,22 @@ public sealed partial class SettingsPage : Page
         }
     }
 
+    /// <summary>
+    /// Opens the same real Connect dialog used by the top bar (Serial auto-detect/baud probing,
+    /// UDP/TCP, RunCam WiFi Link 2). Previously this button faked success after a 200ms delay
+    /// without attempting any real connection at all.
+    /// </summary>
     private async void ConnectBtn_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            var protocol = (ProtocolCombo.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "UDP";
-            var host = HostInput.Text ?? "127.0.0.1";
-            var port = PortInput.Text ?? "14550";
-            
-            Debug.WriteLine($"Connecting to {protocol} {host}:{port}...");
-            
-            await Task.Delay(200);
-            
-            await ShowMessageDialog("Connected", $"Successfully connected to {protocol} {host}:{port}");
+            var dialog = new ConnectDialog(_mavLinkService) { XamlRoot = this.XamlRoot };
+            await dialog.ShowAsync();
+            RefreshConnectionStatus();
         }
         catch (Exception ex)
         {
-            await ShowMessageDialog("Connection Error", $"Failed to connect: {ex.Message}");
-        }
-    }
-
-    private async void TestBtn_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            await ShowMessageDialog("Test Connection", "Connection test OK · 48 ms latency");
-        }
-        catch (Exception ex)
-        {
-            await ShowMessageDialog("Test Failed", $"Connection test failed: {ex.Message}");
+            await ShowMessageDialog("Connection Error", $"Failed to open Connect dialog: {ex.Message}");
         }
     }
 

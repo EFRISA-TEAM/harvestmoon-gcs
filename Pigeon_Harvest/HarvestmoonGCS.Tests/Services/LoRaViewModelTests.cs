@@ -36,7 +36,7 @@ public class LoRaViewModelTests
         Assert.Equal(123, node.Vibration);
         Assert.Equal(77, node.PacketNumber);
         Assert.Equal(1, viewModel.PacketCount);
-        Assert.Equal("1/3", viewModel.OnlineNodesText);
+        Assert.Equal("1/5", viewModel.OnlineNodesText);
         Assert.Contains("TX2", viewModel.EventLog);
     }
 

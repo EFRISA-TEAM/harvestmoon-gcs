@@ -25,6 +25,13 @@ public class DesktopCameraService : ICameraService
     
     public bool IsStreaming { get; private set; }
     public bool IsRecording { get; private set; }
+    public bool IsClassificationStream => false;
+
+    // Stub — DesktopCameraService tidak support HSV stream (pakai PythonCameraService di production)
+    public Task<bool> StartHsvStreamAsync(string source, string? modelPath = null,
+        float maxFps = 15f, bool showOverlay = true, bool demo = true, float playbackRate = 1.0f,
+        bool yoloEnabled = false)
+        => StartCameraAsync(source);
     
     public event EventHandler<byte[]>? FrameReceived;
     public event EventHandler<bool>? StreamingStatusChanged;
@@ -207,7 +214,9 @@ public class DesktopCameraService : ICameraService
             System.Diagnostics.Debug.WriteLine($"[DesktopCameraService] Source: {source}");
             CameraDebug($"START source={source}");
             
-            StopCameraAsync().GetAwaiter().GetResult();
+            // C-1 fix: jangan GetAwaiter().GetResult() di dalam Task.Run – bisa deadlock.
+            // Panggil StopCameraBlocking() synchronously sebagai gantinya.
+            StopCameraBlocking();
             
             _currentSource = source;
             
@@ -220,7 +229,7 @@ public class DesktopCameraService : ICameraService
             else if (source == "network")
             {
                 System.Diagnostics.Debug.WriteLine("[DesktopCameraService] Network stream selected - user needs to provide URL");
-                ConnectionError?.Invoke(this, "Please enter network stream URL in FlightPage camera settings");
+                ConnectionError?.Invoke(this, "Please enter network stream URL in SettingsPage camera settings");
                 return false;
             }
             else
@@ -552,5 +561,70 @@ public class DesktopCameraService : ICameraService
         catch
         {
         }
+    }
+
+    /// <summary>
+    /// C-1 fix: Synchronous stop yang aman dipanggil dari blocking context (Task.Run).
+    /// StopCameraAsync tidak boleh dipanggil via GetAwaiter().GetResult() karena
+    /// bisa deadlock jika ada SynchronizationContext. Gunakan ini sebagai gantinya.
+    /// </summary>
+    private void StopCameraBlocking()
+    {
+        System.Diagnostics.Debug.WriteLine("[DesktopCameraService] StopCameraBlocking called");
+
+        // Signal stream loop untuk berhenti
+        var cts = Interlocked.Exchange(ref _streamCts!, null);
+        cts?.Cancel();
+
+        // Tunggu stream task dengan timeout (jangan block selamanya)
+        var task = _streamTask;
+        if (task != null)
+        {
+            try { task.Wait(TimeSpan.FromSeconds(3)); }
+            catch { /* ignore */ }
+            _streamTask = null;
+        }
+
+        cts?.Dispose();
+
+        // Stop recording synchronously jika aktif
+        if (IsRecording)
+        {
+            try
+            {
+                _videoWriter?.Release();
+                _videoWriter?.Dispose();
+                _videoWriter = null;
+                IsRecording = false;
+                RecordingStatusChanged?.Invoke(this, false);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DesktopCameraService] StopCameraBlocking recording stop error: {ex.Message}");
+            }
+        }
+
+        // Release capture
+        if (_capture != null)
+        {
+            try
+            {
+                _capture.Release();
+                _capture.Dispose();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DesktopCameraService] StopCameraBlocking capture release error: {ex.Message}");
+            }
+            _capture = null;
+        }
+
+        if (IsStreaming)
+        {
+            IsStreaming = false;
+            StreamingStatusChanged?.Invoke(this, false);
+        }
+
+        System.Diagnostics.Debug.WriteLine("[DesktopCameraService] StopCameraBlocking completed");
     }
 }

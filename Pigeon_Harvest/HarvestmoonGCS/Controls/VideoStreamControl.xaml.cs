@@ -35,6 +35,8 @@ public sealed partial class VideoStreamControl : UserControl
     private List<VideoDetectionOverlay> _detectionOverlays = new();
     // Frame drop: skip decode jika frame sebelumnya belum selesai di-render
     private volatile bool _framePending;
+    // High-quality rendering mode: use bilinear for demo video, nearest-neighbour for live stream
+    private bool _highQualityMode = false;
 
     public VideoStreamControl()
     {
@@ -110,7 +112,7 @@ public sealed partial class VideoStreamControl : UserControl
 
                 UpdateFpsCounter();
 
-                DispatcherQueue.TryEnqueue(() =>
+                var enqueued = DispatcherQueue.TryEnqueue(() =>
                 {
                     if (!_isStreaming)
                     {
@@ -122,6 +124,10 @@ public sealed partial class VideoStreamControl : UserControl
                     VideoCanvas.Invalidate();
                     _framePending = false;
                 });
+                if (!enqueued)
+                {
+                    _framePending = false;
+                }
             }
             else
             {
@@ -159,9 +165,40 @@ public sealed partial class VideoStreamControl : UserControl
         });
     }
 
-    public void ShowStatus(string message, bool showLoading = false) { }
+    /// <summary>
+    /// Shows a status message (and optional loading spinner) over the video/background area.
+    /// </summary>
+    public void ShowStatus(string message, bool showLoading = false)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            StatusText.Text = message ?? string.Empty;
+            StatusLoadingRing.IsActive = showLoading;
+            StatusLoadingRing.Visibility = showLoading ? Visibility.Visible : Visibility.Collapsed;
+            StatusOverlay.Visibility = Visibility.Visible;
+        });
+    }
 
-    public void HideOverlay() { }
+    /// <summary>
+    /// Hides the status overlay shown by <see cref="ShowStatus"/>.
+    /// </summary>
+    public void HideOverlay()
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            StatusLoadingRing.IsActive = false;
+            StatusOverlay.Visibility = Visibility.Collapsed;
+        });
+    }
+
+    /// <summary>
+    /// Switches between high-quality bilinear rendering (for demo video)
+    /// and fast nearest-neighbour rendering (for live streams).
+    /// </summary>
+    public void SetHighQualityMode(bool enabled)
+    {
+        _highQualityMode = enabled;
+    }
 
     /// <summary>
     /// Force the video canvas to be visible and repaint the last cached frame.
@@ -229,7 +266,7 @@ public sealed partial class VideoStreamControl : UserControl
     private void OnPaintSurface(object sender, SKPaintSurfaceEventArgs e)
     {
         var canvas = e.Surface.Canvas;
-        canvas.Clear(SKColors.Transparent);
+        canvas.Clear(SKColors.Black);
 
         lock (_frameLock)
         {
@@ -254,10 +291,11 @@ public sealed partial class VideoStreamControl : UserControl
                 var destRect = new SKRect(x, y, x + scaledWidth, y + scaledHeight);
 
                 // None = nearest-neighbour — paling cepat untuk live stream
+                // High/Medium = bilinear — digunakan untuk demo video agar jernih
                 using var paint = new SKPaint
                 {
-                    FilterQuality = SKFilterQuality.None,
-                    IsAntialias = false
+                    FilterQuality = _highQualityMode ? SKFilterQuality.High : SKFilterQuality.None,
+                    IsAntialias = _highQualityMode
                 };
 
                 canvas.DrawBitmap(_currentFrame, destRect, paint);

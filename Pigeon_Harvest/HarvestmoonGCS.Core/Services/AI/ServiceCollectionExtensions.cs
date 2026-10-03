@@ -388,7 +388,11 @@ public static class ServiceCollectionExtensions
             var statistical = detectors.FirstOrDefault(d => d.Name == "Statistical");
             var ai = detectors.FirstOrDefault(d => d.Name == "AI");
 
-            var config = new AnomalyDetectionConfig();
+            // Use the live AISettings.AnomalyDetection instance — not a detached copy — so the
+            // RuleBased/Statistical/AI toggles on the AI Settings page genuinely gate these
+            // detection layers instead of only updating a config object nobody reads.
+            var settings = sp.GetRequiredService<AISettings>();
+            var config = settings.AnomalyDetection;
             configureAnomalyDetection?.Invoke(config);
 
             return new AnomalyDetectionService(alertManager, ruleBased, statistical, ai, config);

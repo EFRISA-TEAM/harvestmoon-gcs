@@ -112,6 +112,24 @@
                         <TextBlock x:Name="tb_total_distance" Text="0.00 Km" Foreground="{ThemeResource ForegroundBrush}" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="12"/>
                     </StackPanel>
 
+                    <!-- Follow Vehicle -->
+                    <Border x:Name="follow_wahana_border"
+                            Background="#FF53DAFA"
+                            CornerRadius="6"
+                            Padding="2">
+                        <Button Click="FollowVehicle_Click"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Padding="8,4"
+                                ToolTipService.ToolTip="Follow Vehicle — pusatkan peta ke posisi drone">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon Glyph="&#xE7C3;" FontSize="13"/>
+                                <TextBlock Text="FOLLOW" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                    </Border>
+
+                    <!-- Markers Count / Geofence toggle -->
                     <!-- Offline Mode Toggle -->
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <ToggleButton x:Name="btn_offline_mode" 
@@ -227,12 +245,12 @@
                             </Button>
                             <Button x:Name="btn_start_mission"
                                     Style="{StaticResource ModernButtonStyle}"
-                                    Command="{Binding UploadMissionCommand}"
-                                    ToolTipService.ToolTip="Start Mission"
+                                    Click="DownloadMission_Click"
+                                    ToolTipService.ToolTip="Download Mission dari drone ke GCS"
                                     Padding="12,6">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <FontIcon Glyph="&#xE768;" FontSize="13"/>
-                                    <TextBlock Text="START MISSION" FontSize="11" FontWeight="Bold"/>
+                                    <FontIcon Glyph="&#xE896;" FontSize="13"/>
+                                    <TextBlock Text="DOWNLOAD MISSION" FontSize="11" FontWeight="Bold"/>
                                 </StackPanel>
                             </Button>
                         </StackPanel>
@@ -383,12 +401,12 @@
                                 
                                 <StackPanel Grid.Column="0" Spacing="4">
                                     <TextBlock Text="Latitude" Foreground="{ThemeResource MutedForegroundBrush}" FontSize="10"/>
-                                    <TextBox x:Name="tb_geofence_lat" PlaceholderText="-7.2754"/>
+                                    <TextBox x:Name="tb_geofence_lat" PlaceholderText="-6.24361"/>
                                 </StackPanel>
                                 
                                 <StackPanel Grid.Column="1" Spacing="4" Margin="8,0,0,0">
                                     <TextBlock Text="Longitude" Foreground="{ThemeResource MutedForegroundBrush}" FontSize="10"/>
-                                    <TextBox x:Name="tb_geofence_lon" PlaceholderText="112.7947"/>
+                                    <TextBox x:Name="tb_geofence_lon" PlaceholderText="107.36556"/>
                                 </StackPanel>
                                 
                                 <Button Grid.Column="2" 

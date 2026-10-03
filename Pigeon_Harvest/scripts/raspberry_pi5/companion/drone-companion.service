@@ -1,0 +1,19 @@
+[Unit]
+Description=Orange Pi 3B Autonomous Drone Companion System (Telemetry & Dual Video Streaming)
+After=network.target network-online.target NetworkManager.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=orangepi
+Group=orangepi
+WorkingDirectory=/home/orangepi/drone_companion
+ExecStart=/bin/bash /home/orangepi/drone_companion/start_drone.sh
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

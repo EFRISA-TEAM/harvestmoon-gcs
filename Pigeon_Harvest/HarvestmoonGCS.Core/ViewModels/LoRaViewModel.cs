@@ -37,6 +37,8 @@ public partial class LoRaViewModel : ViewModelBase
     public bool Node1Status => Nodes.FirstOrDefault(n => n.NodeId == 1)?.IsOnline ?? false;
     public bool Node2Status => Nodes.FirstOrDefault(n => n.NodeId == 2)?.IsOnline ?? false;
     public bool Node3Status => Nodes.FirstOrDefault(n => n.NodeId == 3)?.IsOnline ?? false;
+    public bool Node4Status => Nodes.FirstOrDefault(n => n.NodeId == 4)?.IsOnline ?? false;
+    public bool Node5Status => Nodes.FirstOrDefault(n => n.NodeId == 5)?.IsOnline ?? false;
     public bool AreAllNodesOnline => Nodes.Count > 0 && Nodes.All(n => n.IsOnline);
     public string OnlineNodesText => $"{Nodes.Count(n => n.IsOnline)}/{Nodes.Count}";
     public string LoRaCoordinatesText
@@ -93,6 +95,8 @@ public partial class LoRaViewModel : ViewModelBase
         Nodes.Add(new LoRaNodeData { NodeId = 1, NodeName = "Node 1 (Gateway)", RSSI = -100 });
         Nodes.Add(new LoRaNodeData { NodeId = 2, NodeName = "Node 2 (Relay)", RSSI = -100 });
         Nodes.Add(new LoRaNodeData { NodeId = 3, NodeName = "Node 3 (End)", RSSI = -100 });
+        Nodes.Add(new LoRaNodeData { NodeId = 4, NodeName = "Node 4 (End)", RSSI = -100 });
+        Nodes.Add(new LoRaNodeData { NodeId = 5, NodeName = "Node 5 (End)", RSSI = -100 });
 
         AppendLog("[Info] LoRa Network Control initialized.");
         _onlineRefreshTimer = new Timer(_ => _dispatcherService.Enqueue(RefreshOnlineStatus), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
@@ -475,6 +479,8 @@ public partial class LoRaViewModel : ViewModelBase
         OnPropertyChanged(nameof(Node1Status));
         OnPropertyChanged(nameof(Node2Status));
         OnPropertyChanged(nameof(Node3Status));
+        OnPropertyChanged(nameof(Node4Status));
+        OnPropertyChanged(nameof(Node5Status));
         OnPropertyChanged(nameof(AreAllNodesOnline));
         OnPropertyChanged(nameof(OnlineNodesText));
         OnPropertyChanged(nameof(LoRaCoordinatesText));

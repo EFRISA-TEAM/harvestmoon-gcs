@@ -420,6 +420,10 @@ public class FlightData : TipeWahana, INotifyPropertyChanged
     private int _altitude;
     private float _altitudeFloat;
     private float _speed;
+    private float _groundSpeed;
+    private float _verticalSpeed;
+    private bool _isArmed;
+    private int _batteryRemaining = -1;
     private GPSData _gps = new GPSData();
     private Waypoint _wpoint = new Waypoint();
     private byte _sats;
@@ -442,6 +446,42 @@ public class FlightData : TipeWahana, INotifyPropertyChanged
     {
         get => _throttlePercent;
         set => SetProperty(ref _throttlePercent, value);
+    }
+
+    /// <summary>
+    /// Ground speed dari VFR_HUD.groundspeed (m/s)
+    /// </summary>
+    public float GroundSpeed
+    {
+        get => _groundSpeed;
+        set => SetProperty(ref _groundSpeed, value);
+    }
+
+    /// <summary>
+    /// Vertical speed (climb rate) dari VFR_HUD.climb (m/s, positif = naik)
+    /// </summary>
+    public float VerticalSpeed
+    {
+        get => _verticalSpeed;
+        set => SetProperty(ref _verticalSpeed, value);
+    }
+
+    /// <summary>
+    /// Armed state dari HEARTBEAT.base_mode MAV_MODE_FLAG_SAFETY_ARMED bit
+    /// </summary>
+    public bool IsArmed
+    {
+        get => _isArmed;
+        set => SetProperty(ref _isArmed, value);
+    }
+
+    /// <summary>
+    /// Battery remaining percentage dari SYS_STATUS.battery_remaining (-1 = unknown)
+    /// </summary>
+    public int BatteryRemaining
+    {
+        get => _batteryRemaining;
+        set => SetProperty(ref _batteryRemaining, value);
     }
 
     public FlightMode FlightMode

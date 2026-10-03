@@ -185,6 +185,55 @@ public class MavLinkService : IMavLinkService, IDisposable
         var config = ParseConnectionString(connectionString);
         return await ConnectAsync(config);
     }
+
+    /// <summary>
+    /// Hubungkan menggunakan transport eksternal (IMavLinkTransport).
+    /// Digunakan oleh RuncamWifiLinkService yang sudah membuat UDP transport
+    /// dengan IP/port RunCam WiFi Link 2 yang spesifik.
+    /// Transport di-wrap dengan MavLinkGenericTransportAdapter.
+    /// </summary>
+    public async Task ConnectWithTransportAsync(HarvestmoonGCS.Core.Services.Connection.IMavLinkTransport transport)
+    {
+        try
+        {
+            // Disconnect existing
+            await DisconnectAsync();
+
+            var adapter = new MavLinkGenericTransportAdapter(transport);
+            adapter.Initialize();
+
+            // Subscribe packet events
+            adapter.OnPacketReceived += OnTransportPacketReceived;
+
+            // Register ke ConnectionManager & set di service
+            _connectionManager.SetExternalTransport(adapter);
+            SetTransport(adapter);
+
+            lock (_stateLock)
+            {
+                _isConnected = true;
+                _currentConfig = new ConnectionConfig
+                {
+                    Type = Core.Models.ConnectionType.UDP,
+                    Address = transport.ConnectionName
+                };
+            }
+
+            _heartbeatManager.Start();
+            _qualityMonitor.Start();
+            _streamRequestManager.Start();
+
+            RaiseConnectionStatusChanged(true);
+            Serilog.Log.Information("[MavLinkService] ConnectWithTransportAsync terhubung: {Name}", transport.ConnectionName);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[MavLinkService] ConnectWithTransportAsync gagal");
+            RaiseConnectionStatusChanged(false);
+            throw;
+        }
+        await Task.CompletedTask;
+    }
     
     public async Task<bool> ConnectAsync(Core.Models.ConnectionType type, string address, int port = 14550)
     {
@@ -284,6 +333,31 @@ public class MavLinkService : IMavLinkService, IDisposable
             if (packet.Message != null)
             {
                 _telemetryParser.ParsePacket(packet.Message);
+
+                if (packet.Message is UasMissionRequest request)
+                {
+                    _missionProtocol.HandleMissionRequest(request);
+                }
+                else if (packet.Message is UasMissionRequestInt requestInt)
+                {
+                    _missionProtocol.HandleMissionRequestInt(requestInt);
+                }
+                else if (packet.Message is UasMissionAck ack)
+                {
+                    _missionProtocol.HandleMissionAck(ack);
+                }
+                else if (packet.Message is UasMissionCount count)
+                {
+                    _missionProtocol.HandleMissionCount(count);
+                }
+                else if (packet.Message is UasMissionItemInt itemInt)
+                {
+                    _missionProtocol.HandleMissionItemInt(itemInt);
+                }
+                else if (packet.Message is UasMissionItem item)
+                {
+                    _missionProtocol.HandleMissionItem(item);
+                }
             }
             else
             {
@@ -342,7 +416,31 @@ public class MavLinkService : IMavLinkService, IDisposable
     public Task<bool> ArmDisarmAsync(bool arm) => _commandSender.SendArmDisarmAsync(arm);
     
     public Task<bool> SetFlightModeAsync(string mode) => _commandSender.SendSetModeAsync(mode);
+
+    public Task<bool> SendMotorTestAsync(int motorInstance, float throttle, float timeoutSeconds, int motorCount = 1, int throttleType = 0)
+        => _commandSender.SendMotorTestAsync(motorInstance, throttle, timeoutSeconds, motorCount, throttleType);
+
+    public Task<bool> SendPusherMotorTestAsync(float pwm = 1200, float timeoutSeconds = 5)
+        => _commandSender.SendPusherMotorTestAsync(pwm, timeoutSeconds);
+
+    public Task<bool> SendEmergencyStopAsync()
+        => _commandSender.SendEmergencyStopAsync();
+
+    public Task<bool> StartCompassCalibration42424Async(byte magMask = 0)
+        => _commandSender.StartCompassCalibration42424Async(magMask);
+
+    public Task<bool> AcceptCompassCalibration42425Async(byte magMask = 0)
+        => _commandSender.AcceptCompassCalibration42425Async(magMask);
+
+    public Task<bool> CancelCompassCalibration42426Async(byte magMask = 0)
+        => _commandSender.CancelCompassCalibration42426Async(magMask);
     
+    public Task<bool> TakeoffAsync(float altitudeMeters = 10f) =>
+        _commandSender.SendTakeoffAsync(altitudeMeters);
+
+    public Task<bool> LandAsync() =>
+        _commandSender.SendLandAsync();
+
     // VTOL specific operations
     public Task<bool> VtolTransitionAsync(MavLinkNet.MavVtolState targetState) => 
         _commandSender.SendVtolTransitionAsync(targetState);
@@ -387,11 +485,84 @@ public class MavLinkService : IMavLinkService, IDisposable
         _commandSender.SendChangeSpeedAsync(speedType, speed, throttle);
     
     // Mission operations
-    public Task<bool> UploadMissionAsync(IEnumerable<WaypointData> waypoints) => 
+    public Task<bool> UploadMissionAsync(IEnumerable<WaypointData> waypoints) =>
         _missionProtocol.UploadMissionAsync(waypoints);
-    
-    public Task<List<WaypointData>> DownloadMissionAsync() => 
-        _missionProtocol.DownloadMissionAsync();
+
+    public async Task<List<WaypointData>> DownloadMissionAsync()
+    {
+        var result = await _missionProtocol.DownloadMissionAsync();
+        return result ?? new List<WaypointData>();
+    }
+
+    /// <summary>
+    /// C4: Kirim geofence polygon ke autopilot menggunakan UasFencePoint protocol.
+    /// Point pertama (Idx=0) adalah return point, sisanya adalah polygon vertices.
+    /// </summary>
+    public async Task<bool> SetGeofenceAsync(IEnumerable<(double Latitude, double Longitude)> points)
+    {
+        if (!IsConnected)
+        {
+            System.Diagnostics.Debug.WriteLine("[MavLinkService] SetGeofenceAsync: not connected");
+            return false;
+        }
+
+        var pointList = points.ToList();
+        if (pointList.Count < 3)
+        {
+            System.Diagnostics.Debug.WriteLine("[MavLinkService] SetGeofenceAsync: need at least 3 points");
+            return false;
+        }
+
+        try
+        {
+            // Total count includes return point (idx 0) + polygon vertices
+            byte totalCount = (byte)(pointList.Count + 1);
+
+            // Send return point (idx 0) = centroid of polygon
+            double centerLat = pointList.Average(p => p.Latitude);
+            double centerLon = pointList.Average(p => p.Longitude);
+
+            var returnPoint = new UasFencePoint
+            {
+                TargetSystem    = GetTargetSystemId(),
+                TargetComponent = GetTargetComponentId(),
+                Idx             = 0,
+                Count           = totalCount,
+                Lat             = (float)centerLat,
+                Lng             = (float)centerLon
+            };
+
+            var transport = GetTransport();
+            if (transport == null) return false;
+
+            transport.SendMessage(returnPoint);
+            await Task.Delay(50);
+
+            // Send polygon vertices (idx 1..N)
+            for (int i = 0; i < pointList.Count; i++)
+            {
+                var fencePoint = new UasFencePoint
+                {
+                    TargetSystem    = GetTargetSystemId(),
+                    TargetComponent = GetTargetComponentId(),
+                    Idx             = (byte)(i + 1),
+                    Count           = totalCount,
+                    Lat             = (float)pointList[i].Latitude,
+                    Lng             = (float)pointList[i].Longitude
+                };
+                transport.SendMessage(fencePoint);
+                await Task.Delay(50); // 50ms spacing agar autopilot tidak drop packet
+            }
+
+            System.Diagnostics.Debug.WriteLine($"[MavLinkService] SetGeofenceAsync: sent {totalCount} fence points");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MavLinkService] SetGeofenceAsync failed: {ex.Message}");
+            return false;
+        }
+    }
     
     // Parameter operations
     public Task<Dictionary<string, float>> GetParametersAsync() => 
@@ -553,6 +724,31 @@ public class MavLinkService : IMavLinkService, IDisposable
             _isConnected = isConnected;
         }
         ConnectionStatusChanged?.Invoke(this, isConnected);
+    }
+
+    /// <summary>
+    /// H1: Dipanggil oleh HeartbeatManager saat link loss terdeteksi.
+    /// Trigger disconnect dan schedule reconnect otomatis.
+    /// </summary>
+    internal void RaiseConnectionLost()
+    {
+        bool wasConnected;
+        ConnectionConfig? config;
+        lock (_stateLock)
+        {
+            wasConnected = _isConnected;
+            config = _currentConfig;
+            if (!wasConnected) return; // sudah disconnected, skip
+            _isConnected = false;
+        }
+
+        System.Diagnostics.Debug.WriteLine("[MavLinkService] Link loss — triggering reconnect");
+        ConnectionStatusChanged?.Invoke(this, false);
+
+        if (config != null && _autoReconnectManager.AutoReconnectEnabled)
+        {
+            _ = _autoReconnectManager.ScheduleReconnectAsync(config);
+        }
     }
     
     internal void RaiseTelemetryReceived(FlightData data)

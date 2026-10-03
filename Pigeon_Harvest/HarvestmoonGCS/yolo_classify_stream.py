@@ -413,8 +413,23 @@ def main():
         while True:
             ret, frame = cap.read()
             if not ret or frame is None:
-                emit({"type": "end", "data": "Video stream ended"})
-                break
+                if (DEMO_MODE or getattr(args, "demo", False)) and not isinstance(source, int):
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    ret, frame = cap.read()
+                    if not ret or frame is None:
+                        try:
+                            cap.release()
+                            time.sleep(0.05)
+                            cap = cv2.VideoCapture(source)
+                            ret, frame = cap.read()
+                        except Exception:
+                            pass
+                    if not ret or frame is None:
+                        emit({"type": "end", "data": "Video stream ended"})
+                        break
+                else:
+                    emit({"type": "end", "data": "Video stream ended"})
+                    break
 
             now = time.time()
             if now - last_frame_time < min_frame_interval:

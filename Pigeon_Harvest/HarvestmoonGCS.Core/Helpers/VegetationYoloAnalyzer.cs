@@ -256,7 +256,7 @@ namespace HarvestmoonGCS.Core.Helpers
             }
             catch (Exception ex)
             {
-                Serilog.Log.Debug(ex, "[VegetationYoloAnalyzer] OpenCV optimization setup skipped");
+                Serilog.Log.Information("[VegetationYoloAnalyzer] Native OpenCVSharp runtime skipped ({Message}); vision stream driven by Python .venv-yolo.", ex.Message);
             }
         }
 

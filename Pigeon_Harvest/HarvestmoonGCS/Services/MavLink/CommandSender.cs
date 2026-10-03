@@ -472,6 +472,128 @@ internal class CommandSender
             return false;
         }
     }
+
+    // Real Flight Motor Test Operations
+    public async Task<bool> SendMotorTestAsync(int motorInstance, float throttle, float timeoutSeconds, int motorCount = 1, int throttleType = 0)
+    {
+        try
+        {
+            // MAV_CMD_DO_MOTOR_TEST (209)
+            var command = CreateCommandLong(
+                209,
+                motorInstance,    // param1: Motor instance (1-based)
+                throttleType,     // param2: Throttle type (0 = PWM value, 1 = % 0-100)
+                throttle,         // param3: Throttle value (e.g. 1200 or 15)
+                timeoutSeconds,   // param4: Timeout in seconds
+                motorCount,       // param5: Motor count
+                0, 0
+            );
+
+            SendMessage(command);
+            await Task.CompletedTask;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CommandSender] Motor test failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    public async Task<bool> SendPusherMotorTestAsync(float pwm = 1200, float timeoutSeconds = 5)
+    {
+        // Pusher motor is typically motor instance 5 or 9 depending on VTOL config. Send motor test on instance 5 with PWM throttle type
+        return await SendMotorTestAsync(5, pwm, timeoutSeconds, 1, 0);
+    }
+
+    // Emergency Motor Cutoff / In-Air Force Disarm & Flight Termination
+    public async Task<bool> SendEmergencyStopAsync()
+    {
+        try
+        {
+            // ArduPilot force disarm magic key = 21196
+            var forceDisarmCmd = CreateCommandLong(
+                (int)MavCmd.ComponentArmDisarm,
+                0.0f,    // param1: 0 = disarm
+                21196.0f, // param2: force disarm magic number
+                0, 0, 0, 0, 0
+            );
+            SendMessage(forceDisarmCmd);
+
+            // Send Flight Termination (MAV_CMD_DO_FLIGHTTERMINATION = 185)
+            var termCmd = CreateCommandLong(185, 1.0f, 0, 0, 0, 0, 0, 0);
+            SendMessage(termCmd);
+
+            await Task.CompletedTask;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CommandSender] Emergency stop failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    // ArduPilot Compass Calibration Standard MAVLink Commands (42424, 42425, 42426)
+    public async Task<bool> StartCompassCalibration42424Async(byte magMask = 0)
+    {
+        try
+        {
+            // MAV_CMD_DO_START_MAG_CAL (42424)
+            var command = CreateCommandLong(
+                42424,
+                magMask, // param1: Mag mask (0 = all)
+                1,       // param2: Retry on failure
+                1,       // param3: Autosave
+                0,       // param4: Delay
+                0,       // param5: Autoreboot
+                0, 0
+            );
+
+            SendMessage(command);
+            await Task.CompletedTask;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CommandSender] Start mag cal 42424 failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    public async Task<bool> AcceptCompassCalibration42425Async(byte magMask = 0)
+    {
+        try
+        {
+            // MAV_CMD_DO_ACCEPT_MAG_CAL (42425)
+            var command = CreateCommandLong(42425, magMask, 0, 0, 0, 0, 0, 0);
+            SendMessage(command);
+            await Task.CompletedTask;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CommandSender] Accept mag cal 42425 failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    public async Task<bool> CancelCompassCalibration42426Async(byte magMask = 0)
+    {
+        try
+        {
+            // MAV_CMD_DO_CANCEL_MAG_CAL (42426)
+            var command = CreateCommandLong(42426, magMask, 0, 0, 0, 0, 0, 0);
+            SendMessage(command);
+            await Task.CompletedTask;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CommandSender] Cancel mag cal 42426 failed: {ex.Message}");
+            return false;
+        }
+    }
     
     private UasCommandLong CreateCommandLong(int command, float param1, float param2,
                                               float param3, float param4, float param5,

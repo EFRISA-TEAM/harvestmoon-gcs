@@ -7,6 +7,7 @@ using MavLinkNet;
 using HarvestmoonGCS.Core.Models;
 using HarvestmoonGCS.Core.Services;
 using HarvestmoonGCS.Core.Services.MavLink;
+using HarvestmoonGCS.Core.Services.Connection;
 
 namespace HarvestmoonGCS.Services;
 
@@ -37,9 +38,7 @@ internal class ConnectionManager
             switch (config.Type)
             {
                 case Core.Models.ConnectionType.TCP:
-                    // TCP not yet implemented - use UDP for now
-                    System.Diagnostics.Debug.WriteLine($"[ConnectionManager] TCP not yet implemented, falling back to UDP");
-                    transport = await CreateUdpTransportAsync(config.Address, config.Port);
+                    transport = await CreateTcpTransportAsync(config.Address, config.Port);
                     break;
                     
                 case Core.Models.ConnectionType.UDP:
@@ -70,22 +69,80 @@ internal class ConnectionManager
         }
     }
     
+    private async Task<MavLinkGenericTransport?> CreateTcpTransportAsync(string address, int port)
+    {
+        try
+        {
+            System.Diagnostics.Debug.WriteLine($"[ConnectionManager] Creating TCP transport to {address}:{port}");
+
+            // Gunakan MavLinkTcpTransport (Core) dibungkus MavLinkGenericTransportAdapter
+            var tcpTransport = new MavLinkTcpTransport(address, port, connectTimeoutMs: 5000);
+            var adapter = new MavLinkGenericTransportAdapter(tcpTransport);
+
+            await Task.Run(() => adapter.Initialize());
+
+            System.Diagnostics.Debug.WriteLine($"[ConnectionManager] TCP transport initialized to {address}:{port}");
+            return adapter;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ConnectionManager] TCP connection failed: {ex.Message}");
+            Console.WriteLine($"[ConnectionManager] TCP connection failed: {ex.Message}");
+            throw;
+        }
+    }
+
     private async Task<MavLinkGenericTransport?> CreateUdpTransportAsync(string address, int port)
     {
         try
         {
             System.Diagnostics.Debug.WriteLine($"[ConnectionManager] Creating UDP transport to {address}:{port}");
             Console.WriteLine($"[ConnectionManager] Creating UDP transport to {address}:{port}");
-            
-            var transport = new MavLinkUdpClientTransport();
-            transport.TargetIpAddress = IPAddress.Parse(address);
-            transport.TargetPort = port;
+
+            int bindPort = port > 0 ? port : 14550;
+            var transport = new MavLinkUdpClientTransport
+            {
+                LocalPort = bindPort,
+                TargetPort = bindPort
+            };
+
+            // ── Listen mode ────────────────────────────────────────────────────
+            // UAV yang mendorong telemetri ke GCS (Orange Pi drone companion →
+            // GCS:14550) tidak punya IP tetap di setup router/hotspot. Dengan
+            // alamat kosong / 0.0.0.0 / any / listen, GCS hanya mendengarkan di
+            // port tersebut dan mempelajari IP UAV dari paket pertama.
+            bool listenRequested = string.IsNullOrWhiteSpace(address)
+                || address == "0.0.0.0"
+                || address.Equals("any", StringComparison.OrdinalIgnoreCase)
+                || address.Equals("listen", StringComparison.OrdinalIgnoreCase)
+                || address.Equals("*", StringComparison.Ordinal);
+
+            if (listenRequested)
+            {
+                transport.ListenMode = true;
+                await Task.Run(() => transport.Initialize());
+
+                Console.WriteLine($"[ConnectionManager] UDP LISTEN mode aktif di port {bindPort} (menunggu UAV mengirim)");
+                return transport;
+            }
+            // ───────────────────────────────────────────────────────────────────
+
+            // H-2 fix: IPAddress.Parse gagal untuk hostname (misalnya "localhost").
+            // Gunakan Dns.GetHostAddresses sebagai fallback.
+            if (!IPAddress.TryParse(address, out var ip))
+            {
+                var hostAddresses = await System.Net.Dns.GetHostAddressesAsync(address);
+                ip = hostAddresses.FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                     ?? hostAddresses.First();
+            }
+
+            transport.TargetIpAddress = ip;
             
             // Initialize the transport (this starts threads and connects)
             await Task.Run(() => transport.Initialize());
             
-            System.Diagnostics.Debug.WriteLine($"[ConnectionManager] UDP transport initialized");
-            Console.WriteLine($"[ConnectionManager] UDP transport initialized successfully");
+            System.Diagnostics.Debug.WriteLine($"[ConnectionManager] UDP transport initialized (target={ip}:{bindPort}, local={bindPort})");
+            Console.WriteLine($"[ConnectionManager] UDP transport initialized successfully (target={ip}:{bindPort}, local={bindPort})");
             return transport;
         }
         catch (Exception ex)
@@ -190,5 +247,15 @@ internal class ConnectionManager
     public MavLinkGenericTransport? GetTransport()
     {
         return _service.GetTransport();
+    }
+
+    /// <summary>
+    /// Daftarkan transport eksternal (dari RuncamWifiLinkService) ke ConnectionManager.
+    /// Digunakan ketika transport sudah dibuat di luar ConnectionManager normal.
+    /// </summary>
+    public void SetExternalTransport(MavLinkGenericTransport transport)
+    {
+        _transport = transport;
+        _service.SetTransport(transport);
     }
 }

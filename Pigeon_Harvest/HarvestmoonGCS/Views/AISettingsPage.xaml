@@ -144,7 +144,7 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBox x:Name="VisionClassPathBox"
-                                     PlaceholderText="Assets/models/moonharvest-classes.txt"/>
+                                     PlaceholderText="Assets/models/classes-moonharvest-health.txt"/>
                             <Button Grid.Column="1"
                                     Content="Browse"
                                     Click="BrowseVisionClassButton_Click"/>

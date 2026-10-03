@@ -6,12 +6,17 @@ namespace HarvestmoonGCS.Core.Services;
 
 /// <summary>
 /// Shared in-memory waypoint store for map surfaces and mission UI.
+/// Includes undo/redo via snapshot stacks (port from Pigeon Uno)
 /// </summary>
 public sealed class WaypointService : IWaypointService
 {
     private readonly object _syncRoot = new();
     private readonly List<WaypointData> _waypoints = new();
     private int? _currentWaypointSequence;
+
+    // Snapshot-based undo/redo stacks
+    private readonly Stack<List<WaypointData>> _undoStack = new();
+    private readonly Stack<List<WaypointData>> _redoStack = new();
 
     public event EventHandler? WaypointsChanged;
 
@@ -22,6 +27,28 @@ public sealed class WaypointService : IWaypointService
             lock (_syncRoot)
             {
                 return _waypoints.Count;
+            }
+        }
+    }
+
+    public bool CanUndo
+    {
+        get
+        {
+            lock (_syncRoot)
+            {
+                return _undoStack.Count > 0;
+            }
+        }
+    }
+
+    public bool CanRedo
+    {
+        get
+        {
+            lock (_syncRoot)
+            {
+                return _redoStack.Count > 0;
             }
         }
     }
@@ -50,6 +77,8 @@ public sealed class WaypointService : IWaypointService
     {
         lock (_syncRoot)
         {
+            SaveSnapshotForUndoNoLock();
+
             var copy = CloneWaypoint(waypoint);
             if (copy.Sequence <= 0)
             {
@@ -57,7 +86,11 @@ public sealed class WaypointService : IWaypointService
             }
 
             _waypoints.Add(copy);
+            AssignMissingSequencesNoLock();
             ApplyCurrentWaypointNoLock();
+
+            // New action clears redo history
+            _redoStack.Clear();
         }
 
         RaiseWaypointsChanged();
@@ -68,6 +101,8 @@ public sealed class WaypointService : IWaypointService
     {
         lock (_syncRoot)
         {
+            SaveSnapshotForUndoNoLock();
+
             _waypoints.Clear();
             _waypoints.AddRange(waypoints
                 .Where(IsRenderableWaypoint)
@@ -76,6 +111,8 @@ public sealed class WaypointService : IWaypointService
 
             AssignMissingSequencesNoLock();
             ApplyCurrentWaypointNoLock();
+
+            _redoStack.Clear();
         }
 
         RaiseWaypointsChanged();
@@ -86,6 +123,8 @@ public sealed class WaypointService : IWaypointService
     {
         lock (_syncRoot)
         {
+            SaveSnapshotForUndoNoLock();
+
             var index = _waypoints.FindIndex(w => w.Sequence == waypoint.Sequence);
             if (index >= 0)
             {
@@ -98,6 +137,8 @@ public sealed class WaypointService : IWaypointService
 
             AssignMissingSequencesNoLock();
             ApplyCurrentWaypointNoLock();
+
+            _redoStack.Clear();
         }
 
         RaiseWaypointsChanged();
@@ -108,13 +149,18 @@ public sealed class WaypointService : IWaypointService
     {
         lock (_syncRoot)
         {
+            SaveSnapshotForUndoNoLock();
+
             _waypoints.RemoveAll(w => w.Sequence == sequence);
             if (_currentWaypointSequence == sequence)
             {
                 _currentWaypointSequence = null;
             }
 
+            AssignMissingSequencesNoLock();
             ApplyCurrentWaypointNoLock();
+
+            _redoStack.Clear();
         }
 
         RaiseWaypointsChanged();
@@ -125,8 +171,12 @@ public sealed class WaypointService : IWaypointService
     {
         lock (_syncRoot)
         {
+            SaveSnapshotForUndoNoLock();
+
             _waypoints.Clear();
             _currentWaypointSequence = null;
+
+            _redoStack.Clear();
         }
 
         RaiseWaypointsChanged();
@@ -149,8 +199,12 @@ public sealed class WaypointService : IWaypointService
     {
         lock (_syncRoot)
         {
+            SaveSnapshotForUndoNoLock();
+
             _currentWaypointSequence = sequence;
             ApplyCurrentWaypointNoLock();
+
+            _redoStack.Clear();
         }
 
         RaiseWaypointsChanged();
@@ -316,22 +370,77 @@ public sealed class WaypointService : IWaypointService
     private static WaypointData CloneWaypoint(WaypointData waypoint)
     {
         return new WaypointData
-        {
-            Sequence = waypoint.Sequence,
-            Latitude = waypoint.Latitude,
-            Longitude = waypoint.Longitude,
-            Altitude = waypoint.Altitude,
-            Command = waypoint.Command,
-            Param1 = waypoint.Param1,
-            Param2 = waypoint.Param2,
-            Param3 = waypoint.Param3,
-            Param4 = waypoint.Param4,
-            IsCurrent = waypoint.IsCurrent
-        };
+    {
+        Sequence = waypoint.Sequence,
+        Latitude = waypoint.Latitude,
+        Longitude = waypoint.Longitude,
+        Altitude = waypoint.Altitude,
+        Command = waypoint.Command,
+        Param1 = waypoint.Param1,
+        Param2 = waypoint.Param2,
+        Param3 = waypoint.Param3,
+        Param4 = waypoint.Param4,
+        IsCurrent = waypoint.IsCurrent
+    };
     }
 
     private void RaiseWaypointsChanged()
     {
         WaypointsChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    // Snapshot helpers for undo/redo
+    private void SaveSnapshotForUndoNoLock()
+    {
+        // deep clone current state
+        var snapshot = _waypoints.Select(CloneWaypoint).ToList();
+        _undoStack.Push(snapshot);
+        // Cap stack to reasonable size to avoid unbounded memory growth
+        if (_undoStack.Count > 50) _undoStack.TrimExcess();
+    }
+
+    public Task UndoAsync()
+    {
+        lock (_syncRoot)
+        {
+            if (_undoStack.Count == 0) return Task.CompletedTask;
+
+            // Push current state to redo
+            var current = _waypoints.Select(CloneWaypoint).ToList();
+            _redoStack.Push(current);
+
+            // Restore previous
+            var prev = _undoStack.Pop();
+            _waypoints.Clear();
+            _waypoints.AddRange(prev.Select(CloneWaypoint));
+
+            AssignMissingSequencesNoLock();
+            ApplyCurrentWaypointNoLock();
+        }
+
+        RaiseWaypointsChanged();
+        return Task.CompletedTask;
+    }
+
+    public Task RedoAsync()
+    {
+        lock (_syncRoot)
+        {
+            if (_redoStack.Count == 0) return Task.CompletedTask;
+
+            // Push current to undo
+            var current = _waypoints.Select(CloneWaypoint).ToList();
+            _undoStack.Push(current);
+
+            var next = _redoStack.Pop();
+            _waypoints.Clear();
+            _waypoints.AddRange(next.Select(CloneWaypoint));
+
+            AssignMissingSequencesNoLock();
+            ApplyCurrentWaypointNoLock();
+        }
+
+        RaiseWaypointsChanged();
+        return Task.CompletedTask;
     }
 }

@@ -124,8 +124,38 @@ public class DesktopFileService : IFileService
     // Additional methods for compatibility
     public async Task<string?> PickFileAsync(string[] allowedExtensions)
     {
-        // Desktop file picker - simplified implementation
-        // In a real implementation, you'd use platform-specific file dialogs
+        if (OperatingSystem.IsLinux())
+        {
+            try
+            {
+                var filterArg = allowedExtensions != null && allowedExtensions.Length > 0
+                    ? $"--file-filter=\"Supported Files | {string.Join(" ", allowedExtensions.Select(e => $"*{e}"))}\""
+                    : "";
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "zenity",
+                    Arguments = $"--file-selection --title=\"Pilih File Model / Class\" {filterArg}",
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using var process = System.Diagnostics.Process.Start(psi);
+                if (process != null)
+                {
+                    var output = await process.StandardOutput.ReadToEndAsync();
+                    await process.WaitForExitAsync();
+                    var selectedPath = output.Trim();
+                    if (!string.IsNullOrWhiteSpace(selectedPath) && File.Exists(selectedPath))
+                    {
+                        return selectedPath;
+                    }
+                }
+            }
+            catch
+            {
+                // Fallback
+            }
+        }
         return await Task.FromResult<string?>(null);
     }
 

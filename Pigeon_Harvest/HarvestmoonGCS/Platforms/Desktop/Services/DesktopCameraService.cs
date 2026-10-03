@@ -32,6 +32,13 @@ public class DesktopCameraService : ICameraService
 
     public bool IsStreaming => _isStreaming;
     public bool IsRecording => _isRecording;
+    public bool IsClassificationStream => false;
+
+    // Stub — Platforms/Desktop pakai PythonCameraService di production
+    public Task<bool> StartHsvStreamAsync(string source, string? modelPath = null,
+        float maxFps = 15f, bool showOverlay = true, bool demo = true, float playbackRate = 1.0f,
+        bool yoloEnabled = false)
+        => StartCameraAsync(source);
     public string CurrentSource => _currentSource;
     public IReadOnlyList<CameraSource> AvailableSources => _availableSources?.AsReadOnly();
 
@@ -106,12 +113,56 @@ public class DesktopCameraService : ICameraService
                     }
                 }
 
-                // Add network stream option
+                // Add Orange Pi Drone Camera presets
+                var orangePiUrls = new[] {
+                    "http://10.235.141.127:8080/video_feed",
+                    "http://192.168.1.100:8080/video_feed",
+                    "http://192.168.0.100:8080/video_feed",
+                    "http://10.0.0.100:8080/video_feed",
+                    "http://192.168.1.10:8080/video_feed",
+                    "http://192.168.0.10:8080/video_feed",
+                };
+                foreach (var url in orangePiUrls)
+                {
+                    try
+                    {
+                        using var testCap = new VideoCapture(url);
+                        if (testCap.IsOpened())
+                        {
+                            using var testFrame = new Mat();
+                            if (testCap.Read(testFrame) && testFrame != null)
+                            {
+                                _availableSources.Add(new CameraSource
+                                {
+                                    Id = url,
+                                    Name = "🚁 Drone Camera (Orange Pi)",
+                                    Description = $"Live MJPEG Stream dari Orange Pi — {url}",
+                                    Type = CameraSourceType.NetworkStream
+                                });
+                                break;
+                            }
+                        }
+                        testCap.Release();
+                    }
+                    catch { }
+                }
+                if (!_availableSources.Any(s => s.Type == CameraSourceType.NetworkStream && s.Name.Contains("Orange Pi")))
+                {
+                    _availableSources.Add(new CameraSource
+                    {
+                        Id = "http://192.168.1.100:8080/video_feed",
+                        Name = "🚁 Drone Camera (Orange Pi - Try)",
+                        Description = "Live MJPEG Stream dari Orange Pi. Common IP: 192.168.1.100, 192.168.0.100",
+                        Type = CameraSourceType.NetworkStream
+                    });
+                }
+
+                // Add generic network stream option
                 _availableSources.Add(new CameraSource
                 {
                     Id = "network",
                     Name = "Network Stream",
-                    Description = "RTSP/HTTP video stream",
+                    Description = "RTSP/HTTP video stream (e.g. http://192.168.1.100:8080/video_feed)",
                     Type = CameraSourceType.NetworkStream
                 });
 
@@ -147,28 +198,49 @@ public class DesktopCameraService : ICameraService
                 _currentSource = source;
 
                 // Determine if source is a camera index, URL, or file path
-                if (int.TryParse(source, out int cameraIndex))
+                bool isNetwork = source.StartsWith("http://") || source.StartsWith("https://") || 
+                                 source.StartsWith("rtsp://");
+                
+                // Retry logic for network streams
+                int maxRetries = isNetwork ? 3 : 1;
+                for (int attempt = 0; attempt < maxRetries; attempt++)
                 {
-                    _videoCapture = new VideoCapture(cameraIndex);
-                }
-                else if (source.StartsWith("http://") || source.StartsWith("https://") || 
-                         source.StartsWith("rtsp://"))
-                {
-                    _videoCapture = new VideoCapture(source);
-                }
-                else if (File.Exists(source))
-                {
-                    _videoCapture = new VideoCapture(source);
-                }
-                else
-                {
-                    OnConnectionError($"Invalid camera source: {source}");
-                    return false;
+                    if (int.TryParse(source, out int cameraIndex))
+                    {
+                        _videoCapture = new VideoCapture(cameraIndex);
+                    }
+                    else if (isNetwork)
+                    {
+                        _videoCapture = new VideoCapture(source);
+                    }
+                    else if (File.Exists(source))
+                    {
+                        _videoCapture = new VideoCapture(source);
+                    }
+                    else
+                    {
+                        OnConnectionError($"Invalid camera source: {source}");
+                        return false;
+                    }
+
+                    if (_videoCapture != null && _videoCapture.IsOpened())
+                    {
+                        break; // Success
+                    }
+                    
+                    _videoCapture?.Release();
+                    _videoCapture = null;
+                    
+                    if (attempt < maxRetries - 1 && isNetwork)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[DesktopCameraService] Network stream attempt {attempt + 1} failed, retrying...");
+                        Thread.Sleep(1000);
+                    }
                 }
 
-                if (!_videoCapture.IsOpened())
+                if (_videoCapture == null || !_videoCapture.IsOpened())
                 {
-                    OnConnectionError("Failed to open camera");
+                    OnConnectionError("Failed to open camera. Check network connection to Orange Pi. Try different IP: 192.168.1.100, 10.235.141.127, or 192.168.0.100.");
                     _videoCapture?.Release();
                     _videoCapture = null;
                     return false;
