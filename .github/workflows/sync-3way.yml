@@ -1,0 +1,31 @@
+name: 🔄 3-Way Sync
+
+on:
+  push:
+    branches: ['**']
+    tags: ['**']
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mirror to peer remotes
+        run: |
+          REPO_NAME=$(basename ${{ github.repository }})
+          git clone --mirror https://x-access-token:${{ secrets.SYNC_TOKEN }}@github.com/${{ github.repository }}.git repo.git
+          cd repo.git
+
+          REMOTES=(
+            "https://x-access-token:${{ secrets.SYNC_TOKEN }}@github.com/Nobody-Just-Me/${REPO_NAME}.git"
+            "https://x-access-token:${{ secrets.SYNC_TOKEN }}@github.com/EFRISA-TEAM/${REPO_NAME}.git"
+            "https://x-access-token:${{ secrets.SYNC_TOKEN }}@github.com/FawwazFA/${REPO_NAME}.git"
+          )
+
+          CURRENT="https://x-access-token:${{ secrets.SYNC_TOKEN }}@github.com/${{ github.repository }}.git"
+
+          for REMOTE in "${REMOTES[@]}"; do
+            if [ "$REMOTE" != "$CURRENT" ]; then
+              echo "Syncing to $REMOTE..."
+              git push --mirror "$REMOTE" || true
+            fi
+          done
