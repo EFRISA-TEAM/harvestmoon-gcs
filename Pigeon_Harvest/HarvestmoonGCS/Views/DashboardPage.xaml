@@ -190,7 +190,7 @@
                                                   VerticalAlignment="Center"
                                                   SelectionChanged="DemoScenarioComboBox_SelectionChanged"
                                                   ToolTipService.ToolTip="Pilih Skenario Video &amp; Misi Demo TEKNOFEST">
-                                            <ComboBoxItem Content="★ Multi-Sektor 60s (Subang · 5 WP)"/>
+                                            <ComboBoxItem Content="★ Multi-Sektor Riset PDP (Subang · 14 WP)"/>
                                             <ComboBoxItem Content="Sawah 15 HST (Karawang · 4 WP)"/>
                                             <ComboBoxItem Content="Lahan Irigasi (Majalengka · 5 WP)"/>
                                             <ComboBoxItem Content="Lahan Kering (Bogor · 4 WP)"/>
@@ -299,7 +299,7 @@
                                                 </StackPanel>
                                             </Border>
                                             <Border Style="{StaticResource HudPillStyle}">
-                                                <TextBlock x:Name="FpsHudText" Text="YOLOv8 · standby" Foreground="White" FontSize="11" FontWeight="SemiBold"/>
+                                                <TextBlock x:Name="FpsHudText" Text="YOLO11n · standby" Foreground="White" FontSize="11" FontWeight="SemiBold"/>
                                             </Border>
                                             <Border Style="{StaticResource HudPillStyle}">
                                                 <TextBlock x:Name="ConfAvgText" Text="Conf avg 0%" Foreground="White" FontSize="11" FontWeight="SemiBold"/>
@@ -350,27 +350,94 @@
                                         </StackPanel>
                                     </Grid>
 
-                                    <!-- IMU HUD (top-right below top bar) -->
-                                    <StackPanel x:Name="ImuHudPanel" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,16,16,0" Spacing="2">
-                                        <Border Width="48" Height="48" CornerRadius="24" Background="#66000000" BorderBrush="#30FFFFFF" BorderThickness="1">
-                                            <Grid>
-                                                <Grid x:Name="ImuRotationGrid" RenderTransformOrigin="0.5,0.5">
+                                    <!-- IMU Tactical Avionics HUD (top-right overlay on live video) - Collapsed by default so it never obscures detection labels -->
+                                    <StackPanel x:Name="ImuHudPanel" Visibility="Collapsed" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,12,12,0" Spacing="3">
+                                        <Border Width="82" Height="82" CornerRadius="41" Background="#DD0B1329" BorderBrush="#8038BDF8" BorderThickness="1.5">
+                                            <Grid Width="82" Height="82">
+                                                <!-- Circular Mask for Horizon Sphere -->
+                                                <Grid.Clip>
+                                                    <RectangleGeometry Rect="0,0,82,82"/>
+                                                </Grid.Clip>
+
+                                                <!-- Rotating Pitch & Roll Horizon Sphere -->
+                                                <Grid x:Name="ImuRotationGrid" Width="82" Height="82" RenderTransformOrigin="0.5,0.5">
                                                     <Grid.RenderTransform>
                                                         <RotateTransform x:Name="ImuRollTransform" Angle="0"/>
                                                     </Grid.RenderTransform>
-                                                    <Grid x:Name="ImuPitchGrid">
+
+                                                    <Grid x:Name="ImuPitchGrid" Height="180" VerticalAlignment="Center">
                                                         <Grid.RenderTransform>
                                                             <TranslateTransform x:Name="ImuPitchTransform" Y="0"/>
                                                         </Grid.RenderTransform>
-                                                        <Rectangle Height="24" VerticalAlignment="Top" Fill="#4FC3F7"/>
-                                                        <Rectangle Height="24" VerticalAlignment="Bottom" Fill="#8D6E63"/>
+                                                        <!-- Sky Rectangle (Tactical Cyan Blue) -->
+                                                        <Rectangle Height="90" VerticalAlignment="Top" Fill="#0284C7"/>
+                                                        <!-- Ground Rectangle (Earth Brown) -->
+                                                        <Rectangle Height="90" VerticalAlignment="Bottom" Fill="#78350F"/>
+                                                        <!-- White Horizon Line -->
+                                                        <Rectangle Height="1.5" Width="80" Fill="#FFFFFF" VerticalAlignment="Center"/>
+
+                                                        <!-- Pitch Ladder Bars -->
+                                                        <StackPanel VerticalAlignment="Center" Spacing="9">
+                                                            <!-- +20 deg -->
+                                                            <Rectangle Width="26" Height="1" Fill="#FFFFFF" Opacity="0.8"/>
+                                                            <!-- +10 deg -->
+                                                            <Rectangle Width="38" Height="1.2" Fill="#FFFFFF" Opacity="0.9"/>
+                                                            <!-- 0 deg (spacing gap) -->
+                                                            <Grid Height="1.5"/>
+                                                            <!-- -10 deg -->
+                                                            <Rectangle Width="38" Height="1.2" Fill="#FFFFFF" Opacity="0.9"/>
+                                                            <!-- -20 deg -->
+                                                            <Rectangle Width="26" Height="1" Fill="#FFFFFF" Opacity="0.8"/>
+                                                        </StackPanel>
                                                     </Grid>
                                                 </Grid>
-                                                <Rectangle Width="16" Height="1" Fill="#FACC15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+
+                                                <!-- Outer Fixed Bank Angle Compass Ticks (Bezel markings) -->
+                                                <Grid IsHitTestVisible="False">
+                                                    <!-- Top Zero Roll Index (Amber Pointer) -->
+                                                    <Polygon Points="41,2 38,7 44,7" Fill="#FACC15" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                                                    <!-- 30 deg ticks -->
+                                                    <Rectangle Width="1" Height="4" Fill="#94A3B8" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,2,0,0">
+                                                        <Rectangle.RenderTransform>
+                                                            <RotateTransform Angle="30" CenterX="0.5" CenterY="39"/>
+                                                        </Rectangle.RenderTransform>
+                                                    </Rectangle>
+                                                    <Rectangle Width="1" Height="4" Fill="#94A3B8" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,2,0,0">
+                                                        <Rectangle.RenderTransform>
+                                                            <RotateTransform Angle="-30" CenterX="0.5" CenterY="39"/>
+                                                        </Rectangle.RenderTransform>
+                                                    </Rectangle>
+                                                    <!-- 45 deg ticks -->
+                                                    <Rectangle Width="1.5" Height="5" Fill="#F8FAFC" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,2,0,0">
+                                                        <Rectangle.RenderTransform>
+                                                            <RotateTransform Angle="45" CenterX="0.75" CenterY="39"/>
+                                                        </Rectangle.RenderTransform>
+                                                    </Rectangle>
+                                                    <Rectangle Width="1.5" Height="5" Fill="#F8FAFC" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,2,0,0">
+                                                        <Rectangle.RenderTransform>
+                                                            <RotateTransform Angle="-45" CenterX="0.75" CenterY="39"/>
+                                                        </Rectangle.RenderTransform>
+                                                    </Rectangle>
+                                                </Grid>
+
+                                                <!-- Fixed Center Aircraft Reticle / Boresight (High-Vis Amber Neon) -->
+                                                <Grid HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False">
+                                                    <!-- Left Wing Bar -->
+                                                    <Rectangle Width="18" Height="2.5" Fill="#FACC15" HorizontalAlignment="Left" Margin="0,0,16,0"/>
+                                                    <!-- Right Wing Bar -->
+                                                    <Rectangle Width="18" Height="2.5" Fill="#FACC15" HorizontalAlignment="Right" Margin="16,0,0,0"/>
+                                                    <!-- Center Boresight Dot -->
+                                                    <Ellipse Width="5" Height="5" Fill="#FACC15" Stroke="#000000" StrokeThickness="0.8" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Grid>
                                             </Grid>
                                         </Border>
-                                        <Border Background="#99000000" CornerRadius="5" Padding="4,1" HorizontalAlignment="Center">
-                                            <TextBlock x:Name="ImuLabelText" Text="P-5° R0° Y45°" Foreground="White" FontSize="8"/>
+
+                                        <!-- Tactical Telemetry Status Pill -->
+                                        <Border Background="#EE091122" CornerRadius="6" BorderBrush="#4038BDF8" BorderThickness="1" Padding="6,2" HorizontalAlignment="Center">
+                                            <StackPanel Spacing="1">
+                                                <TextBlock x:Name="ImuLabelText" Text="P -3.8° · R +4.2° · Y 092°" Foreground="#F8FAFC" FontSize="8" FontWeight="Bold" FontFamily="Consolas, monospace" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="ATTITUDE: AIRBORNE" FontSize="6.5" Foreground="#38BDF8" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+                                            </StackPanel>
                                         </Border>
                                     </StackPanel>
 
@@ -393,14 +460,14 @@
                                 </Grid.RowDefinitions>
 
                                 <!-- Live Map -->
-                                <Border Grid.Row="0" BorderBrush="#D1E7D5" BorderThickness="1" CornerRadius="10" Padding="8" Background="#FCFFFC">
+                                <Border Grid.Row="0" BorderBrush="#D1E7D5" BorderThickness="1" CornerRadius="10" Padding="8,7,8,7" Background="#FCFFFC">
                                     <StackPanel Spacing="4">
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Text="Live Map · UAV" FontSize="11" Foreground="#4F6B5C"/>
+                                            <TextBlock Grid.Column="0" Text="Live Aerial Map · Subang" FontSize="11" FontWeight="SemiBold" Foreground="#4F6B5C"/>
                                             <Border Grid.Column="1" Style="{StaticResource PillInfoStyle}" Padding="6,2">
                                                 <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                                                     <FontIcon Glyph="&#xE707;" FontSize="9" Foreground="#1D4ED8"/>
@@ -415,11 +482,11 @@
                                 </Border>
 
                                 <!-- Live Detections list -->
-                                <Border Grid.Row="1" BorderBrush="#D1E7D5" BorderThickness="1" CornerRadius="10" Padding="8" Background="#FCFFFC">
-                                    <StackPanel Spacing="4">
-                                        <TextBlock x:Name="DetectionsListTitle" Text="Live Detections (0)" FontSize="11" Foreground="#4F6B5C"/>
-                                        <ScrollViewer Height="88" VerticalScrollBarVisibility="Auto">
-                                            <StackPanel x:Name="DetectionsListStack" Spacing="4">
+                                <Border Grid.Row="1" BorderBrush="#D1E7D5" BorderThickness="1" CornerRadius="10" Padding="8,7,8,5" Background="#FCFFFC">
+                                    <StackPanel Spacing="3">
+                                        <TextBlock x:Name="DetectionsListTitle" Text="Live Detections · 4 Kelas PDP (15 objek)" FontSize="11" FontWeight="SemiBold" Foreground="#4F6B5C"/>
+                                        <ScrollViewer Height="92" VerticalScrollBarVisibility="Auto">
+                                            <StackPanel x:Name="DetectionsListStack" Spacing="2">
                                                 <TextBlock x:Name="DetectionsEmptyText" Text="No detections above threshold." FontSize="11" Foreground="#94A3B8"/>
                                             </StackPanel>
                                         </ScrollViewer>
@@ -435,7 +502,7 @@
                 <StackPanel Visibility="Collapsed">
                     <ToggleSwitch x:Name="YoloToggleSwitch" IsOn="False" Toggled="YoloToggle_Toggled"/>
                     <ToggleSwitch x:Name="VegToggleSwitch" IsOn="False" Toggled="VegToggle_Toggled"/>
-                    <ToggleSwitch x:Name="ImuToggleSwitch" IsOn="True" Toggled="ImuToggle_Toggled"/>
+                    <ToggleSwitch x:Name="ImuToggleSwitch" IsOn="False" Toggled="ImuToggle_Toggled"/>
                     <Slider x:Name="ConfThresholdSlider" Minimum="10" Maximum="95" Value="40" ValueChanged="ConfThresholdSlider_ValueChanged"/>
                     <TextBlock x:Name="ConfThresholdValue" Text="40%"/>
                 </StackPanel>
@@ -763,13 +830,20 @@
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                    <FontIcon Glyph="&#xE930;" FontSize="14" Foreground="#2E7D32"/>
-                                    <TextBlock Text="Pre-Flight Readiness" FontSize="13" FontWeight="SemiBold" Foreground="#0F3024"/>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                    <FontIcon Glyph="&#xE930;" FontSize="13" Foreground="#2E7D32"/>
+                                    <TextBlock Text="Pre-Flight Readiness" FontSize="12.5" FontWeight="SemiBold" Foreground="#0F3024"/>
+                                    <TextBlock x:Name="ReadyScoreText" Text="(0/8 Passed)" FontSize="10" Foreground="#64766B" VerticalAlignment="Center"/>
                                 </StackPanel>
-                                <Border Grid.Column="1" x:Name="ReadinessStatusPill" Style="{StaticResource PillSuccessStyle}">
-                                    <TextBlock x:Name="ReadinessStatusText" Text="GO FOR FLIGHT" FontSize="10" FontWeight="Bold" Foreground="#065F46"/>
+                                <Button Grid.Column="1" x:Name="BtnDiagnosticsPreflight" Click="BtnDiagnosticsPreflight_Click" 
+                                        ToolTipService.ToolTip="Jalankan Diagnostik Kesiapan Mandiri (Self-Test Subsystem)" 
+                                        Background="Transparent" BorderThickness="0" Padding="4" Margin="0,0,6,0">
+                                    <FontIcon Glyph="&#xE72C;" FontSize="11" Foreground="#2E7D32"/>
+                                </Button>
+                                <Border Grid.Column="2" x:Name="ReadinessStatusPill" Background="#FEF3C7" BorderBrush="#F59E0B" BorderThickness="1" CornerRadius="12" Padding="8,3">
+                                    <TextBlock x:Name="ReadinessStatusText" Text="STANDBY / NO-LINK" FontSize="10" FontWeight="Bold" Foreground="#92400E"/>
                                 </Border>
                             </Grid>
                         </Border>
@@ -785,29 +859,29 @@
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
-                            <Border Grid.Row="0" Grid.Column="0" Background="#F0FDF4" CornerRadius="6" Padding="6,4">
-                                <TextBlock x:Name="ReadyTelemetryText" Text="○ Telemetry link" FontSize="11" Foreground="#64766B"/>
+                            <Border x:Name="ReadyTelemetryBorder" Grid.Row="0" Grid.Column="0" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Padding="7,5">
+                                <TextBlock x:Name="ReadyTelemetryText" Text="○ Telemetry Link Standby" FontSize="10.5" Foreground="#64766B"/>
                             </Border>
-                            <Border Grid.Row="0" Grid.Column="1" Background="#F0FDF4" CornerRadius="6" Padding="6,4">
-                                <TextBlock x:Name="ReadyGpsText" Text="○ GPS 3D fix" FontSize="11" Foreground="#64766B"/>
+                            <Border x:Name="ReadyGpsBorder" Grid.Row="0" Grid.Column="1" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Padding="7,5">
+                                <TextBlock x:Name="ReadyGpsText" Text="○ GPS 3D Fix Standby" FontSize="10.5" Foreground="#64766B"/>
                             </Border>
-                            <Border Grid.Row="1" Grid.Column="0" Background="#F0FDF4" CornerRadius="6" Padding="6,4">
-                                <TextBlock x:Name="ReadyBatteryText" Text="○ Battery power" FontSize="11" Foreground="#64766B"/>
+                            <Border x:Name="ReadyBatteryBorder" Grid.Row="1" Grid.Column="0" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Padding="7,5">
+                                <TextBlock x:Name="ReadyBatteryText" Text="○ Battery Power Standby" FontSize="10.5" Foreground="#64766B"/>
                             </Border>
-                            <Border Grid.Row="1" Grid.Column="1" Background="#F0FDF4" CornerRadius="6" Padding="6,4">
-                                <TextBlock x:Name="ReadyCameraText" Text="○ Video feed" FontSize="11" Foreground="#64766B"/>
+                            <Border x:Name="ReadyCameraBorder" Grid.Row="1" Grid.Column="1" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Padding="7,5">
+                                <TextBlock x:Name="ReadyCameraText" Text="○ Video Feed Standby" FontSize="10.5" Foreground="#64766B"/>
                             </Border>
-                            <Border Grid.Row="2" Grid.Column="0" Background="#F0FDF4" CornerRadius="6" Padding="6,4">
-                                <TextBlock x:Name="ReadyYoloText" Text="○ AI detection" FontSize="11" Foreground="#64766B"/>
+                            <Border x:Name="ReadyYoloBorder" Grid.Row="2" Grid.Column="0" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Padding="7,5">
+                                <TextBlock x:Name="ReadyYoloText" Text="○ AI Model Standby" FontSize="10.5" Foreground="#64766B"/>
                             </Border>
-                            <Border Grid.Row="2" Grid.Column="1" Background="#F0FDF4" CornerRadius="6" Padding="6,4">
-                                <TextBlock x:Name="ReadyGeofenceText" Text="○ Geofence lock" FontSize="11" Foreground="#64766B"/>
+                            <Border x:Name="ReadyGeofenceBorder" Grid.Row="2" Grid.Column="1" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Padding="7,5">
+                                <TextBlock x:Name="ReadyGeofenceText" Text="○ Geofence Lock Standby" FontSize="10.5" Foreground="#64766B"/>
                             </Border>
-                            <Border Grid.Row="3" Grid.Column="0" Background="#F0FDF4" CornerRadius="6" Padding="6,4">
-                                <TextBlock x:Name="ReadyWaypointText" Text="○ Waypoints (0)" FontSize="11" Foreground="#64766B"/>
+                            <Border x:Name="ReadyWaypointBorder" Grid.Row="3" Grid.Column="0" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Padding="7,5">
+                                <TextBlock x:Name="ReadyWaypointText" Text="○ Mission WPs Standby" FontSize="10.5" Foreground="#64766B"/>
                             </Border>
-                            <Border Grid.Row="3" Grid.Column="1" Background="#F0FDF4" CornerRadius="6" Padding="6,4">
-                                <TextBlock x:Name="ReadyRecorderText" Text="○ Blackbox log" FontSize="11" Foreground="#64766B"/>
+                            <Border x:Name="ReadyRecorderBorder" Grid.Row="3" Grid.Column="1" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Padding="7,5">
+                                <TextBlock x:Name="ReadyRecorderText" Text="○ Flight Recorder Standby" FontSize="10.5" Foreground="#64766B"/>
                             </Border>
                         </Grid>
                     </Grid>
@@ -821,13 +895,23 @@
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
                         <Border Grid.Row="0" Style="{StaticResource HarvestCardHeaderStyle}">
-                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                <FontIcon Glyph="&#xE8F4;" FontSize="14" Foreground="#2E7D32"/>
-                                <TextBlock Text="Analysis Summary" FontSize="13" FontWeight="SemiBold" Foreground="#0F3024"/>
-                            </StackPanel>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                    <FontIcon Glyph="&#xE8F4;" FontSize="13" Foreground="#2E7D32"/>
+                                    <TextBlock Text="Analysis" FontSize="13" FontWeight="SemiBold" Foreground="#0F3024"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="4">
+                                    <Button x:Name="ModePlantBtn" Content="🌱 Plant" ToolTipService.ToolTip="Mode 1: Plant (Vegetasi Tanaman)" FontSize="10" Padding="6,3" CornerRadius="4" Click="ModePlantBtn_Click"/>
+                                    <Button x:Name="ModeZoneBtn" Content="🗺️ Zone" ToolTipService.ToolTip="Mode 2: Zone (Zonasi Irigasi Lahan)" FontSize="10" Padding="6,3" CornerRadius="4" Click="ModeZoneBtn_Click"/>
+                                </StackPanel>
+                            </Grid>
                         </Border>
                         <StackPanel Grid.Row="1" Padding="14" Spacing="4">
-                            <!-- Lush Green -->
+                            <!-- Zona Normal / Lush Green -->
                             <StackPanel Spacing="2">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -838,28 +922,12 @@
                                     <Border Grid.Column="0" Width="28" Height="28" CornerRadius="6" Background="#ECFDF5" Margin="0,0,8,0">
                                         <TextBlock Text="🌿" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Border>
-                                    <TextBlock Grid.Column="1" Text="Lush Green" FontSize="12" Foreground="#0F3024" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="SummaryHealthyLabel" Grid.Column="1" Text="Zona Normal" FontSize="12" Foreground="#0F3024" VerticalAlignment="Center"/>
                                     <TextBlock Grid.Column="2" x:Name="SummaryHealthyCount" Text="0%" FontSize="13" FontWeight="SemiBold" Foreground="#2E7D32" VerticalAlignment="Center"/>
                                 </Grid>
                                 <ProgressBar x:Name="SummaryHealthyBar" Minimum="0" Maximum="100" Value="0" Height="5" Foreground="#2E7D32" Background="#ECFDF5"/>
                             </StackPanel>
-                            <!-- Well Irrigated (legacy hidden; v5 datasheet uses 4 classes) -->
-                            <StackPanel Spacing="2" Visibility="Collapsed">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <Border Grid.Column="0" Width="28" Height="28" CornerRadius="6" Background="#E0F7FA" Margin="0,0,8,0">
-                                        <TextBlock Text="💧" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                    <TextBlock Grid.Column="1" Text="Well Irrigated" FontSize="12" Foreground="#0F3024" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="2" x:Name="SummaryWellIrrigatedCount" Text="0%" FontSize="13" FontWeight="SemiBold" Foreground="#0288D1" VerticalAlignment="Center"/>
-                                </Grid>
-                                <ProgressBar x:Name="SummaryWellIrrigatedBar" Minimum="0" Maximum="100" Value="0" Height="5" Foreground="#0288D1" Background="#E0F7FA"/>
-                            </StackPanel>
-                            <!-- Inconsistent Growth -->
+                            <!-- Ketidakmerataan Irigasi / Inconsistent Growth -->
                             <StackPanel Spacing="2">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -870,28 +938,12 @@
                                     <Border Grid.Column="0" Width="28" Height="28" CornerRadius="6" Background="#FFFBEB" Margin="0,0,8,0">
                                         <TextBlock Text="🟡" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Border>
-                                    <TextBlock Grid.Column="1" Text="Inconsistent Growth" FontSize="12" Foreground="#0F3024" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="SummaryStressLabel" Grid.Column="1" Text="Ketidakmerataan Irigasi" FontSize="12" Foreground="#0F3024" VerticalAlignment="Center"/>
                                     <TextBlock Grid.Column="2" x:Name="SummaryStressCount" Text="0%" FontSize="13" FontWeight="SemiBold" Foreground="#B26B00" VerticalAlignment="Center"/>
                                 </Grid>
                                 <ProgressBar x:Name="SummaryStressBar" Minimum="0" Maximum="100" Value="0" Height="5" Foreground="#FBC02D" Background="#FFFBEB"/>
                             </StackPanel>
-                            <!-- Soil Issues (legacy hidden; v5 datasheet uses Bare Soil / Gap) -->
-                            <StackPanel Spacing="2" Visibility="Collapsed">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <Border Grid.Column="0" Width="28" Height="28" CornerRadius="6" Background="#EFEBE9" Margin="0,0,8,0">
-                                        <TextBlock Text="🟤" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                    <TextBlock Grid.Column="1" Text="Soil Issues" FontSize="12" Foreground="#0F3024" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="2" x:Name="SummarySoilIssuesCount" Text="0%" FontSize="13" FontWeight="SemiBold" Foreground="#5D4037" VerticalAlignment="Center"/>
-                                </Grid>
-                                <ProgressBar x:Name="SummarySoilIssuesBar" Minimum="0" Maximum="100" Value="0" Height="5" Foreground="#795548" Background="#EFEBE9"/>
-                            </StackPanel>
-                            <!-- Drought / Severe Stress -->
+                            <!-- Defisit Air (Kanopi) / Drought -->
                             <StackPanel Spacing="2">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -902,12 +954,12 @@
                                     <Border Grid.Column="0" Width="28" Height="28" CornerRadius="6" Background="#FFF3E0" Margin="0,0,8,0">
                                         <TextBlock Text="🟠" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Border>
-                                    <TextBlock Grid.Column="1" Text="Drought/Severe Stress" FontSize="12" Foreground="#0F3024" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="SummaryDiseaseLabel" Grid.Column="1" Text="Defisit Air (Kanopi)" FontSize="12" Foreground="#0F3024" VerticalAlignment="Center"/>
                                     <TextBlock Grid.Column="2" x:Name="SummaryDiseaseCount" Text="0%" FontSize="13" FontWeight="SemiBold" Foreground="#E65100" VerticalAlignment="Center"/>
                                 </Grid>
                                 <ProgressBar x:Name="SummaryDiseaseBar" Minimum="0" Maximum="100" Value="0" Height="5" Foreground="#F57C00" Background="#FFF3E0"/>
                             </StackPanel>
-                            <!-- Bare Soil / Gap -->
+                            <!-- Defisit Air (Tanah) / Bare Soil -->
                             <StackPanel Spacing="2">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -915,13 +967,13 @@
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <Border Grid.Column="0" Width="28" Height="28" CornerRadius="6" Background="#EFEBE9" Margin="0,0,8,0">
+                                    <Border Grid.Column="0" Width="28" Height="28" CornerRadius="6" Background="#FFEBEE" Margin="0,0,8,0">
                                         <TextBlock Text="🟤" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Border>
-                                    <TextBlock Grid.Column="1" Text="Bare Soil / Gap" FontSize="12" Foreground="#0F3024" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="2" x:Name="SummaryPestCount" Text="0%" FontSize="13" FontWeight="SemiBold" Foreground="#5D4037" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="SummaryPestLabel" Grid.Column="1" Text="Defisit Air (Tanah)" FontSize="12" Foreground="#0F3024" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="2" x:Name="SummaryPestCount" Text="0%" FontSize="13" FontWeight="SemiBold" Foreground="#C62828" VerticalAlignment="Center"/>
                                 </Grid>
-                                <ProgressBar x:Name="SummaryPestBar" Minimum="0" Maximum="100" Value="0" Height="5" Foreground="#795548" Background="#EFEBE9"/>
+                                <ProgressBar x:Name="SummaryPestBar" Minimum="0" Maximum="100" Value="0" Height="5" Foreground="#D32F2F" Background="#FFEBEE"/>
                             </StackPanel>
 
                             <Border Height="1" Background="#E5F3E8" Margin="0,8,0,6"/>
@@ -958,6 +1010,50 @@
                                 <TextBlock Text="View Crop Analysis Details"/>
                             </Button>
                         </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- Ground Truth Soil Moisture (Proposal PDP) -->
+                <Border Style="{StaticResource HarvestCardStyle}">
+                    <Grid Padding="12,10" RowSpacing="6">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid Grid.Row="0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Width="26" Height="26" CornerRadius="6" Background="#E0F2FE" Margin="0,0,8,0">
+                                <TextBlock Text="🌱" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                <TextBlock Text="Ground Truth Sensor (IoT via LoRa)" FontSize="12" FontWeight="SemiBold" Foreground="#0F3024"/>
+                                <TextBlock x:Name="SoilSensorStatusText" Text="LoRa In-Situ Aktif" FontSize="10" Foreground="#64766B"/>
+                            </StackPanel>
+                            <Border Grid.Column="2" x:Name="SoilSensorPill" Background="#ECFDF5" CornerRadius="6" Padding="8,3" VerticalAlignment="Center">
+                                <TextBlock x:Name="SoilSensorMoistureText" Text="28.5%" FontSize="12" FontWeight="Bold" Foreground="#065F46"/>
+                            </Border>
+                        </Grid>
+                        <Grid Grid.Row="1">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Kondisi Fisik Tanah:" FontSize="11" Foreground="#64766B" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" x:Name="SoilSensorConditionText" Text="Lembab Cukup (Normal)" FontSize="11" FontWeight="SemiBold" Foreground="#2E7D32" VerticalAlignment="Center"/>
+                        </Grid>
+                        <Grid Grid.Row="2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Pengecekan Otomatis (LoRa):" FontSize="10" Foreground="#64766B" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" x:Name="SoilSensorAutoCheckText" Text="✓ 4 Nodes Terverifikasi" FontSize="10" FontWeight="SemiBold" Foreground="#10B981" VerticalAlignment="Center"/>
+                        </Grid>
                     </Grid>
                 </Border>
 

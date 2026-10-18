@@ -42,6 +42,7 @@ public sealed class HarvestFunctionalService : IDisposable
         public string YoloScreenshotPath { get; set; } = string.Empty;
         public string VideoRecordingPath { get; set; } = string.Empty;
         public string ExportPath { get; set; } = string.Empty;
+        public string LabelMode { get; set; } = "Proposal PDP";
         /// <summary>Real mean of per-detection confidence scores (0-100), not a derived estimate.</summary>
         public double AverageConfidence { get; set; }
         /// <summary>
@@ -149,7 +150,7 @@ public sealed class HarvestFunctionalService : IDisposable
     public string LatestYoloScreenshotPath => _latestYoloScreenshotPath;
     public bool IsYoloOptionEnabled { get; private set; } = false;
     public bool IsVegOverlayEnabled { get; set; } = false;
-    public bool IsImuOverlayEnabled { get; set; } = true;
+    public bool IsImuOverlayEnabled { get; set; } = false;
     public bool IsInt8QuantizationEnabled { get; set; } = false;
     public bool IsYoloRuntimeReady => _initialized && _analyzer.IsYoloInitialized;
     public bool IsDemoModeActive { get; private set; }
@@ -312,11 +313,11 @@ public sealed class HarvestFunctionalService : IDisposable
                     {
                         string className = zone.Severity switch
                         {
-                            VegetationYoloAnalyzer.DroughtSeverity.None => "lush_green",
-                            VegetationYoloAnalyzer.DroughtSeverity.Mild or VegetationYoloAnalyzer.DroughtSeverity.Moderate => "inconsistent_growth",
-                            VegetationYoloAnalyzer.DroughtSeverity.Severe => "drought_severe_stress",
-                            VegetationYoloAnalyzer.DroughtSeverity.Critical => "bare_soil_gap",
-                            _ => "lush_green"
+                            VegetationYoloAnalyzer.DroughtSeverity.None => "0_zona_normal",
+                            VegetationYoloAnalyzer.DroughtSeverity.Mild or VegetationYoloAnalyzer.DroughtSeverity.Moderate => "1_ketidakmerataan_irigasi",
+                            VegetationYoloAnalyzer.DroughtSeverity.Severe => "2_defisit_air_kanopi",
+                            VegetationYoloAnalyzer.DroughtSeverity.Critical => "3_defisit_air_tanah",
+                            _ => "0_zona_normal"
                         };
 
                         float confidence = zone.Severity switch
@@ -472,7 +473,7 @@ public sealed class HarvestFunctionalService : IDisposable
                         continue;
                     }
 
-                    var className = healthy == best ? "lush_green" : stressed == best ? "inconsistent_growth" : "soil_issues";
+                    var className = healthy == best ? "0_zona_normal" : stressed == best ? "1_ketidakmerataan_irigasi" : "3_defisit_air_tanah";
                     boxes.Add(new HarvestDetectionBox
                     {
                         ClassName = className,
@@ -582,7 +583,7 @@ public sealed class HarvestFunctionalService : IDisposable
             Detections = result.DetectionCount,
             Priority = result.OverallSeverity,
             OperatorNote = recommendations.FirstOrDefault() ?? "Analisis otomatis",
-            AiModelUsed = IsYoloOptionEnabled ? "YOLOv8n ONNX" : "OpenCV HSV fallback",
+            AiModelUsed = IsYoloOptionEnabled ? "YOLO11n ONNX (PDP)" : "OpenCV HSV fallback",
             HealthyPercentage = result.HealthyPercentage,
             StressedPercentage = result.StressedPercentage,
             DroughtPercentage = result.DroughtPercentage,
@@ -805,6 +806,56 @@ public sealed class HarvestFunctionalService : IDisposable
         return await _fileService.ExportToDownloadsAsync($"{baseName}.csv", sb.ToString());
     }
 
+    public async Task<string> ExportAnalysisPdfAsync(HarvestAnalysisResult result, string baseName, DetectionLabelMode mode = DetectionLabelMode.Zone)
+    {
+        try
+        {
+            bool isPlant = mode == DetectionLabelMode.Plant;
+            var label1 = isPlant ? "Lush Green" : "Zona Normal";
+            var label2 = isPlant ? "Inconsistent Growth" : "Ketidakmerataan Irigasi";
+            var label3 = isPlant ? "Drought / Severe Stress" : "Defisit Air (Kanopi)";
+            var label4 = isPlant ? "Bare Soil / Gap" : "Defisit Air (Tanah)";
+
+            var lines = new List<string>
+            {
+                $"Tanggal Analisis: {DateTime.Now:yyyy-MM-dd HH:mm:ss}",
+                $"Sistem: MoonHarvest GCS Smart Agriculture",
+                $"Mode Analisis: {(isPlant ? "Mode 1 - Plant (Vegetasi Tanaman)" : "Mode 2 - Zone (Zonasi Irigasi Lahan)")}",
+                $"Area Pengamatan: {result.ImpactAreaHa:F2} ha",
+                $"Total Zona Grid: {result.TotalZones}",
+                $"Titik Prioritas Irigasi: {result.IrrigationTaggedCount}",
+                $"Status Keparahan Lahan: {result.OverallSeverity}",
+                $"Rata-rata Confidence: {result.AverageConfidence:F1}%",
+                isPlant ? "Distribusi Kondisi Vegetasi (MoonHarvest Plant Level):" : "Distribusi Kondisi Irigasi & Lahan (MoonHarvest Zone Level):",
+                $"  - {label1}: {result.HealthyPercentage:F1}%",
+                $"  - {label2}: {result.StressedPercentage:F1}%",
+                $"  - {label3}: {result.DroughtPercentage:F1}%",
+                $"  - {label4}: {result.BareSoilPercentage:F1}%",
+                "Rekomendasi Tindakan Irigasi:"
+            };
+
+            foreach (var rec in result.Recommendations.Take(5))
+            {
+                lines.Add($"- {rec}");
+            }
+
+            lines.Add("Detail Blok Prioritas:");
+            foreach (var p in result.Priorities.Take(5))
+            {
+                lines.Add($"- P{p.Priority} (Baris {p.Row}, Kolom {p.Col}): {p.Severity} -> {p.Recommendation}");
+            }
+
+            var reportTitle = isPlant ? "MoonHarvest - Plant Analysis Report" : "MoonHarvest - Zone Irrigation Report";
+            var pdf = BuildSimplePdf(reportTitle, lines);
+            return await _fileService.ExportToDownloadsAsync($"{baseName}.pdf", pdf);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[HarvestFunctionalService] ExportAnalysisPdfAsync failed");
+            return $"EXPORT_FAILED: {ex.Message}";
+        }
+    }
+
     private static (double Latitude, double Longitude) EstimateZoneCoordinate(VegetationYoloAnalyzer.ZoneResult zone, IReadOnlyList<VegetationYoloAnalyzer.ZoneResult> zones, double centerLat, double centerLon)
     {
         if (Math.Abs(centerLat) < 0.000001 && Math.Abs(centerLon) < 0.000001)
@@ -857,17 +908,31 @@ public sealed class HarvestFunctionalService : IDisposable
         try
         {
             var geofenceAlerts = ReadAlertList(record.GeofenceAlertsJson);
+            bool isPlant = record.LabelMode?.Contains("Plant", StringComparison.OrdinalIgnoreCase) == true
+                        || record.LabelMode?.Contains("MoonHarvest", StringComparison.OrdinalIgnoreCase) == true;
+            var modeHeader = isPlant ? "Distribusi Kondisi Vegetasi (MoonHarvest Plant Level):" : "Distribusi Kondisi Irigasi & Lahan (MoonHarvest Zone Level):";
+            var label1 = isPlant ? "Lush Green" : "Zona Normal";
+            var label2 = isPlant ? "Inconsistent Growth" : "Ketidakmerataan Irigasi";
+            var label3 = isPlant ? "Drought / Severe Stress" : "Defisit Air (Kanopi)";
+            var label4 = isPlant ? "Bare Soil / Gap" : "Defisit Air (Tanah)";
+
             var lines = new List<string>
             {
                 $"ID: {record.Id ?? string.Empty}",
                 $"Date: {record.DateTime ?? string.Empty}",
                 $"Area: {record.Area ?? string.Empty}",
                 $"Duration: {record.Duration ?? string.Empty}",
+                $"Sistem: MoonHarvest GCS Smart Agriculture",
+                $"Mode Analisis: {(isPlant ? "Mode 1 - Plant (Vegetasi Tanaman)" : "Mode 2 - Zone (Zonasi Irigasi Lahan)")}",
                 $"Detections: {record.Detections}",
-                $"Priority: {record.Priority ?? string.Empty}",
-                $"AI Model: {record.AiModelUsed ?? string.Empty}",
-                $"Crop Health: healthy={record.HealthyPercentage:F1}%, stressed={record.StressedPercentage:F1}%, drought={record.DroughtPercentage:F1}%, bare soil={record.BareSoilPercentage:F1}%",
-                $"Ground Truth: {FallbackText(record.GroundTruthValidationSummary)}",
+                $"Prioritas: {record.Priority ?? string.Empty}",
+                $"AI Model: {record.AiModelUsed ?? "YOLOv11"}",
+                modeHeader,
+                $"  - {label1}: {record.HealthyPercentage:F1}%",
+                $"  - {label2}: {record.StressedPercentage:F1}%",
+                $"  - {label3}: {record.DroughtPercentage:F1}%",
+                $"  - {label4}: {record.BareSoilPercentage:F1}%",
+                $"Ground Truth Sensor: {FallbackText(record.GroundTruthValidationSummary)}",
                 $"TLOG: {FallbackText(record.TlogPath)}",
                 $"Video: {FallbackText(record.VideoRecordingPath)}",
                 $"Evidence Bundle: {FallbackText(record.EvidenceBundlePath)}",

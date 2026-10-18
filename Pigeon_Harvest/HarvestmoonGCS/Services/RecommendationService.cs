@@ -225,32 +225,32 @@ public sealed class RecommendationService : IDisposable
 
         if (fhi >= 75)
         {
-            status  = "healthy"; urgency = "low";
+            status  = "zona_normal"; urgency = "low";
             recs = new List<string>
             {
-                $"Field Health Index {fhi:F1} — kondisi baik. Lanjutkan monitoring rutin.",
-                $"Zona sehat {hp:F1}% — pertumbuhan optimal. Pertahankan irigasi saat ini.",
-                "Jadwalkan inspeksi darat pada siklus berikutnya untuk konfirmasi.",
+                $"Zona Normal ({hp:F1}%) — Ketersediaan air optimal. Pertahankan debit irigasi saat ini.",
+                "Kanopi terhidrasi baik, tidak terdeteksi gejala daun menguning atau retakan tanah.",
+                "Lanjutkan pemantauan periodik UAV sesuai jadwal misi.",
             };
         }
         else if (fhi >= 55)
         {
-            status  = "moderate_stress"; urgency = "moderate";
+            status  = "ketidakmerataan_irigasi"; urgency = "medium";
             recs = new List<string>
             {
-                $"Stress zone {sp:F1}% terdeteksi — periksa sistem irigasi dalam 24–48 jam.",
-                $"Drought area {dp:F1}% — tambahkan irigasi di area prioritas.",
-                $"Bare soil {bp:F1}% — inspeksi fisik untuk deteksi hama atau kerusakan.",
+                $"Ketidakmerataan Irigasi ({sp:F1}%) terdeteksi — variasi pertumbuhan antar petak lahan.",
+                $"Defisit Air Kanopi ({dp:F1}%) — periksa saluran distribusi pintu air sekunder dan bedengan.",
+                "Lakukan penyesuaian debit pengairan untuk meratakan suplai air ke seluruh petak.",
             };
         }
         else
         {
-            status  = "high_stress"; urgency = "high";
+            status  = "defisit_kritis"; urgency = "high";
             recs = new List<string>
             {
-                $"FHI rendah ({fhi:F1}) — tindakan segera. Periksa irigasi dan nutrisi tanaman.",
-                $"Stress {sp:F1}% + Drought {dp:F1}% — prioritaskan zona terburuk dulu.",
-                "Lakukan sampling tanah untuk analisis kekurangan hara.",
+                $"Defisit Kritis — Tanah Kering ({bp:F1}%) & Kanopi ({dp:F1}%). Segera buka suplai air primer.",
+                "Indikasi tanah retak / kanopi menguning parah — risiko kerusakan permanen jika tidak diairi segera.",
+                "Verifikasi sensor kelembaban tanah (Ground Truth) dan lakukan penggenangan terarah.",
             };
         }
 

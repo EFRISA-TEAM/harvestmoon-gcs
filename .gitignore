@@ -10,9 +10,8 @@ dist/
 *.pid
 logs/
 .venv/
-.venv-camera
-.venv-camera/
-.venv-yolo/
+.venv*/
+**/.venv*
 .git_backup/
 .~lock.*#
 
@@ -34,14 +33,23 @@ Pigeon_Harvest/training/datasets/
 Pigeon_Harvest/training/runs/
 Pigeon_Harvest/training/weights/
 *.part
+*.tmp
 *.pyc
 __pycache__/
+
+# Output and screenshot directories
+out/
+fusion_out/
+sync_out/
+pdp/
+docs/bukti_gcs/
+vidio/
+* (2)/
 
 # Temporary outputs
 AFTER_CLEANUP_STATUS.txt
 GIT_PUSH_SUCCESS.txt
-image.png
-image copy.png
+image*.png
 .omo/
 
 # Detection/fusion output directories
@@ -53,4 +61,4 @@ Pigeon_Harvest/HarvestmoonGCS/PortableRuntime/
 *.exe
 *.zip
 *.tar.gz
-
+*.log

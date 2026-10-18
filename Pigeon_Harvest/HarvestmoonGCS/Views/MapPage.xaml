@@ -68,118 +68,143 @@
                               VerticalScrollMode="Disabled">
                 <StackPanel x:Name="MapToolbar" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                     <!-- Map Style Selector -->
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="Map Style:" Foreground="{ThemeResource MutedForegroundBrush}" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="12"/>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="Map Style:" Foreground="{ThemeResource MutedForegroundBrush}" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="11"/>
                         <ComboBox x:Name="cb_map_type" 
                                   SelectionChanged="ChooseMap" 
-                                  SelectedIndex="0" 
-                                  MinWidth="120">
-                            <ComboBoxItem Content="ArcGIS Imagery"/>
-                            <ComboBoxItem Content="OpenStreetMap"/>
+                                  SelectedIndex="1" 
+                                  MinWidth="135"
+                                  ToolTipService.ToolTip="Pilih penyedia peta">
                             <ComboBoxItem Content="Google Map"/>
                             <ComboBoxItem Content="Google Satellite"/>
+                            <ComboBoxItem Content="Google Hybrid"/>
+                            <ComboBoxItem Content="Google Terrain"/>
+                            <ComboBoxItem Content="OpenStreetMap"/>
+                            <ComboBoxItem Content="ArcGIS Imagery"/>
+                            <ComboBoxItem Content="ArcGIS Topographic"/>
                         </ComboBox>
                     </StackPanel>
 
                     <!-- WP RADIUS -->
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="WP RADIUS:" Foreground="{ThemeResource MutedForegroundBrush}" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="12"/>
-                        <TextBox x:Name="tb_wp_radius" Text="2" Width="50" TextAlignment="Center"/>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="WP Radius (m):" Foreground="{ThemeResource MutedForegroundBrush}" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="11"/>
+                        <TextBox x:Name="tb_wp_radius" Text="2" Width="42" TextAlignment="Center" TextChanged="WpRadius_TextChanged"/>
                     </StackPanel>
 
-                    <!-- Single-Tap Waypoint Mode Toggle -->
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <ToggleButton x:Name="btn_single_tap_wp" 
-                                      Click="ToggleSingleTapWP_Click">
-                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
-                                <FontIcon Glyph="&#xE7C1;" FontSize="14"/>
-                                <TextBlock Text="SINGLE-TAP WP" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </ToggleButton>
-                    </StackPanel>
+                    <!-- Tap Waypoint Mode Toggle -->
+                    <ToggleButton x:Name="btn_single_tap_wp" 
+                                  Click="ToggleSingleTapWP_Click"
+                                  Padding="8,4"
+                                  ToolTipService.ToolTip="Mode ketuk tunggal peta untuk menambah waypoint">
+                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                            <FontIcon Glyph="&#xE7C1;" FontSize="12"/>
+                            <TextBlock Text="Tap Waypoint" VerticalAlignment="Center" FontSize="11" FontWeight="SemiBold"/>
+                        </StackPanel>
+                    </ToggleButton>
 
-                    <!-- Clear -->
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="Clear" Foreground="{ThemeResource MutedForegroundBrush}" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="12"/>
-                        <Button x:Name="btn_clear_waypoints" Click="ResetMarkers_Click" Padding="4" Background="Transparent" BorderThickness="1" BorderBrush="{ThemeResource BorderBrush}">
-                            <FontIcon Glyph="&#xE74D;" FontSize="14"/>
+                    <!-- Clear Waypoints -->
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="Clear" Foreground="{ThemeResource MutedForegroundBrush}" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="11"/>
+                        <Button x:Name="btn_clear_waypoints" Click="ResetMarkers_Click" Padding="6,4" Background="Transparent" BorderThickness="1" BorderBrush="{ThemeResource BorderBrush}" ToolTipService.ToolTip="Hapus semua titik waypoint &amp; geofence">
+                            <FontIcon Glyph="&#xE74D;" FontSize="13"/>
                         </Button>
                     </StackPanel>
 
                     <!-- Total Distance -->
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="Total Distance:" Foreground="{ThemeResource MutedForegroundBrush}" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="12"/>
-                        <TextBlock x:Name="tb_total_distance" Text="0.00 Km" Foreground="{ThemeResource ForegroundBrush}" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="12"/>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="Total Distance:" Foreground="{ThemeResource MutedForegroundBrush}" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="11"/>
+                        <TextBlock x:Name="tb_total_distance" Text="0.00 Km" Foreground="{ThemeResource ForegroundBrush}" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="11"/>
                     </StackPanel>
 
                     <!-- Follow Vehicle -->
                     <Border x:Name="follow_wahana_border"
-                            Background="#FF53DAFA"
+                            Background="{ThemeResource CardBrush}"
+                            BorderBrush="{ThemeResource BorderBrush}"
+                            BorderThickness="1"
                             CornerRadius="6"
-                            Padding="2">
+                            Padding="1">
                         <Button Click="FollowVehicle_Click"
                                 Background="Transparent"
                                 BorderThickness="0"
                                 Padding="8,4"
-                                ToolTipService.ToolTip="Follow Vehicle — pusatkan peta ke posisi drone">
+                                ToolTipService.ToolTip="Follow UAV — pusatkan peta ke wahana">
                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                <FontIcon Glyph="&#xE7C3;" FontSize="13"/>
-                                <TextBlock Text="FOLLOW" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                <FontIcon Glyph="&#xE7C3;" FontSize="12" Foreground="{ThemeResource PrimaryBrush}"/>
+                                <TextBlock Text="Follow UAV" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
                     </Border>
 
-                    <!-- Markers Count / Geofence toggle -->
-                    <!-- Offline Mode Toggle -->
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <ToggleButton x:Name="btn_offline_mode" 
-                                      IsChecked="{x:Bind ViewModel.IsOfflineMode, Mode=TwoWay}"
-                                      Command="{x:Bind ViewModel.ToggleOfflineModeCommand}">
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <FontIcon Glyph="&#xE7B8;" FontSize="14"/>
-                                <TextBlock Text="OFFLINE" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </ToggleButton>
-                    </StackPanel>
-
-                    <!-- Storage Info -->
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="Storage:" Foreground="{ThemeResource MutedForegroundBrush}" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="12"/>
-                        <TextBlock Text="{x:Bind ViewModel.StorageSizeText, Mode=OneWay}" Foreground="{ThemeResource ForegroundBrush}" VerticalAlignment="Center" FontSize="12"/>
-                    </StackPanel>
-
-                    <!-- Download Regions -->
-                    <Button x:Name="btn_download_regions" Click="ShowDownloadPanel_Click" Style="{StaticResource ModernButtonStyle}">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <FontIcon Glyph="&#xE896;" FontSize="14"/>
-                            <TextBlock Text="Download" VerticalAlignment="Center"/>
+                    <!-- Skenario Lahan PDP -->
+                    <Button x:Name="btn_demo_irrigation" Click="LoadDemoIrrigation_Click" Style="{StaticResource ModernButtonStyle}"
+                            ToolTipService.ToolTip="Muat skenario penerbangan riset PDP dan pemetaan lahan sawah"
+                            Padding="10,4">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon Glyph="&#xE81E;" FontSize="12" VerticalAlignment="Center"/>
+                            <TextBlock Text="Field Scenario" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
 
-                    <!-- Quick Geofence Polygon -->
-                    <Button x:Name="btn_quick_geofence_polygon" Click="QuickPolygonGeofence_Click" Style="{StaticResource ModernButtonStyle}">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <FontIcon Glyph="&#xE734;" FontSize="14"/>
-                            <TextBlock Text="Quick Polygon" VerticalAlignment="Center"/>
+                    <!-- Grid Survey (Fotogrametri Pertanian) -->
+                    <Button x:Name="btn_grid_survey" Click="GenerateSurveyGrid_Click" Style="{StaticResource ModernButtonStyle}"
+                            ToolTipService.ToolTip="Buat jalur fotogrametri survei udara (transek bolak-balik) otomatis untuk pemetaan lahan"
+                            Padding="10,4">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon Glyph="&#xE80A;" FontSize="12" VerticalAlignment="Center"/>
+                            <TextBlock Text="Survey Grid" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+
+                    <!-- Flight Telemetry Toggle Button -->
+                    <ToggleButton x:Name="btn_toggle_flight_telemetry" Click="ToggleFlightTelemetry_Click"
+                                  IsChecked="True"
+                                  Padding="8,4"
+                                  ToolTipService.ToolTip="Tampilkan / Sembunyikan Overlay Flight Telemetry UAV (Altitude, Speed, Attitude, Battery, GPS RTK)">
+                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                            <FontIcon Glyph="&#xE709;" FontSize="12" Foreground="#38BDF8" VerticalAlignment="Center"/>
+                            <TextBlock Text="Flight Telemetry" VerticalAlignment="Center" FontSize="11" FontWeight="SemiBold"/>
+                        </StackPanel>
+                    </ToggleButton>
+
+                    <!-- Telemetri Tematik Lahan Toggle -->
+                    <ToggleButton x:Name="btn_toggle_pdp_monitor" Click="TogglePDPMonitor_Click"
+                                  IsChecked="True"
+                                  Padding="8,4"
+                                  ToolTipService.ToolTip="Buka Panel Telemetri Tematik Lahan &amp; Sensor In-situ (4 Sektor &amp; In-situ Probes)">
+                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                            <FontIcon Glyph="&#xE9D2;" FontSize="12" VerticalAlignment="Center"/>
+                            <TextBlock Text="Field &amp; Soil Telemetry" VerticalAlignment="Center" FontSize="11" FontWeight="SemiBold"/>
+                        </StackPanel>
+                    </ToggleButton>
+
+                    <!-- Mission Planner Navigation Switch -->
+                    <Button Click="OpenMissionPlanner_Click" Style="{StaticResource ModernButtonStyle}"
+                            ToolTipService.ToolTip="Buka Halaman Perencanaan Misi Lengkap"
+                            Padding="10,4">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon Glyph="&#xE81E;" FontSize="12" VerticalAlignment="Center"/>
+                            <TextBlock Text="Mission Planner" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
                 </StackPanel>
                 </ScrollViewer>
 
-                <!-- Right side: Geofence Active badge -->
+                <!-- Right side: Eagle GCS Geofence Status Badge -->
                 <Border x:Name="geofence_status_border" 
                         Grid.Column="1"
                         Style="{StaticResource PillBorder}" 
                         HorizontalAlignment="Right"
+                        VerticalAlignment="Center"
                         Margin="8,0,0,0"
-                        Tapped="ToggleGeofencePanel_Click">
+                        Tapped="ToggleGeofencePanel_Click"
+                        ToolTipService.ToolTip="Buka / Tutup Pengaturan Geofence Eagle">
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Ellipse x:Name="geofence_status_dot" Width="8" Height="8" Fill="{ThemeResource SuccessBrush}"/>
+                        <Ellipse x:Name="geofence_status_dot" Width="8" Height="8" Fill="{ThemeResource MutedForegroundBrush}"/>
                         <TextBlock x:Name="geofence_status_text" 
-                                   Text="Geofence Active" 
+                                   Text="Geofence Inactive" 
                                    Foreground="{ThemeResource ForegroundBrush}" 
                                    FontWeight="Bold" 
-                                   FontSize="10" 
+                                   FontSize="11" 
                                    VerticalAlignment="Center"/>
                     </StackPanel>
                 </Border>
@@ -192,6 +217,517 @@
                                      DoubleTapped="MapControl_DoubleTapped"
                                      Tapped="MapControl_Tapped"/>
 
+            <!-- Scientific Cartographic & Geodetic HUD (Top-Left) -->
+            <Border x:Name="cartographic_hud"
+                    Background="{ThemeResource CardBrush80}"
+                    BorderBrush="{ThemeResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="10,8"
+                    Margin="16,14,0,0"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Top"
+                    Canvas.ZIndex="350">
+                <StackPanel Spacing="5">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Border Background="#220EA5E9" BorderBrush="#0EA5E9" BorderThickness="1" CornerRadius="4" Padding="5,1">
+                            <TextBlock Text="WGS 84 / EPSG:4326" FontSize="10" FontWeight="Bold" Foreground="#38BDF8"/>
+                        </Border>
+                        <Border Background="#2210B981" BorderBrush="#10B981" BorderThickness="1" CornerRadius="4" Padding="5,1">
+                            <TextBlock Text="UTM 48S" FontSize="10" FontWeight="Bold" Foreground="#34D399"/>
+                        </Border>
+                        <TextBlock Text="▲ N" FontSize="10" FontWeight="Bold" Foreground="{ThemeResource ForegroundBrush}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="Center:" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                        <TextBlock x:Name="hud_center_coord" Text="-6.243610° S, 107.365560° E" FontSize="10" FontFamily="Consolas, monospace" FontWeight="SemiBold" Foreground="{ThemeResource ForegroundBrush}"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Text="Alt:" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                            <TextBlock x:Name="hud_flight_alt" Text="50.0 m AGL" FontSize="10" FontWeight="SemiBold" Foreground="#34D399"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Text="GSD:" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                            <TextBlock x:Name="hud_gsd_val" Text="1.82 cm/px" FontSize="10" FontWeight="SemiBold" Foreground="#F59E0B"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Text="Zoom:" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                            <TextBlock x:Name="hud_zoom_val" Text="Z16" FontSize="10" FontWeight="SemiBold" Foreground="{ThemeResource ForegroundBrush}"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <!-- Graphic Scale Bar -->
+                    <Grid Margin="0,2,0,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Border Height="4" BorderBrush="{ThemeResource ForegroundBrush}" BorderThickness="1" CornerRadius="1">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Background="{ThemeResource ForegroundBrush}"/>
+                                <Border Grid.Column="1" Background="Transparent"/>
+                                <Border Grid.Column="2" Background="{ThemeResource ForegroundBrush}"/>
+                                <Border Grid.Column="3" Background="Transparent"/>
+                            </Grid>
+                        </Border>
+                        <Grid Grid.Row="1" Margin="0,2,0,0">
+                            <TextBlock Text="0m" FontSize="8" HorizontalAlignment="Left" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                            <TextBlock Text="50m" FontSize="8" HorizontalAlignment="Center" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                            <TextBlock Text="100m" FontSize="8" HorizontalAlignment="Right" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                        </Grid>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Tactical UAV Flight Telemetry Floating HUD Panel (Left, below Cartographic HUD) -->
+            <Border x:Name="flight_telemetry_hud_panel"
+                    Background="{ThemeResource CardBrush95}"
+                    BorderBrush="{ThemeResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="10"
+                    Padding="12,10"
+                    Margin="16,112,0,0"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Top"
+                    Width="340"
+                    Canvas.ZIndex="380">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Row 0: Header with Status Badge & Close/Hide -->
+                    <Grid Grid.Row="0" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <Border Background="#2210B981" BorderBrush="#10B981" BorderThickness="1" CornerRadius="4" Padding="6,2">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <Ellipse Width="6" Height="6" Fill="#10B981" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="txt_map_telemetry_state" Text="AIRBORNE" FontSize="9.5" FontWeight="Bold" Foreground="#10B981"/>
+                                </StackPanel>
+                            </Border>
+                            <TextBlock Text="UAV Flight Telemetry" FontSize="11.5" FontWeight="Bold" Foreground="{ThemeResource ForegroundBrush}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <Button Grid.Column="1" Click="ToggleFlightTelemetry_Click" Style="{StaticResource IconButton}" Width="24" Height="24" Padding="0" VerticalAlignment="Center">
+                            <FontIcon Glyph="&#xE711;" FontSize="10"/>
+                        </Button>
+                    </Grid>
+
+                    <!-- Row 1: Tactical Mini Attitude Reticle & Readout -->
+                    <Border Grid.Row="1" Background="#15000000" BorderBrush="{ThemeResource BorderBrush}" BorderThickness="1" CornerRadius="6" Padding="8,5" Margin="0,0,0,8">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <!-- Mini Reticle icon -->
+                            <Border Grid.Column="0" Width="36" Height="36" Background="#20000000" BorderBrush="#38BDF8" BorderThickness="1" CornerRadius="18" Margin="0,0,8,0">
+                                <Canvas x:Name="canvas_map_mini_attitude" Width="36" Height="36">
+                                    <!-- Artificial horizon line -->
+                                    <Line x:Name="line_mini_horizon" X1="4" Y1="18" X2="32" Y2="18" Stroke="#38BDF8" StrokeThickness="1.5"/>
+                                    <!-- Reticle pip -->
+                                    <Ellipse Canvas.Left="15" Canvas.Top="15" Width="6" Height="6" Fill="#F59E0B"/>
+                                </Canvas>
+                            </Border>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                <TextBlock x:Name="txt_map_uav_attitude" Text="P -4.0° · R +12.5° · Y 140° (SE)" FontSize="11" FontWeight="Bold" FontFamily="Consolas, monospace" Foreground="#38BDF8"/>
+                                <TextBlock x:Name="txt_map_uav_modethr" Text="MODE: AUTO · THROTTLE 68% · ARMED" FontSize="9.5" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- Row 2: 4-Column Primary Flight Instruments Grid -->
+                    <Grid Grid.Row="2" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        
+                        <!-- ALTITUDE -->
+                        <Border Grid.Column="0" Background="{ThemeResource BackgroundBrush}" CornerRadius="5" Padding="6,4" Margin="0,0,3,0">
+                            <StackPanel Spacing="1">
+                                <TextBlock Text="ALTITUDE" FontSize="8.5" FontWeight="SemiBold" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                <TextBlock x:Name="txt_map_uav_alt" Text="49.8 m" FontSize="12" FontWeight="Bold" Foreground="#34D399"/>
+                                <TextBlock Text="AGL (50m ref)" FontSize="8" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- GROUND SPEED -->
+                        <Border Grid.Column="1" Background="{ThemeResource BackgroundBrush}" CornerRadius="5" Padding="6,4" Margin="2,0,2,0">
+                            <StackPanel Spacing="1">
+                                <TextBlock Text="SPEED" FontSize="8.5" FontWeight="SemiBold" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                <TextBlock x:Name="txt_map_uav_spd" Text="8.4 m/s" FontSize="12" FontWeight="Bold" Foreground="#38BDF8"/>
+                                <TextBlock Text="30.2 km/h" FontSize="8" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- VERTICAL SPEED -->
+                        <Border Grid.Column="2" Background="{ThemeResource BackgroundBrush}" CornerRadius="5" Padding="6,4" Margin="2,0,2,0">
+                            <StackPanel Spacing="1">
+                                <TextBlock Text="V. SPEED" FontSize="8.5" FontWeight="SemiBold" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                <TextBlock x:Name="txt_map_uav_vspd" Text="+0.1 m/s" FontSize="12" FontWeight="Bold" Foreground="#F59E0B"/>
+                                <TextBlock Text="Climb rate" FontSize="8" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- BATTERY -->
+                        <Border Grid.Column="3" Background="{ThemeResource BackgroundBrush}" CornerRadius="5" Padding="6,4" Margin="3,0,0,0">
+                            <StackPanel Spacing="1">
+                                <TextBlock Text="BATTERY" FontSize="8.5" FontWeight="SemiBold" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                <TextBlock x:Name="txt_map_uav_batt" Text="95%" FontSize="12" FontWeight="Bold" Foreground="#10B981"/>
+                                <TextBlock x:Name="txt_map_uav_volt" Text="12.5V 3S" FontSize="8" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <!-- Row 3: Navigation, GNSS RTK & Sensors -->
+                    <Border Grid.Row="3" Background="{ThemeResource BackgroundBrush}" CornerRadius="5" Padding="8,5" Margin="0,0,0,8">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Spacing="2">
+                                <TextBlock Text="GNSS FIX &amp; SATELLITES" FontSize="8.5" FontWeight="SemiBold" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                <TextBlock x:Name="txt_map_uav_gps" Text="RTK Fixed · 16 Sats" FontSize="10.5" FontWeight="Bold" Foreground="#10B981"/>
+                                <TextBlock x:Name="txt_map_uav_hdop" Text="HDOP: 0.4 · DGPS Valid" FontSize="8.5" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="2">
+                                <TextBlock Text="TRANSECT &amp; DISTANCE" FontSize="8.5" FontWeight="SemiBold" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                <TextBlock x:Name="txt_map_uav_dist" Text="Dist: 480 m / 1.85 km" FontSize="10.5" FontWeight="Bold" Foreground="{ThemeResource ForegroundBrush}"/>
+                                <TextBlock x:Name="txt_map_uav_eta" Text="ETA WP-End: 05:42" FontSize="8.5" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- Row 4: Waypoint Leg Mission Progress -->
+                    <StackPanel Grid.Row="4" Spacing="3">
+                        <Grid>
+                            <TextBlock x:Name="txt_map_uav_wp_leg" Text="WAYPOINT 4 → 5 (Sektor B Transek 2)" FontSize="9" FontWeight="SemiBold" Foreground="{ThemeResource ForegroundBrush}"/>
+                            <TextBlock x:Name="txt_map_uav_wp_pct" Text="Progress: 35%" FontSize="9" FontWeight="Bold" HorizontalAlignment="Right" Foreground="#38BDF8"/>
+                        </Grid>
+                        <ProgressBar x:Name="pb_map_uav_wp" Value="35" Maximum="100" Height="4" Foreground="#38BDF8" Background="#33000000"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- PDP Thematic Zoning & Telemetry Floating Panel -->
+            <Border x:Name="pdp_monitor_panel"
+                    Background="{ThemeResource CardBrush95}"
+                    BorderBrush="{ThemeResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="10"
+                    Padding="0"
+                    Margin="0,14,56,0"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Top"
+                    MaxWidth="390"
+                    MaxHeight="600"
+                    Visibility="Visible"
+                    Canvas.ZIndex="450">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Header bar -->
+                    <Grid Grid.Row="0" Padding="14,10,12,10" Background="{ThemeResource BackgroundBrush}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="Telemetri Lahan &amp; Irigasi Presisi" FontSize="12.5" FontWeight="Bold" Foreground="{ThemeResource ForegroundBrush}"/>
+                            <TextBlock Text="Pabuaran, Subang · Survei UAV 50 m AGL · Sensor RS-485" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                        </StackPanel>
+                        <Button Grid.Column="1" Click="TogglePDPMonitor_Click" Style="{StaticResource IconButton}" VerticalAlignment="Center">
+                            <FontIcon Glyph="&#xE711;" FontSize="12"/>
+                        </Button>
+                    </Grid>
+                    <Border Grid.Row="0" Height="1" Background="{ThemeResource BorderBrush}" VerticalAlignment="Bottom"/>
+
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <StackPanel Padding="14,12" Spacing="10">
+
+                            <!-- Alert status -->
+                            <Border Background="#1AE04848" BorderBrush="#E04848" BorderThickness="1" CornerRadius="6" Padding="10,8">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Spacing="2">
+                                        <TextBlock Text="IRIGASI DARURAT: BLOK A1 &amp; B2" FontSize="11" FontWeight="Bold" Foreground="#EF4444"/>
+                                        <TextBlock Text="Debit rekomendasi: 1.8 L/s dari saluran tersier barat" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                    </StackPanel>
+                                    <Border Grid.Column="1" Background="#EF4444" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
+                                        <TextBlock Text="PRIORITAS 1" FontSize="9" FontWeight="Bold" Foreground="White"/>
+                                    </Border>
+                                </Grid>
+                            </Border>
+
+                            <!-- Water budget KPIs -->
+                            <Grid Margin="0,2,0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Text="Defisit Air" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                    <TextBlock Text="10,750 L" FontSize="12" FontWeight="Bold" Foreground="{ThemeResource ForegroundBrush}"/>
+                                    <TextBlock Text="10.75 m³" FontSize="9.5" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Spacing="2">
+                                    <TextBlock Text="Area Defisit" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                    <TextBlock Text="1.23 ha" FontSize="12" FontWeight="Bold" Foreground="#EF4444"/>
+                                    <TextBlock Text="63.7% total" FontSize="9.5" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2" Spacing="2">
+                                    <TextBlock Text="VWC Min" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                    <TextBlock Text="14.8%" FontSize="12" FontWeight="Bold" Foreground="#EF4444"/>
+                                    <TextBlock Text="Blok A1" FontSize="9.5" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="3" Spacing="2">
+                                    <TextBlock Text="Alt. Survei" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                    <TextBlock Text="50.0 m" FontSize="12" FontWeight="Bold" Foreground="{ThemeResource ForegroundBrush}"/>
+                                    <TextBlock Text="GSD 1.82 cm" FontSize="9.5" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <Border Height="1" Background="{ThemeResource BorderBrush}"/>
+
+                            <!-- Zonasi 4 Petak Sawah Table -->
+                            <TextBlock Text="Status 4 Petak Sawah (Cadastral Blocks)" FontSize="10.5" FontWeight="SemiBold" Foreground="{ThemeResource ForegroundBrush}"/>
+
+                            <Grid Margin="0,0,0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="42"/>
+                                    <ColumnDefinition Width="52"/>
+                                    <ColumnDefinition Width="50"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="56"/>
+                                    <ColumnDefinition Width="50"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Blok" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" FontWeight="SemiBold"/>
+                                <TextBlock Grid.Column="1" Text="Luas" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" FontWeight="SemiBold"/>
+                                <TextBlock Grid.Column="2" Text="VWC" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" FontWeight="SemiBold"/>
+                                <TextBlock Grid.Column="3" Text="Kanopi" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" FontWeight="SemiBold"/>
+                                <TextBlock Grid.Column="4" Text="Volume" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" FontWeight="SemiBold"/>
+                                <TextBlock Grid.Column="5" Text="Status" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" FontWeight="SemiBold" HorizontalAlignment="Right"/>
+                            </Grid>
+                            <Border Height="1" Background="{ThemeResource BorderBrush}"/>
+
+                            <!-- Row A1 -->
+                            <Grid Padding="0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="42"/>
+                                    <ColumnDefinition Width="52"/>
+                                    <ColumnDefinition Width="50"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="56"/>
+                                    <ColumnDefinition Width="50"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="A1" FontSize="10.5" FontWeight="Bold" Foreground="{ThemeResource ForegroundBrush}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="0.65 ha" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="2" Text="14.8%" FontSize="10.5" FontWeight="Bold" Foreground="#EF4444" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="3" Text="Defisit" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="4" Text="4,800 L" FontSize="10" Foreground="{ThemeResource ForegroundBrush}" VerticalAlignment="Center"/>
+                                <Border Grid.Column="5" Background="#1AE04848" CornerRadius="3" Padding="4,1" HorizontalAlignment="Right">
+                                    <TextBlock Text="Kritis" FontSize="9.5" FontWeight="SemiBold" Foreground="#EF4444"/>
+                                </Border>
+                            </Grid>
+                            <Border Height="1" Background="{ThemeResource BorderBrush}" Opacity="0.4"/>
+
+                            <!-- Row B2 -->
+                            <Grid Padding="0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="42"/>
+                                    <ColumnDefinition Width="52"/>
+                                    <ColumnDefinition Width="50"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="56"/>
+                                    <ColumnDefinition Width="50"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="B2" FontSize="10.5" FontWeight="Bold" Foreground="{ThemeResource ForegroundBrush}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="0.58 ha" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="2" Text="23.4%" FontSize="10.5" FontWeight="Bold" Foreground="#F59E0B" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="3" Text="Stres" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="4" Text="3,400 L" FontSize="10" Foreground="{ThemeResource ForegroundBrush}" VerticalAlignment="Center"/>
+                                <Border Grid.Column="5" Background="#1AF59E0B" CornerRadius="3" Padding="4,1" HorizontalAlignment="Right">
+                                    <TextBlock Text="Tinggi" FontSize="9.5" FontWeight="SemiBold" Foreground="#F59E0B"/>
+                                </Border>
+                            </Grid>
+                            <Border Height="1" Background="{ThemeResource BorderBrush}" Opacity="0.4"/>
+
+                            <!-- Row C3 -->
+                            <Grid Padding="0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="42"/>
+                                    <ColumnDefinition Width="52"/>
+                                    <ColumnDefinition Width="50"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="56"/>
+                                    <ColumnDefinition Width="50"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="C3" FontSize="10.5" FontWeight="Bold" Foreground="{ThemeResource ForegroundBrush}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="0.70 ha" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="2" Text="38.2%" FontSize="10.5" FontWeight="Bold" Foreground="#EAB308" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="3" Text="Variatif" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="4" Text="2,100 L" FontSize="10" Foreground="{ThemeResource ForegroundBrush}" VerticalAlignment="Center"/>
+                                <Border Grid.Column="5" Background="#1AEAB308" CornerRadius="3" Padding="4,1" HorizontalAlignment="Right">
+                                    <TextBlock Text="Sedang" FontSize="9.5" FontWeight="SemiBold" Foreground="#EAB308"/>
+                                </Border>
+                            </Grid>
+                            <Border Height="1" Background="{ThemeResource BorderBrush}" Opacity="0.4"/>
+
+                            <!-- Row D4 -->
+                            <Grid Padding="0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="42"/>
+                                    <ColumnDefinition Width="52"/>
+                                    <ColumnDefinition Width="50"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="56"/>
+                                    <ColumnDefinition Width="50"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="D4" FontSize="10.5" FontWeight="Bold" Foreground="{ThemeResource ForegroundBrush}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="0.84 ha" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="2" Text="68.1%" FontSize="10.5" FontWeight="Bold" Foreground="#10B981" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="3" Text="Normal" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="4" Text="450 L" FontSize="10" Foreground="{ThemeResource ForegroundBrush}" VerticalAlignment="Center"/>
+                                <Border Grid.Column="5" Background="#1A10B981" CornerRadius="3" Padding="4,1" HorizontalAlignment="Right">
+                                    <TextBlock Text="Optimal" FontSize="9.5" FontWeight="SemiBold" Foreground="#10B981"/>
+                                </Border>
+                            </Grid>
+
+                            <TextBlock Text="SOP Irigasi: Penggenangan macak-macak 3–5 cm di Blok A1. Normalisasi bukaan pintu tersier Blok B2 &amp; C3." 
+                                       FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" 
+                                       TextWrapping="Wrap" FontStyle="Italic"/>
+
+                            <Border Height="1" Background="{ThemeResource BorderBrush}"/>
+
+                            <!-- Sensor Tanah RS-485 Modbus via LoRa -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="txt_probe_header" Text="Sensor Tanah In-Situ via LoRa" FontSize="10.5" FontWeight="SemiBold" Foreground="{ThemeResource ForegroundBrush}" VerticalAlignment="Center"/>
+                                <Border Grid.Column="1" x:Name="pill_lora_autocheck" Background="#1A10B981" CornerRadius="4" Padding="5,2" VerticalAlignment="Center">
+                                    <TextBlock x:Name="txt_lora_autocheck" Text="✓ Auto-Check OK" FontSize="9" FontWeight="SemiBold" Foreground="#10B981"/>
+                                </Border>
+                            </Grid>
+
+                            <Grid Margin="0,0,0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="P-01" FontSize="10" FontWeight="Bold" Foreground="{ThemeResource MutedForegroundBrush}" Width="28"/>
+                                    <StackPanel Spacing="0">
+                                        <TextBlock x:Name="txt_probe_p01_vals" Text="14.8% · 32.5°C" FontSize="10.5" Foreground="#EF4444" FontWeight="SemiBold"/>
+                                        <TextBlock x:Name="txt_probe_p01_diag" Text="4.1 V · −78 dBm" FontSize="9" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                    </StackPanel>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="P-02" FontSize="10" FontWeight="Bold" Foreground="{ThemeResource MutedForegroundBrush}" Width="28"/>
+                                    <StackPanel Spacing="0">
+                                        <TextBlock x:Name="txt_probe_p02_vals" Text="23.4% · 31.0°C" FontSize="10.5" Foreground="#F59E0B" FontWeight="SemiBold"/>
+                                        <TextBlock x:Name="txt_probe_p02_diag" Text="4.0 V · −82 dBm" FontSize="9" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Grid>
+
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="P-03" FontSize="10" FontWeight="Bold" Foreground="{ThemeResource MutedForegroundBrush}" Width="28"/>
+                                    <StackPanel Spacing="0">
+                                        <TextBlock x:Name="txt_probe_p03_vals" Text="38.2% · 29.4°C" FontSize="10.5" Foreground="#EAB308" FontWeight="SemiBold"/>
+                                        <TextBlock x:Name="txt_probe_p03_diag" Text="4.2 V · −75 dBm" FontSize="9" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                    </StackPanel>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="P-04" FontSize="10" FontWeight="Bold" Foreground="{ThemeResource MutedForegroundBrush}" Width="28"/>
+                                    <StackPanel Spacing="0">
+                                        <TextBlock x:Name="txt_probe_p04_vals" Text="68.1% · 27.6°C" FontSize="10.5" Foreground="#10B981" FontWeight="SemiBold"/>
+                                        <TextBlock x:Name="txt_probe_p04_diag" Text="4.2 V · −71 dBm" FontSize="9" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Grid>
+
+                            <Border Height="1" Background="{ThemeResource BorderBrush}"/>
+
+                            <!-- Model Validation -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Spacing="1">
+                                    <TextBlock Text="mAP@50" FontSize="9.5" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                    <TextBlock Text="95.8%" FontSize="11" FontWeight="Bold" Foreground="#10B981"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Spacing="1">
+                                    <TextBlock Text="Agreement" FontSize="9.5" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                    <TextBlock Text="92.5%" FontSize="11" FontWeight="Bold" Foreground="{ThemeResource ForegroundBrush}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2" Spacing="1">
+                                    <TextBlock Text="R² Korelasi" FontSize="9.5" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                    <TextBlock Text="0.914" FontSize="11" FontWeight="Bold" Foreground="{ThemeResource PrimaryBrush}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="3" Spacing="1">
+                                    <TextBlock Text="RMSE" FontSize="9.5" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                    <TextBlock Text="±4.2%" FontSize="11" FontWeight="Bold" Foreground="{ThemeResource ForegroundBrush}"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <Border Height="1" Background="{ThemeResource BorderBrush}"/>
+
+                            <!-- Layer switches -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Layer Peta:" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                    <CheckBox x:Name="chk_plots" Content="Petak" IsChecked="True" FontSize="10" Padding="3,0" Checked="LayerToggle_Changed" Unchecked="LayerToggle_Changed"/>
+                                    <CheckBox x:Name="chk_sensors" Content="Probe" IsChecked="True" FontSize="10" Padding="3,0" Checked="LayerToggle_Changed" Unchecked="LayerToggle_Changed"/>
+                                    <CheckBox x:Name="chk_yolo" Content="YOLO" IsChecked="True" FontSize="10" Padding="3,0" Checked="LayerToggle_Changed" Unchecked="LayerToggle_Changed"/>
+                                    <CheckBox x:Name="chk_geofence" Content="Fence" IsChecked="True" FontSize="10" Padding="3,0" Checked="LayerToggle_Changed" Unchecked="LayerToggle_Changed"/>
+                                </StackPanel>
+                            </Grid>
+
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+
             <!-- Bottom Overlay: Markers Button -->
             <Button x:Name="wp_dock_btn" 
                     Style="{StaticResource ModernButtonStyle}"
@@ -201,11 +737,12 @@
                     Margin="16"
                     Canvas.ZIndex="400">
                 <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock x:Name="tb_markers_count" Text="Markers: 0 ▲"/>
+                    <FontIcon Glyph="&#xE81E;" FontSize="12" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="tb_markers_count" Text="Mission Plan: 0 ▲" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
                 </StackPanel>
             </Button>
 
-            <!-- Waypoint List Panel (Expanded) -->
+            <!-- Waypoint List Panel (Expanded Aeronautical Mission Table) -->
             <Border x:Name="wp_list_panel"
                     Background="{ThemeResource CardBrush80}"
                     BorderBrush="{ThemeResource BorderBrush}"
@@ -213,8 +750,9 @@
                     VerticalAlignment="Bottom"
                     HorizontalAlignment="Left"
                     Margin="16,0,16,80"
-                    MaxHeight="260"
-                    MinWidth="260"
+                    MaxHeight="320"
+                    MinWidth="640"
+                    MaxWidth="840"
                     CornerRadius="8"
                     Padding="12"
                     Visibility="Collapsed"
@@ -222,9 +760,11 @@
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
                     
+                    <!-- Top Action & Statistics Header -->
                     <Grid Grid.Row="0" Margin="0,0,0,8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
@@ -232,52 +772,103 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
-                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                        <!-- Mission Actions -->
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6">
                             <Button x:Name="btn_send_mission"
                                     Style="{StaticResource ModernButtonStyle}"
                                     Click="SendWaypointCommand"
-                                    ToolTipService.ToolTip="Send Mission"
-                                    Padding="12,6">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <FontIcon Glyph="&#xE724;" FontSize="13"/>
-                                    <TextBlock Text="SEND MISSION" FontSize="11" FontWeight="Bold"/>
+                                    ToolTipService.ToolTip="Kirim misi ke autopilot via MAVLink"
+                                    Padding="10,5">
+                                <StackPanel Orientation="Horizontal" Spacing="5">
+                                    <FontIcon Glyph="&#xE724;" FontSize="12"/>
+                                    <TextBlock Text="WRITE UAV" FontSize="11" FontWeight="Bold"/>
                                 </StackPanel>
                             </Button>
                             <Button x:Name="btn_start_mission"
                                     Style="{StaticResource ModernButtonStyle}"
                                     Click="DownloadMission_Click"
-                                    ToolTipService.ToolTip="Download Mission dari drone ke GCS"
-                                    Padding="12,6">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <FontIcon Glyph="&#xE896;" FontSize="13"/>
-                                    <TextBlock Text="DOWNLOAD MISSION" FontSize="11" FontWeight="Bold"/>
+                                    ToolTipService.ToolTip="Download misi aktif dari UAV"
+                                    Padding="10,5">
+                                <StackPanel Orientation="Horizontal" Spacing="5">
+                                    <FontIcon Glyph="&#xE896;" FontSize="12"/>
+                                    <TextBlock Text="READ UAV" FontSize="11" FontWeight="Bold"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Click="ExportCsv_Click"
+                                    Style="{StaticResource ModernButtonStyle}"
+                                    ToolTipService.ToolTip="Ekspor tabel koordinat misi ke CSV untuk naskah publikasi"
+                                    Padding="8,5">
+                                <StackPanel Orientation="Horizontal" Spacing="5">
+                                    <FontIcon Glyph="&#xE74E;" FontSize="11" VerticalAlignment="Center"/>
+                                    <TextBlock Text="CSV" FontSize="11" FontWeight="SemiBold"/>
                                 </StackPanel>
                             </Button>
                         </StackPanel>
 
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                        <!-- Mission Metrics Banner -->
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="Dist:" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="tb_dock_total_distance" Text="0.00 km" FontSize="11" FontWeight="Bold" Foreground="#38BDF8" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="EET:" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="tb_dock_eet" Text="00:00" FontSize="11" FontWeight="Bold" Foreground="#34D399" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="Area:" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="tb_dock_area" Text="2.77 ha" FontSize="11" FontWeight="Bold" Foreground="#F59E0B" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- File / Edit Buttons -->
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="4">
                             <Button x:Name="Undo" Style="{StaticResource IconButton}" Click="Undo_Click" ToolTipService.ToolTip="Undo">
-                                <FontIcon Glyph="&#xE7A7;" FontSize="14"/>
+                                <FontIcon Glyph="&#xE7A7;" FontSize="13"/>
                             </Button>
                             <Button x:Name="Redo" Style="{StaticResource IconButton}" Click="Redo_Click" ToolTipService.ToolTip="Redo">
-                                <FontIcon Glyph="&#xE7A6;" FontSize="14"/>
+                                <FontIcon Glyph="&#xE7A6;" FontSize="13"/>
                             </Button>
-                            <Button x:Name="Import" Style="{StaticResource IconButton}" Click="ImportWaypoints_Click" ToolTipService.ToolTip="Import">
-                                <FontIcon Glyph="&#xE8E5;" FontSize="14"/>
+                            <Button x:Name="Import" Style="{StaticResource IconButton}" Click="ImportWaypoints_Click" ToolTipService.ToolTip="Import Format QGC / WPL">
+                                <FontIcon Glyph="&#xE8E5;" FontSize="13"/>
                             </Button>
-                            <Button x:Name="Export" Style="{StaticResource IconButton}" Click="ExportWaypoints_Click" ToolTipService.ToolTip="Export">
-                                <FontIcon Glyph="&#xE74E;" FontSize="14"/>
+                            <Button x:Name="Export" Style="{StaticResource IconButton}" Click="ExportWaypoints_Click" ToolTipService.ToolTip="Export Format QGC / WPL">
+                                <FontIcon Glyph="&#xE74E;" FontSize="13"/>
                             </Button>
                         </StackPanel>
                     </Grid>
 
-                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                        <StackPanel x:Name="wp_dock_stack" Spacing="8">
+                    <!-- Table Column Header -->
+                    <Border Grid.Row="1" Background="{ThemeResource BackgroundBrush}" BorderBrush="{ThemeResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="8,4" Margin="0,0,0,6">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="44"/>
+                                <ColumnDefinition Width="95"/>
+                                <ColumnDefinition Width="115"/>
+                                <ColumnDefinition Width="115"/>
+                                <ColumnDefinition Width="80"/>
+                                <ColumnDefinition Width="70"/>
+                                <ColumnDefinition Width="65"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="WP#" FontSize="10" FontWeight="Bold" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                            <TextBlock Grid.Column="1" Text="COMMAND" FontSize="10" FontWeight="Bold" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                            <TextBlock Grid.Column="2" Text="LATITUDE" FontSize="10" FontWeight="Bold" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                            <TextBlock Grid.Column="3" Text="LONGITUDE" FontSize="10" FontWeight="Bold" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                            <TextBlock Grid.Column="4" Text="ALT AGL" FontSize="10" FontWeight="Bold" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                            <TextBlock Grid.Column="5" Text="SPEED" FontSize="10" FontWeight="Bold" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                            <TextBlock Grid.Column="6" Text="ACTION" FontSize="10" FontWeight="Bold" Foreground="{ThemeResource MutedForegroundBrush}" HorizontalAlignment="Right"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- Waypoint List Scroll -->
+                    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                        <StackPanel x:Name="wp_dock_stack" Spacing="4">
                             <TextBlock x:Name="wp_empty_message" 
-                                       Text="Double-click on map to add waypoint" 
+                                       Text="Double-click pada peta atau gunakan 'Survey Grid' / 'Field Scenario' untuk merencanakan rute penerbangan." 
                                        Foreground="{ThemeResource MutedForegroundBrush}" 
                                        FontStyle="Italic" 
-                                       FontSize="12"
+                                       FontSize="11"
+                                       Margin="8"
                                        TextWrapping="Wrap"/>
                         </StackPanel>
                     </ScrollViewer>
@@ -297,16 +888,45 @@
                 <StackPanel Spacing="12">
                     <!-- Header -->
                     <Grid>
-                        <TextBlock Text="GEOFENCE SETTINGS" 
-                                   FontSize="16" 
-                                   FontWeight="Bold" 
-                                   Foreground="{ThemeResource ForegroundBrush}"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="⬡ GEOFENCE SETTINGS" 
+                                       FontSize="13" 
+                                       FontWeight="Bold" 
+                                       Foreground="{ThemeResource ForegroundBrush}"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
                         <Button Click="ToggleGeofencePanel_Click" HorizontalAlignment="Right" Style="{StaticResource IconButton}">
-                            <FontIcon Glyph="&#xE711;" FontSize="14"/>
+                            <FontIcon Glyph="&#xE711;" FontSize="12"/>
                         </Button>
                     </Grid>
                     
                     <Border Height="1" Background="{ThemeResource BorderBrush}"/>
+
+                    <!-- Eagle Quick Controls & Activation -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <CheckBox x:Name="GeofenceEnableCheckBox" Grid.Column="0" Content="Batas Geofence Aktif" IsChecked="False" Click="GeofenceEnableCheckBox_Click" FontSize="11" FontWeight="SemiBold"/>
+                        <Button x:Name="SendGeofenceButton" Grid.Column="1" Content="Upload" FontSize="10.5" Padding="8,4" CornerRadius="4"
+                                Background="{ThemeResource SecondaryBrush}" Foreground="{ThemeResource ForegroundBrush}"
+                                ToolTipService.ToolTip="Kirim batas aman terbang ke wahana via MAVLink"
+                                Click="SendGeofenceButton_Click"/>
+                    </Grid>
+                    <Grid Margin="0,-4,0,2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Slider x:Name="GeofenceRadiusSlider" Grid.Column="0" Minimum="100" Maximum="1000" Value="500" ValueChanged="GeofenceRadiusSlider_ValueChanged" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="GeofenceLabel" Grid.Column="1" Text="500 m" VerticalAlignment="Center" Foreground="{ThemeResource ForegroundBrush}" FontWeight="SemiBold" FontSize="11" Margin="8,0,0,0"/>
+                    </Grid>
+
+                    <!-- Hidden compatibility elements -->
+                    <Button x:Name="btn_geofence_toggle" Visibility="Collapsed">
+                        <TextBlock x:Name="btn_geofence_toggle_text" Text=""/>
+                    </Button>
                     
                     <!-- Type & Parameters -->
                     <Grid>
@@ -323,7 +943,7 @@
                         <StackPanel Grid.Column="0" Grid.Row="0" Spacing="4">
                             <TextBlock Text="Type" Foreground="{ThemeResource MutedForegroundBrush}" FontSize="11"/>
                             <ComboBox x:Name="cb_geofence_type" 
-                                      SelectedIndex="0"
+                                      SelectedIndex="0" 
                                       HorizontalAlignment="Stretch"
                                       SelectionChanged="GeofenceType_SelectionChanged">
                                 <ComboBoxItem Content="Circular"/>
@@ -335,7 +955,7 @@
                         <StackPanel Grid.Column="1" Grid.Row="0" Spacing="4" Margin="8,0,0,0">
                             <TextBlock Text="Radius (m)" Foreground="{ThemeResource MutedForegroundBrush}" FontSize="11"/>
                             <TextBox x:Name="tb_geofence_radius" 
-                                     Text="500"
+                                     Text="500" 
                                      TextChanged="GeofenceRadius_TextChanged"/>
                         </StackPanel>
                         
@@ -343,7 +963,7 @@
                         <StackPanel Grid.Column="0" Grid.Row="1" Spacing="4" Margin="0,8,0,0">
                             <TextBlock Text="Max Alt (m)" Foreground="{ThemeResource MutedForegroundBrush}" FontSize="11"/>
                             <TextBox x:Name="tb_geofence_altitude" 
-                                     Text="100"
+                                     Text="100" 
                                      TextChanged="GeofenceAltitude_TextChanged"/>
                         </StackPanel>
                     </Grid>
@@ -470,49 +1090,71 @@
                     <!-- Action Buttons -->
                     <Grid>
                         <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         
+                        <Button x:Name="btn_create_geofence" 
+                                Grid.Column="0"
+                                Content="Create" 
+                                Padding="8,4"
+                                Background="{ThemeResource InfoBrush}" 
+                                Foreground="{ThemeResource PrimaryForegroundBrush}" 
+                                FontWeight="Bold"
+                                FontSize="10.5"
+                                Click="CreateGeofence_Click" 
+                                ToolTipService.ToolTip="Buat batas geofence melingkar di tengah peta (Eagle GCS)"/>
+
                         <ToggleButton x:Name="btn_geofence_mode" 
-                                      Grid.Column="0"
+                                      Grid.Column="1"
+                                      Margin="4,0"
                                       HorizontalAlignment="Stretch"
                                       Click="ToggleGeofenceMode_Click">
-                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
-                                <FontIcon Glyph="&#xE70F;" FontSize="14"/>
-                                <TextBlock Text="DRAW" VerticalAlignment="Center"/>
+                            <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+                                <FontIcon Glyph="&#xE70F;" FontSize="11"/>
+                                <TextBlock Text="DRAW" FontSize="10.5" VerticalAlignment="Center"/>
                             </StackPanel>
                         </ToggleButton>
                         
                         <Button x:Name="btn_complete_geofence" 
-                                Grid.Column="1"
-                                Width="40"
-                                Margin="8,0"
+                                Grid.Column="2"
+                                Width="32"
+                                Margin="0,0,4,0"
                                 Visibility="Collapsed"
                                 Click="CompleteGeofence_Click">
-                            <FontIcon Glyph="&#xE73E;" FontSize="14"/>
+                            <FontIcon Glyph="&#xE73E;" FontSize="12"/>
                         </Button>
                         
                         <Button x:Name="btn_send_geofence" 
-                                Grid.Column="2"
+                                Grid.Column="3"
                                 HorizontalAlignment="Stretch"
                                 IsEnabled="False"
-                                Click="SendGeofence_Click">
-                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
-                                <FontIcon Glyph="&#xE724;" FontSize="14"/>
-                                <TextBlock Text="SEND" VerticalAlignment="Center"/>
+                                Background="{ThemeResource SuccessBrush}" 
+                                Foreground="{ThemeResource PrimaryForegroundBrush}"
+                                FontWeight="Bold"
+                                FontSize="10.5"
+                                Click="SendGeofence_Click"
+                                ToolTipService.ToolTip="Kirim batas geofence ke wahana via MAVLink">
+                            <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+                                <FontIcon Glyph="&#xE724;" FontSize="11"/>
+                                <TextBlock Text="SEND" FontSize="10.5" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
                         
                         <Button x:Name="btn_clear_geofence" 
-                                Grid.Column="3"
-                                Width="40"
-                                Margin="8,0,0,0"
+                                Grid.Column="4"
+                                Width="32"
+                                Margin="4,0,0,0"
                                 IsEnabled="False"
-                                Click="ClearGeofence_Click">
-                            <FontIcon Glyph="&#xE711;" FontSize="14"/>
+                                Background="{ThemeResource ErrorBrush}" 
+                                Foreground="{ThemeResource PrimaryForegroundBrush}"
+                                FontWeight="Bold"
+                                Click="ClearGeofence_Click"
+                                ToolTipService.ToolTip="Hapus batas geofence">
+                            <FontIcon Glyph="&#xE711;" FontSize="12"/>
                         </Button>
                     </Grid>
                 </StackPanel>

@@ -309,6 +309,22 @@ public sealed partial class VideoStreamControl : UserControl
     /// Draw detection overlays after UniformToFill crop.
     /// srcRect = area of original frame that was drawn; coordinates remapped accordingly.
     /// </summary>
+    private static SKColor GetColorForLabel(string label)
+    {
+        var lower = (label ?? string.Empty).ToLowerInvariant();
+        if (lower.Contains("tanah") || lower.Contains("soil") || lower.Contains("bare"))
+            return new SKColor(220, 38, 38);   // Red (#DC2626) - Defisit Air Tanah
+        if (lower.Contains("kanopi") || lower.Contains("drought"))
+            return new SKColor(234, 88, 12);   // Orange (#EA580C) - Defisit Air Kanopi
+        if (lower.Contains("irigasi") || lower.Contains("inconsistent"))
+            return new SKColor(245, 158, 11);  // Amber (#F59E0B) - Ketidakmerataan Irigasi
+        return new SKColor(34, 197, 94);       // Green (#22C55E) - Zona Normal
+    }
+
+    /// <summary>
+    /// Draw detection overlays after UniformToFill crop.
+    /// srcRect = area of original frame that was drawn; coordinates remapped accordingly.
+    /// </summary>
     private void DrawDetectionOverlaysCropped(SKCanvas canvas, SKRect destRect, SKRect srcRect, int frameWidth, int frameHeight)
     {
         if (_detectionOverlays.Count == 0 || frameWidth <= 0 || frameHeight <= 0)
@@ -318,30 +334,57 @@ public sealed partial class VideoStreamControl : UserControl
         var scaleX = destRect.Width / srcRect.Width;
         var scaleY = destRect.Height / srcRect.Height;
 
-        using var boxPaint = new SKPaint { Color = SKColors.LimeGreen, Style = SKPaintStyle.Stroke, StrokeWidth = 3, IsAntialias = true };
-        using var labelBgPaint = new SKPaint { Color = new SKColor(0, 0, 0, 190), Style = SKPaintStyle.Fill };
-        using var textPaint = new SKPaint { Color = SKColors.White, TextSize = 18, IsAntialias = true };
+        using var boxPaint = new SKPaint { Style = SKPaintStyle.Stroke, StrokeWidth = 2.0f, IsAntialias = true };
+        using var labelBgPaint = new SKPaint { Style = SKPaintStyle.Fill, IsAntialias = true };
+        using var textPaint = new SKPaint { TextSize = 12f, IsAntialias = true, FakeBoldText = true };
 
         foreach (var detection in _detectionOverlays)
         {
+            float dx = detection.X;
+            float dy = detection.Y;
+            float dw = detection.Width;
+            float dh = detection.Height;
+
+            // Auto-scale if coords were defined in 1080p reference frame but current video is 640x360 or similar
+            if (frameWidth > 0 && frameHeight > 0 && (dx + dw > frameWidth || dy + dh > frameHeight))
+            {
+                dx = dx * frameWidth / 1920f;
+                dy = dy * frameHeight / 1080f;
+                dw = dw * frameWidth / 1920f;
+                dh = dh * frameHeight / 1080f;
+            }
+
             // Remap from full-frame coords to cropped canvas coords
-            var left   = (detection.X - srcRect.Left) * scaleX + destRect.Left;
-            var top    = (detection.Y - srcRect.Top)  * scaleY + destRect.Top;
-            var right  = left + detection.Width  * scaleX;
-            var bottom = top  + detection.Height * scaleY;
+            var left   = (dx - srcRect.Left) * scaleX + destRect.Left;
+            var top    = (dy - srcRect.Top)  * scaleY + destRect.Top;
+            var right  = left + dw * scaleX;
+            var bottom = top  + dh * scaleY;
 
             // Skip boxes completely outside visible area
             if (right < destRect.Left || left > destRect.Right || bottom < destRect.Top || top > destRect.Bottom)
                 continue;
 
             var rect = new SKRect(left, top, right, bottom);
+            var color = GetColorForLabel(detection.Label);
+            boxPaint.Color = color;
             canvas.DrawRect(rect, boxPaint);
 
             var label = $"{detection.Label} {detection.Confidence:P0}";
-            var labelWidth = textPaint.MeasureText(label) + 10;
-            var labelRect = new SKRect(left, Math.Max(destRect.Top, top - 24), left + labelWidth, Math.Max(destRect.Top + 22, top));
-            canvas.DrawRect(labelRect, labelBgPaint);
-            canvas.DrawText(label, left + 5, labelRect.Bottom - 5, textPaint);
+            var labelWidth = textPaint.MeasureText(label) + 10f;
+            const float labelHeight = 16f;
+
+            // Place label on top of box, or inside top if near top border
+            var labelTop = (top - labelHeight >= destRect.Top) ? top - labelHeight : top;
+            var labelRect = new SKRect(left, labelTop, Math.Min(destRect.Right, left + labelWidth), labelTop + labelHeight);
+
+            // Clean, uniform YOLO badge with class color (eliminates inconsistent dark boxes)
+            labelBgPaint.Color = color.WithAlpha(235);
+            canvas.DrawRoundRect(labelRect, 2.5f, 2.5f, labelBgPaint);
+
+            // High contrast text (black on bright/yellow/green, white on dark/red)
+            var lum = 0.299f * color.Red + 0.587f * color.Green + 0.114f * color.Blue;
+            textPaint.Color = (lum > 130f) ? new SKColor(15, 23, 42) : SKColors.White;
+            canvas.DrawText(label, left + 5f, labelRect.Bottom - 3.5f, textPaint);
         }
     }
 
@@ -354,24 +397,49 @@ public sealed partial class VideoStreamControl : UserControl
 
         var scaleX = destRect.Width / frameWidth;
         var scaleY = destRect.Height / frameHeight;
-        using var boxPaint = new SKPaint { Color = SKColors.LimeGreen, Style = SKPaintStyle.Stroke, StrokeWidth = 3, IsAntialias = true };
-        using var labelBgPaint = new SKPaint { Color = new SKColor(0, 0, 0, 190), Style = SKPaintStyle.Fill };
-        using var textPaint = new SKPaint { Color = SKColors.White, TextSize = 18, IsAntialias = true };
+        using var boxPaint = new SKPaint { Style = SKPaintStyle.Stroke, StrokeWidth = 2.0f, IsAntialias = true };
+        using var labelBgPaint = new SKPaint { Style = SKPaintStyle.Fill, IsAntialias = true };
+        using var textPaint = new SKPaint { TextSize = 12f, IsAntialias = true, FakeBoldText = true };
 
         foreach (var detection in _detectionOverlays)
         {
-            var left = destRect.Left + detection.X * scaleX;
-            var top = destRect.Top + detection.Y * scaleY;
-            var right = left + detection.Width * scaleX;
-            var bottom = top + detection.Height * scaleY;
+            float dx = detection.X;
+            float dy = detection.Y;
+            float dw = detection.Width;
+            float dh = detection.Height;
+
+            // Auto-scale if coords were defined in 1080p reference frame but current video is 640x360 or similar
+            if (frameWidth > 0 && frameHeight > 0 && (dx + dw > frameWidth || dy + dh > frameHeight))
+            {
+                dx = dx * frameWidth / 1920f;
+                dy = dy * frameHeight / 1080f;
+                dw = dw * frameWidth / 1920f;
+                dh = dh * frameHeight / 1080f;
+            }
+
+            var left = destRect.Left + dx * scaleX;
+            var top = destRect.Top + dy * scaleY;
+            var right = left + dw * scaleX;
+            var bottom = top + dh * scaleY;
             var rect = new SKRect(left, top, right, bottom);
 
+            var color = GetColorForLabel(detection.Label);
+            boxPaint.Color = color;
             canvas.DrawRect(rect, boxPaint);
+
             var label = $"{detection.Label} {detection.Confidence:P0}";
-            var labelWidth = textPaint.MeasureText(label) + 10;
-            var labelRect = new SKRect(left, Math.Max(destRect.Top, top - 24), left + labelWidth, Math.Max(destRect.Top + 22, top));
-            canvas.DrawRect(labelRect, labelBgPaint);
-            canvas.DrawText(label, left + 5, labelRect.Bottom - 5, textPaint);
+            var labelWidth = textPaint.MeasureText(label) + 10f;
+            const float labelHeight = 16f;
+
+            var labelTop = (top - labelHeight >= destRect.Top) ? top - labelHeight : top;
+            var labelRect = new SKRect(left, labelTop, Math.Min(destRect.Right, left + labelWidth), labelTop + labelHeight);
+
+            labelBgPaint.Color = color.WithAlpha(235);
+            canvas.DrawRoundRect(labelRect, 2.5f, 2.5f, labelBgPaint);
+
+            var lum = 0.299f * color.Red + 0.587f * color.Green + 0.114f * color.Blue;
+            textPaint.Color = (lum > 130f) ? new SKColor(15, 23, 42) : SKColors.White;
+            canvas.DrawText(label, left + 5f, labelRect.Bottom - 3.5f, textPaint);
         }
     }
 

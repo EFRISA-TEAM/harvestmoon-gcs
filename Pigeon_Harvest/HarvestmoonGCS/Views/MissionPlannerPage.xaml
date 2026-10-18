@@ -34,93 +34,168 @@
         </Style>
     </Page.Resources>
 
-    <Grid Margin="20,16,20,20">
+    <Grid Margin="0">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Margin="0,0,0,14">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
+        <!-- Top Header & Mission Actions Bar -->
+        <Border Grid.Row="0" Background="{ThemeResource CardBrush}" BorderBrush="{ThemeResource BorderBrush}" BorderThickness="0,0,0,1" Padding="16,10" Canvas.ZIndex="50">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
 
-            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                <TextBlock Text="Mission Planner" FontSize="24" FontWeight="Bold" Foreground="{ThemeResource ForegroundBrush}"/>
-                <Border Background="#1F4CAF50" BorderBrush="#4CAF50" BorderThickness="1" CornerRadius="999" Padding="10,4">
-                    <TextBlock Text="Map Routing Active" Foreground="{ThemeResource ForegroundBrush}" FontWeight="SemiBold" FontSize="12"/>
-                </Border>
-            </StackPanel>
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <TextBlock Text="Perencanaan Misi" FontSize="16" FontWeight="Bold" Foreground="{ThemeResource ForegroundBrush}" VerticalAlignment="Center"/>
+                    <Border Background="#1410B981" BorderBrush="#10B981" BorderThickness="1" CornerRadius="999" Padding="6,2" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <Ellipse Width="6" Height="6" Fill="#10B981" VerticalAlignment="Center"/>
+                            <TextBlock Text="WGS 84" Foreground="#34D399" FontWeight="SemiBold" FontSize="10" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                    <Button Click="SwitchToMapPage_Click" Style="{StaticResource OutlineButtonStyle}" Padding="8,4" ToolTipService.ToolTip="Buka Peta Lahan">
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <FontIcon Glyph="&#xE81D;" FontSize="11"/>
+                            <TextBlock Text="Peta Lahan" FontSize="11" FontWeight="SemiBold"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
 
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
-                <Button x:Name="AddWaypointButton" Content="+ WP" Click="AddWaypointButton_Click" Style="{StaticResource OutlineButtonStyle}" ToolTipService.ToolTip="Add waypoint"/>
-                <Button x:Name="ImportMissionButton" Content="Import .wpl" Click="ImportMissionButton_Click" Style="{StaticResource OutlineButtonStyle}" ToolTipService.ToolTip="Import standard ArduPilot/QGC .waypoints file"/>
-                <Button x:Name="ExportMissionButton" Content="Export .wpl" Click="ExportMissionButton_Click" Style="{StaticResource OutlineButtonStyle}" ToolTipService.ToolTip="Export standard QGC WPL 110 mission file"/>
-                <Button x:Name="DownloadMissionButton" Content="Read UAV" Click="DownloadMissionButton_Click" Style="{StaticResource OutlineButtonStyle}" ToolTipService.ToolTip="Download mission currently loaded on UAV"/>
-                <Button x:Name="ClearWaypointButton" Content="Clear" Click="ClearWaypointButton_Click" Style="{StaticResource OutlineButtonStyle}" ToolTipService.ToolTip="Clear all waypoints"/>
-                <Button x:Name="UploadMissionButton" Content="Upload Mission" Click="UploadMissionButton_Click" Style="{StaticResource PrimaryButtonStyle}" ToolTipService.ToolTip="Upload mission to connected vehicle"/>
-            </StackPanel>
-        </Grid>
+                <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" HorizontalScrollMode="Enabled" VerticalScrollMode="Disabled">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6">
+                        <Button x:Name="DemoMissionButton" Click="LoadDemoMission_Click" Style="{StaticResource OutlineButtonStyle}" ToolTipService.ToolTip="Muat skenario penerbangan riset PDP" Padding="8,5">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <FontIcon Glyph="&#xE81E;" FontSize="11"/>
+                                <TextBlock Text="Scenario" FontSize="11" FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="AddWaypointButton" Click="AddWaypointButton_Click" Style="{StaticResource OutlineButtonStyle}" ToolTipService.ToolTip="Tambah titik waypoint baru" Padding="8,5">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <FontIcon Glyph="&#xE710;" FontSize="11"/>
+                                <TextBlock Text="Add WP" FontSize="11" FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="DownloadMissionButton" Click="DownloadMissionButton_Click" Style="{StaticResource OutlineButtonStyle}" ToolTipService.ToolTip="Unduh misi aktif dari drone" Padding="8,5">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <FontIcon Glyph="&#xE896;" FontSize="11"/>
+                                <TextBlock Text="Read UAV" FontSize="11" FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="ClearWaypointButton" Click="ClearWaypointButton_Click" Style="{StaticResource OutlineButtonStyle}" ToolTipService.ToolTip="Hapus semua titik waypoint" Padding="8,5">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <FontIcon Glyph="&#xE74D;" FontSize="11"/>
+                                <TextBlock Text="Clear All" FontSize="11" FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="ImportMissionButton" Click="ImportMissionButton_Click" Style="{StaticResource OutlineButtonStyle}" ToolTipService.ToolTip="Import file .waypoints / .wpl" Padding="8,5">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <FontIcon Glyph="&#xE8E5;" FontSize="11"/>
+                                <TextBlock Text="Import" FontSize="11" FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="ExportMissionButton" Click="ExportMissionButton_Click" Style="{StaticResource OutlineButtonStyle}" ToolTipService.ToolTip="Export file .waypoints / .wpl" Padding="8,5">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <FontIcon Glyph="&#xE74E;" FontSize="11"/>
+                                <TextBlock Text="Export" FontSize="11" FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="UploadMissionButton" Click="UploadMissionButton_Click" Style="{StaticResource PrimaryButtonStyle}" ToolTipService.ToolTip="Kirim misi penerbangan ke drone" Padding="10,5">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <FontIcon Glyph="&#xE724;" FontSize="11"/>
+                                <TextBlock Text="Write UAV" FontSize="11" FontWeight="Bold"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Border>
 
-        <Grid Grid.Row="1" ColumnSpacing="14">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="2.2*"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
+        <!-- Full Viewport Map with Floating Overlays -->
+        <Grid Grid.Row="1">
+            <controls:SkiaMapControl x:Name="MissionMapControl"
+                                     DoubleTapped="MissionMapControl_DoubleTapped" />
 
-            <Border Grid.Column="0" Style="{StaticResource CardStyle}">
+            <!-- Floating Top Controls Bar (Map Provider, Layers, Geofence) -->
+            <Border HorizontalAlignment="Left" VerticalAlignment="Top"
+                    Margin="16,14,0,0"
+                    Background="{ThemeResource CardBrush95}"
+                    BorderBrush="{ThemeResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="10,6"
+                    Canvas.ZIndex="300">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="Map:" VerticalAlignment="Center" Foreground="{ThemeResource MutedForegroundBrush}" FontSize="11" FontWeight="SemiBold"/>
+                    <ComboBox x:Name="MapProviderComboBox" Width="140" SelectionChanged="MapProviderComboBox_SelectionChanged" SelectedIndex="0">
+                        <ComboBoxItem Content="Google Map"/>
+                        <ComboBoxItem Content="Google Satellite"/>
+                        <ComboBoxItem Content="Google Hybrid"/>
+                        <ComboBoxItem Content="Google Terrain"/>
+                        <ComboBoxItem Content="OpenStreetMap"/>
+                        <ComboBoxItem Content="ArcGIS Topographic"/>
+                        <ComboBoxItem Content="ArcGIS Imagery"/>
+                        <ComboBoxItem Content="ArcGIS StreetMap"/>
+                    </ComboBox>
+
+                    <ToggleButton x:Name="ToggleIrrigationBtn" IsChecked="True" Click="ToggleIrrigationBtn_Click" FontSize="11" Padding="7,4" CornerRadius="5" ToolTipService.ToolTip="Tampilkan/sembunyikan poligon petak sawah tematik">
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <FontIcon Glyph="&#xE809;" FontSize="11"/>
+                            <TextBlock Text="Field Plots" FontSize="11"/>
+                        </StackPanel>
+                    </ToggleButton>
+                    <ToggleButton x:Name="ToggleSensorsBtn" IsChecked="True" Click="ToggleSensorsBtn_Click" FontSize="11" Padding="7,4" CornerRadius="5" ToolTipService.ToolTip="Tampilkan/sembunyikan sensor in-situ tanah">
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <FontIcon Glyph="&#xE7C1;" FontSize="11"/>
+                            <TextBlock Text="Soil Probes" FontSize="11"/>
+                        </StackPanel>
+                    </ToggleButton>
+
+                    <Border Width="1" Background="{ThemeResource BorderBrush}" Margin="4,2"/>
+
+                    <!-- Geofence Quick Bar -->
+                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <CheckBox x:Name="GeofenceEnableCheckBox" Content="Geofence" IsChecked="False" Click="GeofenceEnableCheckBox_Click" VerticalAlignment="Center" FontSize="11"/>
+                        <Slider x:Name="GeofenceRadiusSlider" Width="75" Minimum="100" Maximum="1000" Value="650" ValueChanged="GeofenceRadiusSlider_ValueChanged" IsEnabled="False" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="GeofenceLabel" Text="650 m" VerticalAlignment="Center" Foreground="{ThemeResource ForegroundBrush}" FontWeight="SemiBold" FontSize="11"/>
+                        <Button x:Name="SendGeofenceButton" Content="Upload Fence" FontSize="10" Padding="6,4" CornerRadius="4"
+                                Background="{ThemeResource SecondaryBrush}" Foreground="{ThemeResource ForegroundBrush}"
+                                ToolTipService.ToolTip="Kirim batas aman terbang ke wahana"
+                                Click="SendGeofenceButton_Click" IsEnabled="False"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Floating Waypoints Drawer Panel (Right Side) -->
+            <Border x:Name="WaypointDrawerPanel"
+                    HorizontalAlignment="Right" VerticalAlignment="Stretch"
+                    Margin="0,14,16,16"
+                    Width="340"
+                    Background="{ThemeResource CardBrush95}"
+                    BorderBrush="{ThemeResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="10"
+                    Padding="14"
+                    Canvas.ZIndex="350">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <Grid Grid.Row="0" Margin="0,0,0,10" ColumnSpacing="10">
+                    <Grid Grid.Row="0" Margin="0,0,0,10">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-
-                        <TextBlock Grid.Column="0" Text="Map Provider" VerticalAlignment="Center" Foreground="{ThemeResource MutedForegroundBrush}"/>
-                        <ComboBox x:Name="MapProviderComboBox" Grid.Column="1" Width="180" SelectionChanged="MapProviderComboBox_SelectionChanged">
-                            <ComboBoxItem Content="ArcGIS Topographic"/>
-                            <ComboBoxItem Content="ArcGIS Imagery"/>
-                            <ComboBoxItem Content="ArcGIS StreetMap"/>
-                            <ComboBoxItem Content="Google Map"/>
-                            <ComboBoxItem Content="Google Satellite"/>
-                            <ComboBoxItem Content="Google Terrain"/>
-                            <ComboBoxItem Content="Google Hybrid"/>
-                        </ComboBox>
-
-                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <TextBlock Text="Geofence" VerticalAlignment="Center" Foreground="{ThemeResource MutedForegroundBrush}"/>
-                            <Slider x:Name="GeofenceRadiusSlider" Width="120" Minimum="100" Maximum="1000" Value="650" ValueChanged="GeofenceRadiusSlider_ValueChanged"/>
-                            <TextBlock x:Name="GeofenceLabel" Text="650 m" VerticalAlignment="Center" Foreground="{ThemeResource ForegroundBrush}" FontWeight="SemiBold"/>
-                            <Button x:Name="SendGeofenceButton" Content="Send to Vehicle" FontSize="11" Padding="8,4" CornerRadius="5"
-                                    Background="{ThemeResource SecondaryBrush}" Foreground="{ThemeResource ForegroundBrush}"
-                                    ToolTipService.ToolTip="Sends FENCE_ENABLE/FENCE_RADIUS/FENCE_TYPE/FENCE_ACTION parameters to the connected vehicle"
-                                    Click="SendGeofenceButton_Click"/>
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="Rencana Misi Penerbangan" FontSize="13" FontWeight="Bold" Foreground="{ThemeResource ForegroundBrush}"/>
+                            <TextBlock Text="Urutan Titik Eksekusi Autopilot" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}"/>
                         </StackPanel>
                     </Grid>
-
-                    <controls:SkiaMapControl x:Name="MissionMapControl"
-                                             Grid.Row="1"
-                                             DoubleTapped="MissionMapControl_DoubleTapped" />
-                </Grid>
-            </Border>
-
-            <Border Grid.Column="1" Style="{StaticResource CardStyle}">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-
-                    <TextBlock Grid.Row="0" Text="Waypoint Queue" FontSize="16" FontWeight="SemiBold" Foreground="{ThemeResource ForegroundBrush}" Margin="0,0,0,10"/>
 
                     <ListView x:Name="WaypointListView" Grid.Row="1" SelectionMode="None">
                         <ListView.ItemTemplate>
@@ -142,18 +217,20 @@
                                     </StackPanel>
 
                                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
-                                        <Button Content="✎"
-                                                Tag="{Binding Sequence}"
+                                        <Button Tag="{Binding Sequence}"
                                                 Click="EditWaypointButton_Click"
                                                 Style="{StaticResource OutlineButtonStyle}"
                                                 ToolTipService.ToolTip="Edit Waypoint Altitude &amp; Coords"
-                                                Padding="7,2"/>
-                                        <Button Content="✕"
-                                                Tag="{Binding Sequence}"
+                                                Padding="6,4">
+                                            <FontIcon Glyph="&#xE70F;" FontSize="11"/>
+                                        </Button>
+                                        <Button Tag="{Binding Sequence}"
                                                 Click="RemoveWaypointButton_Click"
                                                 Style="{StaticResource OutlineButtonStyle}"
                                                 ToolTipService.ToolTip="Remove Waypoint"
-                                                Padding="7,2"/>
+                                                Padding="6,4">
+                                            <FontIcon Glyph="&#xE711;" FontSize="11"/>
+                                        </Button>
                                     </StackPanel>
                                 </Grid>
                             </DataTemplate>

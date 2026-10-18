@@ -51,7 +51,7 @@
                     </StackPanel>
 
                     <!-- model name -->
-                    <TextBlock Grid.Column="1" x:Name="ModelNameText" Text="yolov8n-agri.onnx" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" VerticalAlignment="Center" Margin="12,0"/>
+                    <TextBlock Grid.Column="1" x:Name="ModelNameText" Text="yolo11n_proposal_pdp.onnx" FontSize="10" Foreground="{ThemeResource MutedForegroundBrush}" VerticalAlignment="Center" Margin="12,0"/>
 
                     <!-- Offline badge -->
                     <Border Grid.Column="2" Padding="6,3" CornerRadius="5" Background="#1022C55E" BorderBrush="#2822C55E" BorderThickness="1" Margin="0,0,6,0">
@@ -130,12 +130,10 @@
                         <TextBlock Text="MODEL CONFIG" Style="{StaticResource SectionLabelStyle}"/>
 
                         <ComboBox x:Name="ModelCombo" HorizontalAlignment="Stretch" FontSize="11" SelectedIndex="0" Height="32">
+                            <ComboBoxItem Content="yolo11n_proposal_pdp.onnx"/>
+                            <ComboBoxItem Content="moonharvest-health-cls.onnx"/>
                             <ComboBoxItem Content="moonharvest-uav-det.onnx"/>
                             <ComboBoxItem Content="moonharvest-uav-det-int8.onnx"/>
-                            <ComboBoxItem Content="moonharvest-health-cls-v5.onnx"/>
-                            <ComboBoxItem Content="moonharvest-health-cls-int8.onnx"/>
-                            <ComboBoxItem Content="yolov8n-crop-weed-416.onnx"/>
-                            <ComboBoxItem Content="yolov8n-320.onnx"/>
                         </ComboBox>
 
                         <!-- Conf threshold -->

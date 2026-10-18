@@ -1,3 +1,4 @@
+using System.Threading;
 using Microsoft.Data.Sqlite;
 using HarvestmoonGCS.Core.Models;
 
@@ -12,6 +13,7 @@ public class MBTilesDatabase : IDisposable
     private SqliteConnection? _connection;
     private readonly string _dbPath;
     private readonly ILoggingService? _logger;
+    private readonly SemaphoreSlim _dbLock = new(1, 1);
     private bool _disposed;
 
     /// <summary>
@@ -143,12 +145,22 @@ public class MBTilesDatabase : IDisposable
     /// </summary>
     public string? GetMetadata(string name)
     {
-        using var cmd = _connection!.CreateCommand();
-        cmd.CommandText = "SELECT value FROM metadata WHERE name = @name;";
-        cmd.Parameters.AddWithValue("@name", name);
-        
-        var result = cmd.ExecuteScalar();
-        return result?.ToString();
+        if (_connection == null) return null;
+
+        _dbLock.Wait();
+        try
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "SELECT value FROM metadata WHERE name = @name;";
+            cmd.Parameters.AddWithValue("@name", name);
+            
+            var result = cmd.ExecuteScalar();
+            return result?.ToString();
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
     }
 
     /// <summary>
@@ -158,40 +170,48 @@ public class MBTilesDatabase : IDisposable
     {
         if (_connection == null) throw new InvalidOperationException("Database not initialized");
 
-        using var transaction = _connection.BeginTransaction();
-        
+        await _dbLock.WaitAsync();
         try
         {
-            var batch = new List<TileData>();
-            int totalInserted = 0;
-
-            foreach (var tile in tiles)
+            using var transaction = _connection.BeginTransaction();
+            
+            try
             {
-                batch.Add(tile);
+                var batch = new List<TileData>();
+                int totalInserted = 0;
 
-                if (batch.Count >= batchSize)
+                foreach (var tile in tiles)
+                {
+                    batch.Add(tile);
+
+                    if (batch.Count >= batchSize)
+                    {
+                        await InsertBatchInternalAsync(batch, transaction);
+                        totalInserted += batch.Count;
+                        batch.Clear();
+                    }
+                }
+
+                // Insert remaining tiles
+                if (batch.Count > 0)
                 {
                     await InsertBatchInternalAsync(batch, transaction);
                     totalInserted += batch.Count;
-                    batch.Clear();
                 }
-            }
 
-            // Insert remaining tiles
-            if (batch.Count > 0)
+                transaction.Commit();
+                _logger?.LogInfo($"Inserted {totalInserted} tiles", nameof(MBTilesDatabase));
+            }
+            catch (Exception ex)
             {
-                await InsertBatchInternalAsync(batch, transaction);
-                totalInserted += batch.Count;
+                transaction.Rollback();
+                _logger?.LogError($"Failed to insert tiles: {ex.Message}", nameof(MBTilesDatabase));
+                throw;
             }
-
-            transaction.Commit();
-            _logger?.LogInfo($"Inserted {totalInserted} tiles", nameof(MBTilesDatabase));
         }
-        catch (Exception ex)
+        finally
         {
-            transaction.Rollback();
-            _logger?.LogError($"Failed to insert tiles: {ex.Message}", nameof(MBTilesDatabase));
-            throw;
+            _dbLock.Release();
         }
     }
 
@@ -229,6 +249,7 @@ public class MBTilesDatabase : IDisposable
     {
         if (_connection == null) return null;
 
+        await _dbLock.WaitAsync();
         try
         {
             using var cmd = _connection.CreateCommand();
@@ -251,6 +272,10 @@ public class MBTilesDatabase : IDisposable
             _logger?.LogError($"Failed to get tile {z}/{x}/{y}: {ex.Message}", nameof(MBTilesDatabase));
             return null;
         }
+        finally
+        {
+            _dbLock.Release();
+        }
     }
 
     /// <summary>
@@ -260,21 +285,29 @@ public class MBTilesDatabase : IDisposable
     {
         if (_connection == null) return false;
 
-        using var cmd = _connection.CreateCommand();
-        cmd.CommandText = @"
-            SELECT 1 FROM tiles 
-            WHERE zoom_level = @zoom 
-            AND tile_column = @col 
-            AND tile_row = @row
-            LIMIT 1;
-        ";
-        
-        cmd.Parameters.AddWithValue("@zoom", z);
-        cmd.Parameters.AddWithValue("@col", x);
-        cmd.Parameters.AddWithValue("@row", TileData.FromTmsY(y, z));
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = @"
+                SELECT 1 FROM tiles 
+                WHERE zoom_level = @zoom 
+                AND tile_column = @col 
+                AND tile_row = @row
+                LIMIT 1;
+            ";
+            
+            cmd.Parameters.AddWithValue("@zoom", z);
+            cmd.Parameters.AddWithValue("@col", x);
+            cmd.Parameters.AddWithValue("@row", TileData.FromTmsY(y, z));
 
-        var result = await cmd.ExecuteScalarAsync();
-        return result != null;
+            var result = await cmd.ExecuteScalarAsync();
+            return result != null;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
     }
 
     /// <summary>
@@ -284,11 +317,19 @@ public class MBTilesDatabase : IDisposable
     {
         if (_connection == null) return 0;
 
-        using var cmd = _connection.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM tiles;";
-        
-        var result = await cmd.ExecuteScalarAsync();
-        return Convert.ToInt32(result);
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*) FROM tiles;";
+            
+            var result = await cmd.ExecuteScalarAsync();
+            return Convert.ToInt32(result);
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
     }
 
     /// <summary>
@@ -338,13 +379,21 @@ public class MBTilesDatabase : IDisposable
     {
         if (_connection == null) return 0;
 
-        using var cmd = _connection.CreateCommand();
-        cmd.CommandText = "DELETE FROM tiles;";
-        
-        var rowsAffected = await cmd.ExecuteNonQueryAsync();
-        _logger?.LogInfo($"Cleared {rowsAffected} tiles from database", nameof(MBTilesDatabase));
-        
-        return rowsAffected;
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "DELETE FROM tiles;";
+            
+            var rowsAffected = await cmd.ExecuteNonQueryAsync();
+            _logger?.LogInfo($"Cleared {rowsAffected} tiles from database", nameof(MBTilesDatabase));
+            
+            return rowsAffected;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
     }
 
     /// <summary>
@@ -366,9 +415,18 @@ public class MBTilesDatabase : IDisposable
     {
         if (!_disposed)
         {
-            _connection?.Close();
-            _connection?.Dispose();
-            _disposed = true;
+            _dbLock.Wait();
+            try
+            {
+                _connection?.Close();
+                _connection?.Dispose();
+                _disposed = true;
+            }
+            finally
+            {
+                _dbLock.Release();
+                _dbLock.Dispose();
+            }
         }
     }
 }

@@ -1,4 +1,4 @@
-bare_soil
-drought_severe_stress
-inconsistent_growth
-lush_green
+0_zona_normal
+1_ketidakmerataan_irigasi
+2_defisit_air_kanopi
+3_defisit_air_tanah

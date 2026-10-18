@@ -9,9 +9,11 @@ using Microsoft.UI.Xaml.Media;
 using HarvestmoonGCS.Core.Models;
 using HarvestmoonGCS.Core.Services;
 using HarvestmoonGCS.Core.Helpers;
+using HarvestmoonGCS.Services;
 using System.Linq;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Dispatching;
+using ConnectionType = HarvestmoonGCS.Core.Models.ConnectionType;
 
 namespace HarvestmoonGCS.Views
 {
@@ -21,7 +23,9 @@ namespace HarvestmoonGCS.Views
         private readonly IMavLinkService? _mavLinkService;
         private readonly ISettingsService? _settingsService;
         private readonly IRuncamWifiLinkService? _runcamService;
+        private readonly ISoilMoistureService? _soilMoistureService;
         private bool _isRuncamMode = false;
+        private bool _isLoRaMode = false;
         private bool _runcamIpUserEdited;
         private bool _suppressRuncamIpTracking;
         private System.Threading.CancellationTokenSource? _runcamScanCts;
@@ -57,6 +61,7 @@ namespace HarvestmoonGCS.Views
             _mavLinkService = mavLinkService;
             _settingsService = App.Current.Services.GetService<ISettingsService>();
             _runcamService  = App.Current.Services.GetService<IRuncamWifiLinkService>();
+            _soilMoistureService = App.Current.Services.GetService<ISoilMoistureService>();
             
             // Set initial state
             UpdateTabStyles();
@@ -551,6 +556,14 @@ namespace HarvestmoonGCS.Views
                 return;
             }
 
+            if (_isLoRaMode)
+            {
+                var isLoraConnected = _soilMoistureService?.IsConnected ?? false;
+                ConnectButtonText.Text = isLoraConnected ? "Disconnect LoRa" : "Connect LoRa";
+                ConnectButtonIcon.Glyph = isLoraConnected ? "\uE71A" : "\uE912";
+                return;
+            }
+
             var isConnected = (_mavLinkService?.IsConnected ?? false)
                 || (_runcamService != null && (_runcamService.IsCameraConnected || _runcamService.IsMavLinkConnected));
             ConnectButtonText.Text = isConnected ? "Disconnect" : "Connect";
@@ -661,8 +674,20 @@ namespace HarvestmoonGCS.Views
         {
             if (sender is Button button && button.Tag is string typeStr)
             {
+                if (typeStr == "LoRaSoil")
+                {
+                    _isLoRaMode = true;
+                    _isRuncamMode = false;
+                    UpdateTabStyles();
+                    UpdateFieldsVisibility();
+                    UpdateConnectButtonState();
+                    UpdateLoraAutoCheckUi(_soilMoistureService?.LatestAutoCheck);
+                    return;
+                }
+
                 if (typeStr == "RuncamWifi")
                 {
+                    _isLoRaMode = false;
                     _isRuncamMode = true;
                     _selectedType = ConnectionType.UDP; // internal fallback
                     UpdateTabStyles();
@@ -673,6 +698,7 @@ namespace HarvestmoonGCS.Views
                     return;
                 }
 
+                _isLoRaMode = false;
                 _isRuncamMode = false;
                 if (Enum.TryParse(typeStr, out ConnectionType type))
                 {
@@ -695,26 +721,30 @@ namespace HarvestmoonGCS.Views
                 var activeStyle  = (Style)Resources["ActiveTabButtonStyle"];
                 var inactiveStyle = (Style)Resources["TabButtonStyle"];
 
-                UdpTab.Style    = (!_isRuncamMode && _selectedType == ConnectionType.UDP)    ? activeStyle : inactiveStyle;
-                TcpTab.Style    = (!_isRuncamMode && _selectedType == ConnectionType.TCP)    ? activeStyle : inactiveStyle;
-                SerialTab.Style = (!_isRuncamMode && _selectedType == ConnectionType.Serial) ? activeStyle : inactiveStyle;
+                bool isMav = !_isRuncamMode && !_isLoRaMode;
+                UdpTab.Style    = (isMav && _selectedType == ConnectionType.UDP)    ? activeStyle : inactiveStyle;
+                TcpTab.Style    = (isMav && _selectedType == ConnectionType.TCP)    ? activeStyle : inactiveStyle;
+                SerialTab.Style = (isMav && _selectedType == ConnectionType.Serial) ? activeStyle : inactiveStyle;
                 RuncamTab.Style = _isRuncamMode ? activeStyle : inactiveStyle;
+                if (LoraTab != null) LoraTab.Style = _isLoRaMode ? activeStyle : inactiveStyle;
             }
         }
 
         private void UpdateFieldsVisibility()
         {
-            bool isNetwork = !_isRuncamMode && (_selectedType == ConnectionType.UDP || _selectedType == ConnectionType.TCP);
-            bool isSerial  = !_isRuncamMode && _selectedType == ConnectionType.Serial;
+            bool isNetwork = !_isRuncamMode && !_isLoRaMode && (_selectedType == ConnectionType.UDP || _selectedType == ConnectionType.TCP);
+            bool isSerial  = !_isRuncamMode && !_isLoRaMode && _selectedType == ConnectionType.Serial;
             bool isRuncam  = _isRuncamMode;
+            bool isLora    = _isLoRaMode;
 
             NetworkFields.Visibility    = isNetwork ? Visibility.Visible : Visibility.Collapsed;
             SerialFields.Visibility     = isSerial  ? Visibility.Visible : Visibility.Collapsed;
             RuncamWifiFields.Visibility = isRuncam  ? Visibility.Visible : Visibility.Collapsed;
+            if (LoraSoilFields != null) LoraSoilFields.Visibility = isLora ? Visibility.Visible : Visibility.Collapsed;
 
-            // Sembunyikan presets saat mode RunCam
+            // Sembunyikan presets saat mode RunCam atau LoRa
             if (PresetsPanel != null)
-                PresetsPanel.Visibility = isRuncam ? Visibility.Collapsed : Visibility.Visible;
+                PresetsPanel.Visibility = (isRuncam || isLora) ? Visibility.Collapsed : Visibility.Visible;
         }
 
         private void Preset_Click(object sender, RoutedEventArgs e)
@@ -760,21 +790,25 @@ namespace HarvestmoonGCS.Views
 
                         BaudRateComboBox.SelectedItem = 57600;
                         break;
+                    case "HM30":
+                    case "SIYI":
                     case "RUNCAM":
-                        // Preset RunCam WiFi Link 2 – aktifkan tab RunCam
+                        // Shortcut SIYI HM30 (Dual Link: Kamera RTSP HD + Telemetri MAVLink UDP)
                         _isRuncamMode = true;
+                        _isLoRaMode = false;
                         _suppressRuncamIpTracking = true;
                         try
                         {
-                            RuncamIpTextBox.Text = "192.168.1.100";
+                            RuncamIpTextBox.Text = "192.168.144.25"; // IP Default Kamera SIYI
                         }
                         finally
                         {
                             _suppressRuncamIpTracking = false;
                         }
-                        RuncamMavLocalPortTextBox.Text  = "14550";
-                        RuncamMavRemotePortTextBox.Text = "14551";
-                        RuncamProtocolComboBox.SelectedIndex = 2; // Auto
+                        RuncamMavLocalPortTextBox.Text = "14550";
+                        RuncamMavRemotePortTextBox.Text = "14550";
+                        RuncamProtocolComboBox.SelectedIndex = 0; // RTSP
+                        StatusSubtitle.Text = "Shortcut SIYI HM30 Aktif: Kamera RTSP 8554 + MAVLink UDP 14550";
                         break;
                     case "UAVLISTEN":
                         // UAV (Orange Pi companion) MENDORONG telemetri ke GCS:14550.
@@ -805,6 +839,51 @@ namespace HarvestmoonGCS.Views
 
             if (_isAutoConnectingPort)
             {
+                return;
+            }
+
+            if (_isLoRaMode)
+            {
+                if (_soilMoistureService?.IsConnected == true)
+                {
+                    _soilMoistureService.Disconnect();
+                    StatusSubtitle.Text = "LoRa Sensor Disconnected";
+                    UpdateConnectButtonState();
+                    UpdateLoraAutoCheckUi(_soilMoistureService.LatestAutoCheck);
+                    return;
+                }
+
+                if (_soilMoistureService != null)
+                {
+                    var selectedTag = (LoraSourceComboBox?.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "Serial";
+                    var port = LoraPortTextBox?.Text?.Trim() ?? "/dev/ttyUSB0";
+                    var baud = 115200;
+                    if (LoraBaudComboBox?.SelectedItem is int b) baud = b;
+
+                    if (selectedTag == "Sim")
+                    {
+                        await _soilMoistureService.ConnectAsync("SIMULATOR");
+                    }
+                    else if (selectedTag == "UDP")
+                    {
+                        await _soilMoistureService.StartUdpListenerAsync(14552);
+                    }
+                    else
+                    {
+                        await _soilMoistureService.ConnectAsync(port, baud);
+                    }
+
+                    var check = _soilMoistureService.RunAutoCheck();
+                    UpdateLoraAutoCheckUi(check);
+                }
+
+                StatusSubtitle.Text = "Penerima Sensor Tanah LoRa Terhubung & Terverifikasi!";
+                UpdateConnectButtonState();
+                _ = DispatcherQueue.TryEnqueue(async () =>
+                {
+                    await Task.Delay(700);
+                    Hide();
+                });
                 return;
             }
 
@@ -1307,12 +1386,16 @@ namespace HarvestmoonGCS.Views
                 _ => HarvestmoonGCS.Core.Models.RuncamStreamProtocol.Auto
             };
 
+            bool isSiyi = ip.Contains("192.168.144.") || ip.Equals("192.168.144.25", StringComparison.OrdinalIgnoreCase);
+
             return new HarvestmoonGCS.Core.Models.RuncamWifiLinkConfig
             {
                 CameraIp          = ip,
+                RtspPort          = isSiyi ? 8554 : 554,
+                RtspPath          = isSiyi ? "/main.264" : "/live",
                 StreamProtocol    = protocol,
                 MavLinkLocalPort  = localPort,
-                MavLinkRemoteIp   = ip,
+                MavLinkRemoteIp   = isSiyi ? "192.168.144.11" : ip,
                 MavLinkRemotePort = remotePort
             };
         }
@@ -1426,6 +1509,42 @@ namespace HarvestmoonGCS.Views
             {
                 Serilog.Log.Warning(ex, "[ConnectDialog] Auto-connect startup gagal");
                 return false;
+            }
+        }
+
+        private void BtnTriggerLoraAutoCheck_Click(object sender, RoutedEventArgs e)
+        {
+            if (_soilMoistureService != null)
+            {
+                var summary = _soilMoistureService.RunAutoCheck();
+                UpdateLoraAutoCheckUi(summary);
+            }
+        }
+
+        private void UpdateLoraAutoCheckUi(HarvestmoonGCS.Core.Models.LoRaAutoCheckSummary? summary)
+        {
+            if (summary == null) return;
+            if (LoraAutoCheckTitle != null)
+            {
+                LoraAutoCheckTitle.Text = summary.OverallStatus switch
+                {
+                    "CRITICAL" => "⚠ Auto-Check: DEFISIT KRITIS TERDETEKSI",
+                    "WARNING" => "⚠ Auto-Check: WASPADA STRES IRIGASI",
+                    "OFFLINE" => "○ Auto-Check: LINK OFFLINE / STANDBY",
+                    _ => "✓ Auto-Check: SEMUA NODE NORMAL (OPTIMAL)"
+                };
+                LoraAutoCheckTitle.Foreground = new SolidColorBrush(summary.OverallStatus switch
+                {
+                    "CRITICAL" => Color.FromArgb(0xFF, 0xEF, 0x44, 0x44),
+                    "WARNING" => Color.FromArgb(0xFF, 0xF5, 0x9E, 0x0B),
+                    "OFFLINE" => Color.FromArgb(0xFF, 0x94, 0xA3, 0xB8),
+                    _ => Color.FromArgb(0xFF, 0x10, 0xB9, 0x81)
+                });
+            }
+
+            if (LoraAutoCheckDesc != null)
+            {
+                LoraAutoCheckDesc.Text = $"{summary.SummaryMessage} · Rata-rata VWC: {summary.AverageMoisture:F1}% ({summary.OnlineNodes}/{summary.TotalNodes} Node Online)";
             }
         }
     }

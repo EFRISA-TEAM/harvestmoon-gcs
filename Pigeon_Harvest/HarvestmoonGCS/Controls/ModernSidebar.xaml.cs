@@ -69,6 +69,7 @@ public sealed partial class ModernSidebar : UserControl
         if (FlightNavLabel != null)      FlightNavLabel.Visibility      = vis;
         if (CameraNavLabel != null)      CameraNavLabel.Visibility      = vis;
         if (MapNavLabel != null)         MapNavLabel.Visibility         = vis;
+        if (MissionNavLabel != null)     MissionNavLabel.Visibility     = vis;
         if (StatsNavLabel != null)       StatsNavLabel.Visibility       = vis;
         if (EdgeModeNavLabel != null)    EdgeModeNavLabel.Visibility    = vis;
         if (AISettingsNavLabel != null)  AISettingsNavLabel.Visibility  = vis;
@@ -80,6 +81,7 @@ public sealed partial class ModernSidebar : UserControl
         if (FlightActiveDot != null)     FlightActiveDot.Visibility     = vis;
         if (CameraActiveDot != null)     CameraActiveDot.Visibility     = vis;
         if (MapActiveDot != null)        MapActiveDot.Visibility        = vis;
+        if (MissionActiveDot != null)    MissionActiveDot.Visibility    = vis;
         if (StatsActiveDot != null)      StatsActiveDot.Visibility      = vis;
         if (EdgeModeActiveDot != null)   EdgeModeActiveDot.Visibility   = vis;
         if (AISettingsActiveDot != null) AISettingsActiveDot.Visibility = vis;
@@ -92,6 +94,7 @@ public sealed partial class ModernSidebar : UserControl
         SetIconMarginInButton(FlightNavButton, margin);
         SetIconMarginInButton(CameraNavButton, margin);
         SetIconMarginInButton(MapNavButton, margin);
+        SetIconMarginInButton(MissionNavButton, margin);
         SetIconMarginInButton(StatsNavButton, margin);
         SetIconMarginInButton(EdgeModeNavButton, margin);
         SetIconMarginInButton(AISettingsNavButton, margin);
@@ -222,6 +225,7 @@ public sealed partial class ModernSidebar : UserControl
         if (button == FlightNavButton) FlightActiveDot.Opacity = opacity;
         else if (button == CameraNavButton) CameraActiveDot.Opacity = opacity;
         else if (button == MapNavButton) MapActiveDot.Opacity = opacity;
+        else if (button == MissionNavButton) MissionActiveDot.Opacity = opacity;
         else if (button == StatsNavButton) StatsActiveDot.Opacity = opacity;
         else if (button == EdgeModeNavButton) EdgeModeActiveDot.Opacity = opacity;
         else if (button == AISettingsNavButton) AISettingsActiveDot.Opacity = opacity;
@@ -236,6 +240,7 @@ public sealed partial class ModernSidebar : UserControl
         if (button == FlightNavButton) return (Brush)Application.Current.Resources["NavFlightBrush"];
         if (button == CameraNavButton) return (Brush)Application.Current.Resources["NavCameraBrush"];
         if (button == MapNavButton) return (Brush)Application.Current.Resources["NavMapBrush"];
+        if (button == MissionNavButton) return (Brush)Application.Current.Resources["NavMapBrush"];
         if (button == StatsNavButton) return (Brush)Application.Current.Resources["NavStatsBrush"];
         if (button == AISettingsNavButton) return (Brush)Application.Current.Resources["PrimaryBrush"];
         if (button == TlogNavButton) return (Brush)Application.Current.Resources["NavTlogBrush"];

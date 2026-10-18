@@ -43,6 +43,7 @@
                             <Button Content="Run Analysis" Padding="14,8" Background="{ThemeResource PrimaryBrush}" Foreground="White" Click="RunAnalysisButton_Click"/>
                             <Button Content="Export JSON" Padding="14,8" Click="ExportJsonButton_Click"/>
                             <Button Content="Export CSV" Padding="14,8" Click="ExportCsvButton_Click"/>
+                            <Button Content="Export PDF" Padding="14,8" Click="ExportPdfButton_Click"/>
                         </StackPanel>
                         <TextBlock x:Name="AnalysisStatusText" Text="Belum ada analisis dijalankan." Style="{StaticResource LabelStyle}"/>
                     </StackPanel>
@@ -50,42 +51,52 @@
 
                 <Border Style="{StaticResource CardStyle}" Margin="0,0,0,10">
                     <StackPanel>
-                        <TextBlock Text="Distribusi Kondisi Lahan" Style="{StaticResource TitleStyle}" Margin="0,0,0,8"/>
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Distribusi Kondisi Lahan" Style="{StaticResource TitleStyle}" VerticalAlignment="Center"/>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                                <Button x:Name="StatsModePlantBtn" Content="Plant View" ToolTipService.ToolTip="Mode 1: Plant (Vegetasi Tanaman)" FontSize="11" Padding="8,4" CornerRadius="4" Click="StatsModePlantBtn_Click"/>
+                                <Button x:Name="StatsModeZoneBtn" Content="Zone Grid" ToolTipService.ToolTip="Mode 2: Zone (Zonasi Irigasi Lahan)" FontSize="11" Padding="8,4" CornerRadius="4" Click="StatsModeZoneBtn_Click"/>
+                            </StackPanel>
+                        </Grid>
 
                         <Grid Margin="0,0,0,8">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                            <TextBlock Text="Lush Green" Style="{StaticResource LabelStyle}"/>
+                            <TextBlock x:Name="StatsHealthyLabel" Text="Zona Normal" Style="{StaticResource LabelStyle}"/>
                             <TextBlock x:Name="HealthyDistributionText" Grid.Column="1" Text="0%" FontSize="12" Foreground="{ThemeResource ForegroundBrush}"/>
                         </Grid>
                         <Border Height="8" Background="{ThemeResource MutedBrush}" CornerRadius="4"><Border x:Name="HealthyDistributionBar" Width="4" HorizontalAlignment="Left" Background="#2E7D32" CornerRadius="4"/></Border>
 
                         <Grid Margin="0,10,0,8">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                            <TextBlock Text="Inconsistent Growth" Style="{StaticResource LabelStyle}"/>
+                            <TextBlock x:Name="StatsStressLabel" Text="Ketidakmerataan Irigasi" Style="{StaticResource LabelStyle}"/>
                             <TextBlock x:Name="StressDistributionText" Grid.Column="1" Text="0%" FontSize="12" Foreground="{ThemeResource ForegroundBrush}"/>
                         </Grid>
                         <Border Height="8" Background="{ThemeResource MutedBrush}" CornerRadius="4"><Border x:Name="StressDistributionBar" Width="4" HorizontalAlignment="Left" Background="#FBC02D" CornerRadius="4"/></Border>
 
                         <Grid Margin="0,10,0,8">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                            <TextBlock Text="Disease" Style="{StaticResource LabelStyle}"/>
+                            <TextBlock x:Name="StatsDiseaseLabel" Text="Defisit Air - Kanopi" Style="{StaticResource LabelStyle}"/>
                             <TextBlock x:Name="DiseaseDistributionText" Grid.Column="1" Text="0%" FontSize="12" Foreground="{ThemeResource ForegroundBrush}"/>
                         </Grid>
-                        <Border Height="8" Background="{ThemeResource MutedBrush}" CornerRadius="4"><Border x:Name="DiseaseDistributionBar" Width="4" HorizontalAlignment="Left" Background="#E53935" CornerRadius="4"/></Border>
+                        <Border Height="8" Background="{ThemeResource MutedBrush}" CornerRadius="4"><Border x:Name="DiseaseDistributionBar" Width="4" HorizontalAlignment="Left" Background="#E65100" CornerRadius="4"/></Border>
 
                         <Grid Margin="0,10,0,8">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                            <TextBlock Text="Pest" Style="{StaticResource LabelStyle}"/>
+                            <TextBlock x:Name="StatsPestLabel" Text="Defisit Air - Tanah" Style="{StaticResource LabelStyle}"/>
                             <TextBlock x:Name="PestDistributionText" Grid.Column="1" Text="0%" FontSize="12" Foreground="{ThemeResource ForegroundBrush}"/>
                         </Grid>
-                        <Border Height="8" Background="{ThemeResource MutedBrush}" CornerRadius="4"><Border x:Name="PestDistributionBar" Width="4" HorizontalAlignment="Left" Background="#FF8F00" CornerRadius="4"/></Border>
+                        <Border Height="8" Background="{ThemeResource MutedBrush}" CornerRadius="4"><Border x:Name="PestDistributionBar" Width="4" HorizontalAlignment="Left" Background="#795548" CornerRadius="4"/></Border>
                     </StackPanel>
                 </Border>
 
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
                         <TextBlock Text="Titik Zona Prioritas Irigasi" Style="{StaticResource TitleStyle}" Margin="0,0,0,8"/>
-                        <TextBlock Text="Zona ini berasal dari analisis YOLOv8n + HSV dan dipetakan ke koordinat estimasi citra UAV." Style="{StaticResource LabelStyle}" Margin="0,0,0,8"/>
+                        <TextBlock Text="Zona ini berasal dari analisis YOLO11n Multispectral + Indeks Irigasi PDP dan dipetakan ke koordinat spasial UAV." Style="{StaticResource LabelStyle}" Margin="0,0,0,8"/>
                         <Grid Margin="0,0,0,8">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="70"/>
@@ -104,10 +115,10 @@
                                 <DataTemplate>
                                     <Grid Margin="0,0,0,6">
                                         <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="70"/>
-                                            <ColumnDefinition Width="90"/>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="100"/>
+                                             <ColumnDefinition Width="70"/>
+                                             <ColumnDefinition Width="90"/>
+                                             <ColumnDefinition Width="*"/>
+                                             <ColumnDefinition Width="100"/>
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Text="{Binding PriorityText}" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource ForegroundBrush}"/>
                                         <TextBlock Grid.Column="1" Text="{Binding ZoneText}" FontSize="12" Foreground="{ThemeResource ForegroundBrush}"/>
@@ -131,11 +142,10 @@
                         <TextBlock Text="Kategori" Style="{StaticResource LabelStyle}"/>
                         <ComboBox SelectedIndex="0">
                             <ComboBoxItem Content="Semua"/>
-                            <ComboBoxItem Content="Pest"/>
-                            <ComboBoxItem Content="Crop Stress"/>
-                            <ComboBoxItem Content="Dry Soil"/>
-                            <ComboBoxItem Content="Irrigation"/>
-                            <ComboBoxItem Content="Healthy"/>
+                            <ComboBoxItem Content="Defisit Air Kritis (Tanah)"/>
+                            <ComboBoxItem Content="Defisit Air Kanopi"/>
+                            <ComboBoxItem Content="Ketidakmerataan Irigasi"/>
+                            <ComboBoxItem Content="Zona Teririgasi Normal"/>
                         </ComboBox>
                         <TextBlock Text="Prioritas" Style="{StaticResource LabelStyle}"/>
                         <ComboBox SelectedIndex="0">
@@ -168,9 +178,9 @@
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
                         <TextBlock Text="Rekomendasi Aksi" Style="{StaticResource TitleStyle}" Margin="0,0,0,8"/>
-                        <Border Margin="0,0,0,6" Padding="8" CornerRadius="6" BorderBrush="#D32F2F" BorderThickness="3,0,0,0" Background="#FFF6F6"><TextBlock x:Name="RecommendationOneText" Text="Inspeksi sektor B3 — kluster hama terdeteksi" FontSize="12" Foreground="{ThemeResource ForegroundBrush}"/></Border>
-                        <Border Margin="0,0,0,6" Padding="8" CornerRadius="6" BorderBrush="#FBC02D" BorderThickness="3,0,0,0" Background="#FFFDF5"><TextBlock x:Name="RecommendationTwoText" Text="Cek irigasi pada lahan timur" FontSize="12" Foreground="{ThemeResource ForegroundBrush}"/></Border>
-                        <Border Padding="8" CornerRadius="6" BorderBrush="#1976D2" BorderThickness="3,0,0,0" Background="#F5F9FF"><TextBlock x:Name="RecommendationThreeText" Text="Aplikasi pestisida terarah pada titik prioritas" FontSize="12" Foreground="{ThemeResource ForegroundBrush}"/></Border>
+                        <Border Margin="0,0,0,6" Padding="8" CornerRadius="6" BorderBrush="#D32F2F" BorderThickness="3,0,0,0" Background="#FFF6F6"><TextBlock x:Name="RecommendationOneText" Text="Inspeksi petak B3 — defisit air kanopi terdeteksi" FontSize="12" Foreground="{ThemeResource ForegroundBrush}"/></Border>
+                        <Border Margin="0,0,0,6" Padding="8" CornerRadius="6" BorderBrush="#FBC02D" BorderThickness="3,0,0,0" Background="#FFFDF5"><TextBlock x:Name="RecommendationTwoText" Text="Atur debit pintu intake tersier sektor timur" FontSize="12" Foreground="{ThemeResource ForegroundBrush}"/></Border>
+                        <Border Padding="8" CornerRadius="6" BorderBrush="#1976D2" BorderThickness="3,0,0,0" Background="#F5F9FF"><TextBlock x:Name="RecommendationThreeText" Text="Aplikasi penggenangan macak-macak terarah pada petak prioritas" FontSize="12" Foreground="{ThemeResource ForegroundBrush}"/></Border>
                     </StackPanel>
                 </Border>
 
@@ -185,6 +195,7 @@
                                  Text="0,0,28&#x0a;1,2,42&#x0a;2,1,31"/>
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <Button Content="Validasi" Padding="14,8" Background="{ThemeResource PrimaryBrush}" Foreground="White" Click="ValidateGroundTruthButton_Click"/>
+                            <Button Content="Baca Sensor IoT" Padding="14,8" Click="FetchSensorDataButton_Click"/>
                             <Button Content="Template" Padding="14,8" Click="GroundTruthTemplateButton_Click"/>
                         </StackPanel>
                         <TextBlock x:Name="ValidationStatusText" Text="Belum ada validasi." Style="{StaticResource LabelStyle}"/>

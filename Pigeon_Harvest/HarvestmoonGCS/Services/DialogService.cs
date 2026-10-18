@@ -11,20 +11,46 @@ namespace HarvestmoonGCS.Services
     /// </summary>
     public class DialogService : IDialogService
     {
+        private static readonly System.Threading.SemaphoreSlim _dialogGate = new(1, 1);
+
         /// <summary>
         /// Shows an alert dialog with OK button
         /// </summary>
         public async Task ShowAlertAsync(string message, string title = "Alert")
         {
-            var dialog = new ContentDialog
+            if (!await _dialogGate.WaitAsync(0))
             {
-                Title = title,
-                Content = message,
-                CloseButtonText = "OK",
-                XamlRoot = GetXamlRoot()
-            };
+                Serilog.Log.Warning("[DialogService] Suppressed concurrent alert: {Title} - {Message}", title, message);
+                return;
+            }
 
-            await dialog.ShowAsync();
+            try
+            {
+                var xamlRoot = GetXamlRoot();
+                if (xamlRoot == null)
+                {
+                    Serilog.Log.Warning("[DialogService] Cannot show alert: XamlRoot is null. Message: {Message}", message);
+                    return;
+                }
+
+                var dialog = new ContentDialog
+                {
+                    Title = title,
+                    Content = message,
+                    CloseButtonText = "OK",
+                    XamlRoot = xamlRoot
+                };
+
+                await dialog.ShowAsync();
+            }
+            catch (Exception ex)
+            {
+                Serilog.Log.Error(ex, "[DialogService] ShowAlertAsync error");
+            }
+            finally
+            {
+                _dialogGate.Release();
+            }
         }
 
         /// <summary>
@@ -32,18 +58,43 @@ namespace HarvestmoonGCS.Services
         /// </summary>
         public async Task<bool> ShowConfirmAsync(string message, string title = "Confirm")
         {
-            var dialog = new ContentDialog
+            if (!await _dialogGate.WaitAsync(0))
             {
-                Title = title,
-                Content = message,
-                PrimaryButtonText = "Yes",
-                CloseButtonText = "No",
-                DefaultButton = ContentDialogButton.Primary,
-                XamlRoot = GetXamlRoot()
-            };
+                Serilog.Log.Warning("[DialogService] Suppressed concurrent confirm: {Title} - {Message}", title, message);
+                return false;
+            }
 
-            var result = await dialog.ShowAsync();
-            return result == ContentDialogResult.Primary;
+            try
+            {
+                var xamlRoot = GetXamlRoot();
+                if (xamlRoot == null)
+                {
+                    Serilog.Log.Warning("[DialogService] Cannot show confirm: XamlRoot is null");
+                    return false;
+                }
+
+                var dialog = new ContentDialog
+                {
+                    Title = title,
+                    Content = message,
+                    PrimaryButtonText = "Yes",
+                    CloseButtonText = "No",
+                    DefaultButton = ContentDialogButton.Primary,
+                    XamlRoot = xamlRoot
+                };
+
+                var result = await dialog.ShowAsync();
+                return result == ContentDialogResult.Primary;
+            }
+            catch (Exception ex)
+            {
+                Serilog.Log.Error(ex, "[DialogService] ShowConfirmAsync error");
+                return false;
+            }
+            finally
+            {
+                _dialogGate.Release();
+            }
         }
 
         /// <summary>
@@ -51,25 +102,43 @@ namespace HarvestmoonGCS.Services
         /// </summary>
         public async Task<T?> ShowDialogAsync<T>() where T : class
         {
-            // Create instance of the dialog
-            var dialog = Activator.CreateInstance<T>();
-            
-            if (dialog is ContentDialog contentDialog)
+            if (!await _dialogGate.WaitAsync(0))
             {
-                contentDialog.XamlRoot = GetXamlRoot();
-                var result = await contentDialog.ShowAsync();
+                Serilog.Log.Warning("[DialogService] Suppressed concurrent dialog of type {Type}", typeof(T).Name);
+                return null;
+            }
+
+            try
+            {
+                var dialog = Activator.CreateInstance<T>();
                 
-                // If dialog has a Result property, return it
-                var resultProperty = typeof(T).GetProperty("Result");
-                if (resultProperty != null && result == ContentDialogResult.Primary)
+                if (dialog is ContentDialog contentDialog)
                 {
-                    return resultProperty.GetValue(dialog) as T;
+                    var xamlRoot = GetXamlRoot();
+                    if (xamlRoot == null) return null;
+                    contentDialog.XamlRoot = xamlRoot;
+                    var result = await contentDialog.ShowAsync();
+                    
+                    var resultProperty = typeof(T).GetProperty("Result");
+                    if (resultProperty != null && result == ContentDialogResult.Primary)
+                    {
+                        return resultProperty.GetValue(dialog) as T;
+                    }
+                    
+                    return result == ContentDialogResult.Primary ? dialog : null;
                 }
                 
-                return result == ContentDialogResult.Primary ? dialog : null;
+                return null;
             }
-            
-            throw new InvalidOperationException($"Type {typeof(T).Name} must be a ContentDialog");
+            catch (Exception ex)
+            {
+                Serilog.Log.Error(ex, "[DialogService] ShowDialogAsync error");
+                return null;
+            }
+            finally
+            {
+                _dialogGate.Release();
+            }
         }
 
         /// <summary>
@@ -79,25 +148,43 @@ namespace HarvestmoonGCS.Services
             where T : class 
             where TResult : class
         {
-            // Create instance with parameter
-            var dialog = Activator.CreateInstance(typeof(T), parameter);
-            
-            if (dialog is ContentDialog contentDialog)
+            if (!await _dialogGate.WaitAsync(0))
             {
-                contentDialog.XamlRoot = GetXamlRoot();
-                var result = await contentDialog.ShowAsync();
+                Serilog.Log.Warning("[DialogService] Suppressed concurrent dialog of type {Type}", typeof(T).Name);
+                return null;
+            }
+
+            try
+            {
+                var dialog = Activator.CreateInstance(typeof(T), parameter);
                 
-                // If dialog has a Result property, return it
-                var resultProperty = typeof(T).GetProperty("Result");
-                if (resultProperty != null && result == ContentDialogResult.Primary)
+                if (dialog is ContentDialog contentDialog)
                 {
-                    return resultProperty.GetValue(dialog) as TResult;
+                    var xamlRoot = GetXamlRoot();
+                    if (xamlRoot == null) return null;
+                    contentDialog.XamlRoot = xamlRoot;
+                    var result = await contentDialog.ShowAsync();
+                    
+                    var resultProperty = typeof(T).GetProperty("Result");
+                    if (resultProperty != null && result == ContentDialogResult.Primary)
+                    {
+                        return resultProperty.GetValue(dialog) as TResult;
+                    }
+                    
+                    return null;
                 }
                 
                 return null;
             }
-            
-            throw new InvalidOperationException($"Type {typeof(T).Name} must be a ContentDialog");
+            catch (Exception ex)
+            {
+                Serilog.Log.Error(ex, "[DialogService] ShowDialogAsync error");
+                return null;
+            }
+            finally
+            {
+                _dialogGate.Release();
+            }
         }
 
         /// <summary>

@@ -171,18 +171,21 @@ public sealed class VideoScenarioService : IVideoScenarioService
     {
         var list = new List<VideoScenarioProfile>();
 
-        // ── Skenario 1: Multi-Sektor 60s (Subang) ─────────────────────────────
+        // ── Skenario 1: Multi-Sektor 60s (Subang - Riset PDP) ───────────────
         var sc1 = new VideoScenarioProfile
         {
             Id = "scenario-multisector",
-            Name = "★ Multi-Sektor 60s (Subang · 5 WP)",
-            ShortDescription = "Multi-Sektor 60s",
-            VideoFileName = "stream_multisector_60s_detected.mp4",
+            Name = "★ Riset PDP 4-Sektor 1080p (Subang · 14 WP)",
+            ShortDescription = "Riset PDP 4-Sektor 1080p",
+            VideoFileName = "pdp_sawah_4sektor_1080p.mp4",
             VideoPathCandidates = DemoVideoCandidates(
+                "pdp_sawah_4sektor_1080p.mp4",
                 "stream_multisector_60s_detected.mp4",
+                "stream_multisector_60s.mp4",
+                "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/pdp_sawah_4sektor_1080p.mp4",
                 "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/stream_multisector_60s.mp4"),
             VideoDurationSeconds = 60.0,
-            MissionId = "MS-60S-SUBANG-01",
+            MissionId = "PDP-SUBANG-14WP-01",
             AreaName = "Pabuaran Rice Estate, Subang",
             RegionName = "Subang, Jawa Barat",
             FieldCenterLat = -6.42580,
@@ -190,7 +193,7 @@ public sealed class VideoScenarioService : IVideoScenarioService
             GeofenceRadiusMeters = 550.0,
             MapZoomLevel = 17,
             BearingDeg = 90.0, // Barat ke Timur
-            CruiseAltitudeMeters = 65.0,
+            CruiseAltitudeMeters = 50.0,
             CruiseSpeedMps = 10.0,
             InitialBatteryPct = 96.0,
             SatelliteCount = 16,
@@ -213,22 +216,46 @@ public sealed class VideoScenarioService : IVideoScenarioService
             },
             TimelineSectorEvents = new List<string>
             {
-                "WP 1 → Memasuki Sektor A · Kanopi Vegetatif Subur (FHI 96.5%)",
-                "WP 2 → Memasuki Sektor B · Padi Muda 15 HST (FHI 82.1%)",
-                "WP 3 → Memasuki Sektor C · Variasi Kanopi & Stres Ringan (FHI 78.3%)",
-                "WP 4 → Memasuki Sektor D · Zona Pemulihan Irigasi (FHI 93.4%)",
-                "WP 5 → Titik Putar Sektor E · Prosedur Banking Turnaround"
+                "WP 1 → Takeoff & Pendakian Menuju 50m AGL (Koridor Hulu)",
+                "WP 2 → Entry Sektor A · Inspeksi Kanopi Vegetatif Subur (FHI 96.5%)",
+                "WP 3 → Transek Leg 1 Sektor A · Pemindaian Ortomosaik Subang",
+                "WP 4 → Transek Leg 1 Sektor B · Deteksi Kanopi Padi Muda 15 HST",
+                "WP 5 → Prosedur Turnaround Timur · Banking Roll +15°",
+                "WP 6 → Entry Sektor C · Pemindaian Saluran Irigasi Cacing",
+                "WP 7 → Deteksi Stres Air Saluran Tersier Sektor C (FHI 64.0%)",
+                "WP 8 → Sweeping Transek Leg 2 Barat · Inspeksi Pematang Sawah",
+                "WP 9 → Turnaround Barat Menuju Blok Hilir Sektor D",
+                "WP 10 → Entry Sektor D · Deteksi Defisit Kering & Rekahan Tanah",
+                "WP 11 → Deteksi Kritis AWD Sektor D (FHI 32.1% · LoRa P-01 VWC 14.8%)",
+                "WP 12 → Titik Akhir Fotogrametri Grid Selesai (Total 1.850 m)",
+                "WP 13 → Inbound Corridor Approach Menuju Home Base",
+                "WP 14 → Touchdown & Landing Prosedur RTL Selesai"
             },
             DetectionFrames = new[]
             {
-                new[] { ("Lush Green", 0.94), ("Lush Green", 0.89), ("Inconsistent Growth", 0.77) },
-                new[] { ("Lush Green", 0.91), ("Inconsistent Growth", 0.83), ("Bare Soil / Gap", 0.72) },
-                new[] { ("Lush Green", 0.96), ("Lush Green", 0.92), ("Inconsistent Growth", 0.80), ("Drought/Severe Stress", 0.68) },
-                new[] { ("Lush Green", 0.95), ("Inconsistent Growth", 0.78), ("Bare Soil / Gap", 0.70) },
+                new[] { ("Zona Normal", 0.95), ("Zona Normal", 0.92), ("Ketidakmerataan Irigasi", 0.89), ("Defisit Air (Kanopi)", 0.88), ("Defisit Air (Tanah)", 0.94) },
+                new[] { ("Zona Normal", 0.94), ("Ketidakmerataan Irigasi", 0.91), ("Defisit Air (Kanopi)", 0.86), ("Defisit Air (Tanah)", 0.90) },
+                new[] { ("Zona Normal", 0.96), ("Zona Normal", 0.91), ("Ketidakmerataan Irigasi", 0.88), ("Defisit Air (Kanopi)", 0.89), ("Defisit Air (Tanah)", 0.87) },
+                new[] { ("Zona Normal", 0.93), ("Ketidakmerataan Irigasi", 0.87), ("Defisit Air (Kanopi)", 0.85), ("Defisit Air (Tanah)", 0.92) },
             }
         };
-        sc1.Waypoints = VideoScenarioProfile.BuildLinearWaypoints(
-            sc1.FieldCenterLat, sc1.FieldCenterLon, count: 5, totalMeters: 600, bearingDeg: sc1.BearingDeg, altitude: sc1.CruiseAltitudeMeters);
+        sc1.Waypoints = new List<WaypointData>
+        {
+            new WaypointData { Sequence = 1,  Latitude = -6.42580, Longitude = 107.61710, Altitude = 20.0, Command = WaypointCommand.TakeOff },
+            new WaypointData { Sequence = 2,  Latitude = -6.42530, Longitude = 107.61780, Altitude = 50.0, Command = WaypointCommand.Waypoint },
+            new WaypointData { Sequence = 3,  Latitude = -6.42530, Longitude = 107.61890, Altitude = 50.0, Command = WaypointCommand.Waypoint },
+            new WaypointData { Sequence = 4,  Latitude = -6.42530, Longitude = 107.62000, Altitude = 50.0, Command = WaypointCommand.Waypoint },
+            new WaypointData { Sequence = 5,  Latitude = -6.42555, Longitude = 107.62015, Altitude = 50.0, Command = WaypointCommand.Waypoint },
+            new WaypointData { Sequence = 6,  Latitude = -6.42565, Longitude = 107.61890, Altitude = 50.0, Command = WaypointCommand.Waypoint },
+            new WaypointData { Sequence = 7,  Latitude = -6.42565, Longitude = 107.61780, Altitude = 50.0, Command = WaypointCommand.Waypoint },
+            new WaypointData { Sequence = 8,  Latitude = -6.42595, Longitude = 107.61765, Altitude = 50.0, Command = WaypointCommand.Waypoint },
+            new WaypointData { Sequence = 9,  Latitude = -6.42610, Longitude = 107.61890, Altitude = 50.0, Command = WaypointCommand.Waypoint },
+            new WaypointData { Sequence = 10, Latitude = -6.42610, Longitude = 107.62000, Altitude = 50.0, Command = WaypointCommand.Waypoint },
+            new WaypointData { Sequence = 11, Latitude = -6.42635, Longitude = 107.62015, Altitude = 50.0, Command = WaypointCommand.Waypoint },
+            new WaypointData { Sequence = 12, Latitude = -6.42640, Longitude = 107.61780, Altitude = 50.0, Command = WaypointCommand.Waypoint },
+            new WaypointData { Sequence = 13, Latitude = -6.42580, Longitude = 107.61730, Altitude = 35.0, Command = WaypointCommand.Waypoint },
+            new WaypointData { Sequence = 14, Latitude = -6.42580, Longitude = 107.61710, Altitude = 15.0, Command = WaypointCommand.Land }
+        };
         list.Add(sc1);
 
         // ── Skenario 2: Sawah 15 HST (Karawang) ────────────────────────────────

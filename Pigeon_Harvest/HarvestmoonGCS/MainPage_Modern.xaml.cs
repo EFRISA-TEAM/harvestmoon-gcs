@@ -103,8 +103,10 @@ public sealed partial class MainPage_Modern : Page
         {
             ApplyResponsiveLayout();
             SynchronizeTopBarConnection();
-            NavigateToPage("Dashboard");
-            UpdateTopBarForTarget("Dashboard");
+            var startPage = Environment.GetEnvironmentVariable("MOONHARVEST_START_PAGE");
+            var initialTarget = !string.IsNullOrWhiteSpace(startPage) ? startPage : "Dashboard";
+            NavigateToPage(initialTarget);
+            UpdateTopBarForTarget(initialTarget);
             StartNavigationPreload();
         });
     }
@@ -117,8 +119,10 @@ public sealed partial class MainPage_Modern : Page
         ApplyResponsiveLayout();
         SynchronizeTopBarConnection();
         // Navigate to initial page
-        NavigateToPage("Dashboard");
-        UpdateTopBarForTarget("Dashboard");
+        var startPage = Environment.GetEnvironmentVariable("MOONHARVEST_START_PAGE");
+        var initialTarget = !string.IsNullOrWhiteSpace(startPage) ? startPage : "Dashboard";
+        NavigateToPage(initialTarget);
+        UpdateTopBarForTarget(initialTarget);
         StartNavigationPreload();
 
         // Auto-connect saat startup DIMATIKAN (sesuai permintaan): koneksi hanya
@@ -589,7 +593,7 @@ public sealed partial class MainPage_Modern : Page
     {
         yield return typeof(DashboardPage);
         yield return typeof(CameraPage);
-        yield return typeof(MissionPlannerPage);
+        yield return typeof(MapPage);
         yield return typeof(StatsPage);
         yield return typeof(AISettingsPage);
         yield return typeof(ReportsHarvestPage);
@@ -706,10 +710,8 @@ public sealed partial class MainPage_Modern : Page
                 TopBar.UpdatePageTitle("Dashboard", $"/ Live Operations · {locationText}", "\uE80F");
                 break;
             case "Map":
-                TopBar.UpdatePageTitle("Map", $"/ Full Map · Waypoints · Geofence · {scenario?.AreaName ?? "Offline Tiles"}", "\uE707");
-                break;
             case "MissionPlanner":
-                TopBar.UpdatePageTitle("Mission Planner", $"/ {locationText} · 1050m Transect", "\uE707");
+                TopBar.UpdatePageTitle("Peta & Misi", $"/ Full Map · Waypoints · Geofence · {scenario?.AreaName ?? "Subang"}", "\uE707");
                 break;
             case "Camera":
                 TopBar.UpdatePageTitle("Camera", $"/ Live UAV Capture · {locationText}", "\uE714");
@@ -760,16 +762,22 @@ public sealed partial class MainPage_Modern : Page
     /// </summary>
     private async void TopBar_RTLClicked(object sender, EventArgs e)
     {
-        if (_mavLinkService?.IsConnected != true)
+        bool isConnected = _mavLinkService?.IsConnected == true;
+        bool isDemo = _harvestFunctionalService?.IsDemoModeActive == true;
+
+        if (!isConnected && !isDemo)
         {
-            await ShowSimpleDialogAsync("RTL", "Vehicle not connected — cannot send Return-to-Launch.");
+            await ShowSimpleDialogAsync("RTL", "Vehicle not connected — cannot send Return-to-Launch.\n(Hubungkan UAV atau aktifkan Demo Mode)");
             return;
         }
 
+        var modeLabel = isDemo && !isConnected ? " (Demo Simulator)" : string.Empty;
         var confirm = new ContentDialog
         {
-            Title = "Return to Launch",
-            Content = "Send RTL command to the connected vehicle now?",
+            Title = $"Return to Launch{modeLabel}",
+            Content = isDemo && !isConnected
+                ? "Simulasikan perintah RTL pada simulator demo?"
+                : "Send RTL command to the connected vehicle now?",
             PrimaryButtonText = "Send RTL",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close,
@@ -782,7 +790,16 @@ public sealed partial class MainPage_Modern : Page
 
         try
         {
-            var ok = await _mavLinkService.SetFlightModeAsync("RTL");
+            if (isDemo && !isConnected)
+            {
+                TopBar.Mode = "RTL";
+                var timeline = App.Current.Services.GetService<IncidentTimelineService>();
+                timeline?.Add("rtl", "Perintah RTL diaktifkan pada simulator", "warning");
+                await ShowSimpleDialogAsync("RTL", "RTL mode activated on simulator.");
+                return;
+            }
+
+            var ok = await _mavLinkService!.SetFlightModeAsync("RTL");
             Log.Information("RTL command sent, success={Success}", ok);
             if (!ok)
             {
@@ -797,24 +814,33 @@ public sealed partial class MainPage_Modern : Page
     }
 
     /// <summary>
-    /// Starts/pauses the currently-uploaded mission via a real MAVLink command. Previously this
-    /// button only toggled its own label locally — clicking it never sent anything to the
-    /// vehicle. The button's visual state now only changes once the command is confirmed.
+    /// Starts/pauses the currently-uploaded mission via a real MAVLink command or simulator in demo mode.
     /// </summary>
     private async void TopBar_MissionClicked(object sender, EventArgs e)
     {
-        if (_mavLinkService?.IsConnected != true)
+        bool isConnected = _mavLinkService?.IsConnected == true;
+        bool isDemo = _harvestFunctionalService?.IsDemoModeActive == true;
+
+        if (!isConnected && !isDemo)
         {
-            await ShowSimpleDialogAsync("Mission", "Vehicle not connected — cannot start/pause mission.");
+            await ShowSimpleDialogAsync("Mission", "Vehicle not connected — cannot start/pause mission.\n(Hubungkan UAV atau aktifkan Demo Mode)");
             return;
         }
 
         var requestRunning = !TopBar.IsMissionRunning;
         try
         {
+            if (isDemo && !isConnected)
+            {
+                TopBar.SetMissionRunning(requestRunning);
+                var timeline = App.Current.Services.GetService<IncidentTimelineService>();
+                timeline?.Add("mission", requestRunning ? "Misi survey autopilot dimulai (Simulator)" : "Misi survey dijeda (Simulator)", "info");
+                return;
+            }
+
             var ok = requestRunning
-                ? await _mavLinkService.StartMissionAsync()
-                : await _mavLinkService.PauseMissionAsync();
+                ? await _mavLinkService!.StartMissionAsync()
+                : await _mavLinkService!.PauseMissionAsync();
 
             if (ok)
             {

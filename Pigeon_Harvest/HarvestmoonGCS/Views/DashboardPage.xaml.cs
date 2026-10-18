@@ -27,6 +27,12 @@ public sealed partial class DashboardPage : Page
 {
     private static readonly string[] DemoVideoPathCandidates =
     {
+        // Kompilasi Baru Full HD 1080p Khusus Riset PDP (4 Sektor AWD)
+        Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "pdp_sawah_4sektor_1080p.mp4"),
+        Path.Combine(Directory.GetCurrentDirectory(), "Assets", "demo_videos", "pdp_sawah_4sektor_1080p.mp4"),
+        "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/pdp_sawah_4sektor_1080p.mp4",
+        "/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/Assets/demo_videos/pdp_sawah_4sektor_1080p.mp4",
+
         // Single-file EXE: AppContext.BaseDirectory resolves to extraction temp folder
         Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "stream_multisector_60s_detected.mp4"),
         Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "stream_multisector_60s.mp4"),
@@ -62,6 +68,8 @@ public sealed partial class DashboardPage : Page
     private readonly GeofenceMonitor? _geofenceMonitor;
     private readonly IncidentTimelineService? _timelineService;
     private readonly IMavLinkService? _mavLinkService;
+    private readonly ISoilMoistureService? _soilMoistureService;
+    private readonly IIrrigationService? _irrigationService;
 
     private TelemetryData? _telemetry;
     private byte[]? _lastFrameData;
@@ -92,7 +100,7 @@ public sealed partial class DashboardPage : Page
     // UI state
     private bool _isRecording;
     private bool _aiOn;
-    private bool _showImuHud = true;
+    private bool _showImuHud = false;
     private int _confThreshold = 40;
     private double _pitch = -5.0;  // slight nose-down pitch for realistic forward flight
     private double _roll;
@@ -110,6 +118,8 @@ public sealed partial class DashboardPage : Page
     private string _lastGeofenceMonitorSeverity = "info";
     private DateTime _lastYoloTimelineEvent = DateTime.MinValue;
     private HarvestFunctionalService.YoloBenchmarkResult? _lastBenchmarkResult;
+    private DetectionLabelMode _activeLabelMode = DetectionLabelMode.Zone;
+    private List<HarvestFunctionalService.HarvestDetectionBox>? _lastRenderedBoxes;
 
     // Real classify-stream detection data from Python (null = no data yet)
     private (int Healthy, int Stress, int Drought, int BareSoil, int Total, double Fhi)? _classifyRealData;
@@ -195,6 +205,8 @@ public sealed partial class DashboardPage : Page
         _runcamService   = App.Current.Services.GetService<IRuncamWifiLinkService>();
         _videoScenarioService = App.Current.Services.GetService<IVideoScenarioService>();
         _waypointService = App.Current.Services.GetService<IWaypointService>();
+        _soilMoistureService = App.Current.Services.GetService<ISoilMoistureService>();
+        _irrigationService = App.Current.Services.GetService<IIrrigationService>();
 
         _currentScenario = _videoScenarioService?.CurrentScenario ?? new VideoScenarioService().CurrentScenario;
         _demoWaypoints = _currentScenario.Waypoints.Select(w => (w.Latitude, w.Longitude)).ToArray();
@@ -244,6 +256,10 @@ public sealed partial class DashboardPage : Page
         _missionTimer.Stop();
         UnsubscribeFromTelemetry();
         UnsubscribeFromGeofenceMonitor();
+        if (_irrigationService != null)
+        {
+            _irrigationService.LabelModeChanged -= OnIrrigationServiceLabelModeChanged;
+        }
     }
 
     private void DashboardPage_Loaded(object sender, RoutedEventArgs e)
@@ -253,6 +269,12 @@ public sealed partial class DashboardPage : Page
         SubscribeToGeofenceMonitor();
         AttachCameraHandlers();
         SyncYoloStateFromService();
+        if (_irrigationService != null)
+        {
+            _activeLabelMode = _irrigationService.LabelMode;
+            _irrigationService.LabelModeChanged += OnIrrigationServiceLabelModeChanged;
+        }
+        UpdateModeUi();
         // Load confidence threshold from AI settings if available
         _ = LoadConfThresholdFromSettingsAsync();
         if (AlertsStack.Children.Count == 0) UpdateAlertCenter(_flightViewModel?.Telemetry, _flightViewModel?.IsConnected == true);
@@ -262,6 +284,8 @@ public sealed partial class DashboardPage : Page
         ApplyLayerVisibility();
         RefreshDashboard();
         RenderIncidentTimeline();
+        ReadinessChecklistPanel.Visibility = Visibility.Visible;
+        UpdateOfflineAndReadiness(_flightViewModel?.Telemetry, _flightViewModel?.IsConnected == true);
         if (!_missionTimerStarted)
         {
             _missionStart = DateTime.Now;
@@ -286,6 +310,18 @@ public sealed partial class DashboardPage : Page
                 DashboardMapControl.ClearWaypoints();
                 DashboardMapControl.SetCenter(_currentScenario.FieldCenterLat, _currentScenario.FieldCenterLon, _currentScenario.MapZoomLevel);
             }
+        }
+
+        if (_soilMoistureService != null)
+        {
+            _soilMoistureService.MoistureUpdated += OnSoilMoistureUpdated;
+            _soilMoistureService.AutoCheckCompleted += OnDashboardSoilAutoCheckCompleted;
+            if (!_soilMoistureService.IsConnected)
+            {
+                _ = _soilMoistureService.ConnectAsync("SIMULATOR");
+            }
+            UpdateSoilMoistureUi(_soilMoistureService.CurrentMoisture > 0 ? _soilMoistureService.CurrentMoisture : 28.5);
+            UpdateSoilAutoCheckUi(_soilMoistureService.LatestAutoCheck);
         }
 
         _imuTimer.Start();
@@ -320,6 +356,17 @@ public sealed partial class DashboardPage : Page
         // Only stop this page's timers and telemetry binding.
         UnsubscribeFromTelemetry();
         UnsubscribeFromGeofenceMonitor();
+        if (_soilMoistureService != null)
+        {
+            _soilMoistureService.MoistureUpdated -= OnSoilMoistureUpdated;
+            _soilMoistureService.AutoCheckCompleted -= OnDashboardSoilAutoCheckCompleted;
+        }
+        if (_irrigationService != null)
+        {
+            _irrigationService.DataPointAdded -= OnDashboardIrrigationPointAdded;
+            _irrigationService.SoilSensorUpdated -= OnDashboardSoilSensorUpdated;
+            _irrigationService.DataCleared -= OnDashboardIrrigationDataCleared;
+        }
         // Leave camera handlers attached: events are idempotent and FrameReceived updates the cached
         // VideoStreamControl which is re-used when the page is reactivated from the page cache.
         // Detaching + reattaching creates a gap where frames are dropped and the control appears frozen.
@@ -330,6 +377,121 @@ public sealed partial class DashboardPage : Page
     private void OnTimelineChanged(object? sender, EventArgs e)
     {
         DispatcherQueue.TryEnqueue(RenderIncidentTimeline);
+    }
+
+    private void OnSoilMoistureUpdated(object? sender, double moisture)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            UpdateSoilMoistureUi(moisture);
+
+            if (_irrigationService != null)
+            {
+                var curLat = _telemetry?.Latitude ?? DemoFieldLat;
+                var curLon = _telemetry?.Longitude ?? DemoFieldLon;
+                _irrigationService.UpdateSoilSensor(new SoilSensorData
+                {
+                    SensorId = "SOIL-REAL-01",
+                    NodeName = _soilMoistureService?.IsConnected == true ? "Sensor IoT Riil (Serial/LoRa)" : "Sensor IoT Ground-Truth",
+                    Latitude = curLat - 0.0003,
+                    Longitude = curLon - 0.0003,
+                    MoisturePercent = moisture,
+                    TemperatureCelsius = 28.2,
+                    BatteryVoltage = 4.12,
+                    LastUpdated = DateTime.UtcNow
+                });
+            }
+        });
+    }
+
+    private void UpdateSoilMoistureUi(double moisture)
+    {
+        if (SoilSensorMoistureText == null) return;
+        SoilSensorMoistureText.Text = $"{moisture:F1}%";
+        if (moisture < 20.0)
+        {
+            if (SoilSensorConditionText != null)
+            {
+                SoilSensorConditionText.Text = "Kritis: Kering / Butuh Air";
+                SoilSensorConditionText.Foreground = new SolidColorBrush(Color.FromArgb(255, 231, 76, 60));
+            }
+            if (SoilSensorPill != null)
+            {
+                SoilSensorPill.Background = new SolidColorBrush(Color.FromArgb(255, 254, 226, 226));
+            }
+            SoilSensorMoistureText.Foreground = new SolidColorBrush(Color.FromArgb(255, 185, 28, 28));
+        }
+        else if (moisture < 35.0)
+        {
+            if (SoilSensorConditionText != null)
+            {
+                SoilSensorConditionText.Text = "Waspada: Stres Ringan";
+                SoilSensorConditionText.Foreground = new SolidColorBrush(Color.FromArgb(255, 245, 124, 0));
+            }
+            if (SoilSensorPill != null)
+            {
+                SoilSensorPill.Background = new SolidColorBrush(Color.FromArgb(255, 254, 243, 199));
+            }
+            SoilSensorMoistureText.Foreground = new SolidColorBrush(Color.FromArgb(255, 180, 83, 9));
+        }
+        else
+        {
+            if (SoilSensorConditionText != null)
+            {
+                SoilSensorConditionText.Text = "Optimal: Terhidrasi Baik";
+                SoilSensorConditionText.Foreground = new SolidColorBrush(Color.FromArgb(255, 46, 125, 50));
+            }
+            if (SoilSensorPill != null)
+            {
+                SoilSensorPill.Background = new SolidColorBrush(Color.FromArgb(255, 236, 253, 245));
+            }
+            SoilSensorMoistureText.Foreground = new SolidColorBrush(Color.FromArgb(255, 6, 95, 70));
+        }
+
+        UpdateSoilAutoCheckUi(_soilMoistureService?.LatestAutoCheck);
+    }
+
+    private void OnDashboardSoilAutoCheckCompleted(object? sender, LoRaAutoCheckSummary summary)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            UpdateSoilAutoCheckUi(summary);
+        });
+    }
+
+    private void UpdateSoilAutoCheckUi(LoRaAutoCheckSummary? summary)
+    {
+        if (summary == null) return;
+
+        if (SoilSensorStatusText != null)
+        {
+            var src = _soilMoistureService?.ConnectionSource ?? "LoRa";
+            SoilSensorStatusText.Text = $"{src} · {summary.OnlineNodes}/{summary.TotalNodes} Nodes Online";
+        }
+
+        if (SoilSensorAutoCheckText != null)
+        {
+            if (summary.OverallStatus == "CRITICAL")
+            {
+                SoilSensorAutoCheckText.Text = "⚠ Kritis (P-01 Defisit)";
+                SoilSensorAutoCheckText.Foreground = new SolidColorBrush(Color.FromArgb(255, 239, 68, 68));
+            }
+            else if (summary.OverallStatus == "WARNING")
+            {
+                SoilSensorAutoCheckText.Text = "⚠ Stres Irigasi";
+                SoilSensorAutoCheckText.Foreground = new SolidColorBrush(Color.FromArgb(255, 245, 158, 11));
+            }
+            else if (summary.OverallStatus == "OFFLINE")
+            {
+                SoilSensorAutoCheckText.Text = "○ Link Standby";
+                SoilSensorAutoCheckText.Foreground = new SolidColorBrush(Color.FromArgb(255, 148, 163, 184));
+            }
+            else
+            {
+                SoilSensorAutoCheckText.Text = $"✓ {summary.OnlineNodes} Nodes Terverifikasi";
+                SoilSensorAutoCheckText.Foreground = new SolidColorBrush(Color.FromArgb(255, 16, 185, 129));
+            }
+        }
     }
 
     private void ResumeVideoRendering()
@@ -395,7 +557,7 @@ public sealed partial class DashboardPage : Page
         if (e.PropertyName == nameof(FlightViewModel.IsConnected))
         {
             var connected = _flightViewModel?.IsConnected == true;
-            if (connected && !_isLiveRunning)
+            if (connected && !_isLiveRunning && !_isDemoRunning)
             {
                 _ = StartLiveModeAsync();
             }
@@ -527,7 +689,7 @@ public sealed partial class DashboardPage : Page
         // During demo, FpsHudText is owned by InjectDemoDetectionUI.
         // Skip the override here so it doesn't revert to "active/standby" on each telemetry tick.
         if (!_isDemoRunning)
-            SetTextIfChanged(FpsHudText, _aiOn ? $"YOLOv8 · {(connected ? "active" : "standby")}" : "YOLO paused", ref _lastFpsHudText);
+            SetTextIfChanged(FpsHudText, _aiOn ? $"YOLO11n · {(connected ? "active" : "standby")}" : "YOLO paused", ref _lastFpsHudText);
 
         var missionProgress = MissionProgressCalculator.Calculate(
             telemetry,
@@ -696,14 +858,219 @@ public sealed partial class DashboardPage : Page
         // Use Karawang demo center unless we have live telemetry
         var initialLat = IsValidCoordinate(_centerLat, _centerLon) && (_centerLat != -6.9175) ? _centerLat : DemoFieldLat;
         var initialLon = IsValidCoordinate(_centerLat, _centerLon) && (_centerLon != 107.6191) ? _centerLon : DemoFieldLon;
-        DashboardMapControl.SetCenter(initialLat, initialLon, 15);
+        DashboardMapControl.SetCenter(initialLat, initialLon, 16);
+        DashboardMapControl.SetTileProvider(SkiaMapControl.MapTileProvider.GoogleSatellite);
+        if (_currentScenario != null && _currentScenario.Waypoints.Count > 0)
+        {
+            DashboardMapControl.ClearWaypoints();
+            foreach (var wp in _currentScenario.Waypoints)
+                DashboardMapControl.AddWaypointMarker(wp.Sequence, wp.Latitude, wp.Longitude, wp.Altitude, "WAYPOINT");
+        }
 
         // Sync follow-vehicle state
-        DashboardMapControl.SetFollowVehicle(_mapViewModel?.IsFollowing ?? false);
+        DashboardMapControl.SetFollowVehicle(true);
+
+        // Load PDP thematic layers (4 Petak, 4 Sensor, 24 Titik) by default
+        EnsurePDPThematicDataLoaded(initialLat, initialLon);
+
+        // Sync live irrigation points and soil sensors
+        if (_irrigationService != null)
+        {
+            if (_irrigationService.DataPoints.Count > 0)
+                DashboardMapControl.SetIrrigationPoints(_irrigationService.DataPoints.ToList());
+            if (_irrigationService.SoilSensors.Count > 0)
+                DashboardMapControl.SetSoilSensors(_irrigationService.SoilSensors.ToList());
+            if (_irrigationService.Plots.Count > 0)
+                DashboardMapControl.SetIrrigationPlots(_irrigationService.Plots.ToList());
+
+            _irrigationService.DataPointAdded -= OnDashboardIrrigationPointAdded;
+            _irrigationService.DataPointAdded += OnDashboardIrrigationPointAdded;
+
+            _irrigationService.SoilSensorUpdated -= OnDashboardSoilSensorUpdated;
+            _irrigationService.SoilSensorUpdated += OnDashboardSoilSensorUpdated;
+
+            _irrigationService.DataCleared -= OnDashboardIrrigationDataCleared;
+            _irrigationService.DataCleared += OnDashboardIrrigationDataCleared;
+        }
 
         SyncWaypointsFromViewModel();
         SyncGeofenceFromViewModel();
         SubscribeToMapViewModel();
+    }
+
+    private void EnsurePDPThematicDataLoaded(double baseLat, double baseLon)
+    {
+        if (DashboardMapControl == null) return;
+
+        // 1. Buat Polygon Petak Sawah (4 Petak Lengkap Riset PDP - Subang Rice Estate)
+        var plots = new List<IrrigationPlot>
+        {
+            new IrrigationPlot
+            {
+                Id = "PLOT-A1",
+                Name = "Petak A1 (Hulu Barat - Zona Normal Vegetatif)",
+                AreaHectares = 1.12,
+                NormalPercent = 94,
+                InconsistentPercent = 6,
+                DeficitCanopyPercent = 0,
+                DeficitSoilPercent = 0,
+                Priority = IrrigationPriorityLevel.Low,
+                RecommendedWaterLiters = 450,
+                ActionRecommendation = "Kelembapan tanah dan klorofil kanopi optimal; pertahankan suplai air terjadwal.",
+                PolygonCoordinates = new List<GeoCoordinate>
+                {
+                    new GeoCoordinate(baseLat + 0.0007, baseLon - 0.0013),
+                    new GeoCoordinate(baseLat + 0.0007, baseLon + 0.0000),
+                    new GeoCoordinate(baseLat + 0.0000, baseLon + 0.0000),
+                    new GeoCoordinate(baseLat + 0.0000, baseLon - 0.0013),
+                    new GeoCoordinate(baseLat + 0.0007, baseLon - 0.0013)
+                }
+            },
+            new IrrigationPlot
+            {
+                Id = "PLOT-B2",
+                Name = "Petak B2 (Hulu Timur - Ketidakmerataan Irigasi)",
+                AreaHectares = 1.11,
+                InconsistentPercent = 68,
+                NormalPercent = 25,
+                DeficitCanopyPercent = 7,
+                DeficitSoilPercent = 0,
+                Priority = IrrigationPriorityLevel.Medium,
+                RecommendedWaterLiters = 2100,
+                ActionRecommendation = "Saluran cacing tersumbat sedimentasi; lakukan normalisasi bedengan dan parit tersier.",
+                PolygonCoordinates = new List<GeoCoordinate>
+                {
+                    new GeoCoordinate(baseLat + 0.0007, baseLon + 0.0000),
+                    new GeoCoordinate(baseLat + 0.0007, baseLon + 0.0013),
+                    new GeoCoordinate(baseLat + 0.0000, baseLon + 0.0013),
+                    new GeoCoordinate(baseLat + 0.0000, baseLon + 0.0000),
+                    new GeoCoordinate(baseLat + 0.0007, baseLon + 0.0000)
+                }
+            },
+            new IrrigationPlot
+            {
+                Id = "PLOT-C3",
+                Name = "Petak C3 (Hilir Barat - Defisit Air Kanopi)",
+                AreaHectares = 1.12,
+                DeficitCanopyPercent = 64,
+                InconsistentPercent = 24,
+                NormalPercent = 12,
+                DeficitSoilPercent = 0,
+                Priority = IrrigationPriorityLevel.High,
+                RecommendedWaterLiters = 3400,
+                ActionRecommendation = "Stres air pada kanopi daun; jadwalkan irigasi berkala AWD & semprot foliar mikronutrisi.",
+                PolygonCoordinates = new List<GeoCoordinate>
+                {
+                    new GeoCoordinate(baseLat + 0.0000, baseLon - 0.0013),
+                    new GeoCoordinate(baseLat + 0.0000, baseLon + 0.0000),
+                    new GeoCoordinate(baseLat - 0.0007, baseLon + 0.0000),
+                    new GeoCoordinate(baseLat - 0.0007, baseLon - 0.0013),
+                    new GeoCoordinate(baseLat + 0.0000, baseLon - 0.0013)
+                }
+            },
+            new IrrigationPlot
+            {
+                Id = "PLOT-D4",
+                Name = "Petak D4 (Hilir Timur - Defisit Kritis Air Tanah)",
+                AreaHectares = 1.11,
+                DeficitSoilPercent = 72,
+                DeficitCanopyPercent = 18,
+                InconsistentPercent = 8,
+                NormalPercent = 2,
+                Priority = IrrigationPriorityLevel.Emergency,
+                RecommendedWaterLiters = 4800,
+                ActionRecommendation = "Buka pintu intake tersier Blok Timur; lakukan penggenangan macak-macak 3-5 cm segera mitigasi retakan.",
+                PolygonCoordinates = new List<GeoCoordinate>
+                {
+                    new GeoCoordinate(baseLat + 0.0000, baseLon + 0.0000),
+                    new GeoCoordinate(baseLat + 0.0000, baseLon + 0.0013),
+                    new GeoCoordinate(baseLat - 0.0007, baseLon + 0.0013),
+                    new GeoCoordinate(baseLat - 0.0007, baseLon + 0.0000),
+                    new GeoCoordinate(baseLat + 0.0000, baseLon + 0.0000)
+                }
+            }
+        };
+
+        // 2. Buat Sensor Tanah Ground-Truth (4 Sensor Terkalibrasi In-situ LoRa di 4 Sektor)
+        var sensors = new List<SoilSensorData>
+        {
+            new SoilSensorData { SensorId = "SOIL-01", NodeName = "Probe Sektor A1 (Optimal)", Latitude = baseLat + 0.00035, Longitude = baseLon - 0.00065, MoisturePercent = 68.1, TemperatureCelsius = 27.6, BatteryVoltage = 4.2, LastUpdated = DateTime.UtcNow },
+            new SoilSensorData { SensorId = "SOIL-02", NodeName = "Probe Sektor B2 (Irigasi Fluktuatif)", Latitude = baseLat + 0.00035, Longitude = baseLon + 0.00065, MoisturePercent = 38.2, TemperatureCelsius = 29.4, BatteryVoltage = 4.1, LastUpdated = DateTime.UtcNow },
+            new SoilSensorData { SensorId = "SOIL-03", NodeName = "Probe Sektor C3 (Stres Kanopi)", Latitude = baseLat - 0.00035, Longitude = baseLon - 0.00065, MoisturePercent = 23.4, TemperatureCelsius = 31.0, BatteryVoltage = 4.0, LastUpdated = DateTime.UtcNow },
+            new SoilSensorData { SensorId = "SOIL-04", NodeName = "Probe Sektor D4 (Kritis AWD)", Latitude = baseLat - 0.00035, Longitude = baseLon + 0.00065, MoisturePercent = 14.8, TemperatureCelsius = 32.5, BatteryVoltage = 4.1, LastUpdated = DateTime.UtcNow }
+        };
+
+        // 3. Buat Titik Deteksi Spasial UAV (24 Titik Representatif Realistis 4 Kelas PDP)
+        var points = new List<IrrigationDataPoint>
+        {
+            // Cluster Petak A1 - Zona Normal Vegetatif (Hulu Barat)
+            new IrrigationDataPoint { Latitude = baseLat + 0.00050, Longitude = baseLon - 0.00085, ZoneType = IrrigationZoneType.Normal, Confidence = 0.97f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00040, Longitude = baseLon - 0.00065, ZoneType = IrrigationZoneType.Normal, Confidence = 0.95f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00060, Longitude = baseLon - 0.00045, ZoneType = IrrigationZoneType.Normal, Confidence = 0.96f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00025, Longitude = baseLon - 0.00095, ZoneType = IrrigationZoneType.Normal, Confidence = 0.98f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00030, Longitude = baseLon - 0.00035, ZoneType = IrrigationZoneType.Normal, Confidence = 0.94f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00015, Longitude = baseLon - 0.00070, ZoneType = IrrigationZoneType.Normal, Confidence = 0.96f },
+
+            // Cluster Petak B2 - Ketidakmerataan Irigasi (Hulu Timur)
+            new IrrigationDataPoint { Latitude = baseLat + 0.00050, Longitude = baseLon + 0.00045, ZoneType = IrrigationZoneType.Inconsistent, Confidence = 0.91f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00035, Longitude = baseLon + 0.00075, ZoneType = IrrigationZoneType.Inconsistent, Confidence = 0.89f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00060, Longitude = baseLon + 0.00090, ZoneType = IrrigationZoneType.Inconsistent, Confidence = 0.88f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00020, Longitude = baseLon + 0.00030, ZoneType = IrrigationZoneType.Normal, Confidence = 0.93f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00045, Longitude = baseLon + 0.00110, ZoneType = IrrigationZoneType.Inconsistent, Confidence = 0.87f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00015, Longitude = baseLon + 0.00080, ZoneType = IrrigationZoneType.Inconsistent, Confidence = 0.90f },
+
+            // Cluster Petak C3 - Defisit Air Kanopi (Hilir Barat)
+            new IrrigationDataPoint { Latitude = baseLat - 0.00025, Longitude = baseLon - 0.00085, ZoneType = IrrigationZoneType.DeficitCanopy, Confidence = 0.94f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00040, Longitude = baseLon - 0.00055, ZoneType = IrrigationZoneType.DeficitCanopy, Confidence = 0.92f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00055, Longitude = baseLon - 0.00090, ZoneType = IrrigationZoneType.DeficitCanopy, Confidence = 0.90f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00020, Longitude = baseLon - 0.00035, ZoneType = IrrigationZoneType.Inconsistent, Confidence = 0.86f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00045, Longitude = baseLon - 0.00110, ZoneType = IrrigationZoneType.DeficitCanopy, Confidence = 0.93f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00060, Longitude = baseLon - 0.00040, ZoneType = IrrigationZoneType.DeficitCanopy, Confidence = 0.91f },
+
+            // Cluster Petak D4 - Defisit Kritis Air Tanah (Hilir Timur)
+            new IrrigationDataPoint { Latitude = baseLat - 0.00025, Longitude = baseLon + 0.00055, ZoneType = IrrigationZoneType.DeficitSoil, Confidence = 0.95f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00040, Longitude = baseLon + 0.00080, ZoneType = IrrigationZoneType.DeficitSoil, Confidence = 0.93f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00055, Longitude = baseLon + 0.00045, ZoneType = IrrigationZoneType.DeficitSoil, Confidence = 0.92f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00020, Longitude = baseLon + 0.00105, ZoneType = IrrigationZoneType.DeficitCanopy, Confidence = 0.89f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00045, Longitude = baseLon + 0.00065, ZoneType = IrrigationZoneType.DeficitSoil, Confidence = 0.96f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00060, Longitude = baseLon + 0.00095, ZoneType = IrrigationZoneType.DeficitSoil, Confidence = 0.94f }
+        };
+
+        DashboardMapControl.SetIrrigationPlots(plots);
+        DashboardMapControl.SetSoilSensors(sensors);
+        DashboardMapControl.SetIrrigationPoints(points);
+
+        if (_irrigationService != null)
+        {
+            _irrigationService.ClearDataPoints();
+            foreach (var p in plots) _irrigationService.AddOrUpdatePlot(p);
+            foreach (var s in sensors) _irrigationService.UpdateSoilSensor(s);
+            foreach (var pt in points) _irrigationService.AddDataPoint(pt.Latitude, pt.Longitude, 50, pt.ZoneName, pt.Confidence);
+        }
+    }
+
+    private void OnDashboardIrrigationPointAdded(object? sender, IrrigationDataPoint point)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            DashboardMapControl?.AddIrrigationPoint(point);
+        });
+    }
+
+    private void OnDashboardSoilSensorUpdated(object? sender, SoilSensorData sensor)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            DashboardMapControl?.UpdateSoilSensor(sensor);
+        });
+    }
+
+    private void OnDashboardIrrigationDataCleared(object? sender, EventArgs e)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            DashboardMapControl?.ClearIrrigationPoints();
+        });
     }
 
     private void SubscribeToMapViewModel()
@@ -777,6 +1144,7 @@ public sealed partial class DashboardPage : Page
         {
             DashboardMapControl.AddWaypointMarker(wp.Sequence, wp.Latitude, wp.Longitude, wp.Altitude, wp.Command.ToString());
         }
+        UpdateOfflineAndReadiness(_flightViewModel?.Telemetry, _flightViewModel?.IsConnected == true);
     }
 
     private void SyncTileProviderFromViewModel()
@@ -787,12 +1155,12 @@ public sealed partial class DashboardPage : Page
             "arcgisimagery" => SkiaMapControl.MapTileProvider.ArcGISImagery,
             "arcgistopographic" => SkiaMapControl.MapTileProvider.ArcGISTopographic,
             "arcgisstreetmap" => SkiaMapControl.MapTileProvider.ArcGISStreetMap,
-            "googlemap" => SkiaMapControl.MapTileProvider.GoogleMap,
+            "googlemap" => SkiaMapControl.MapTileProvider.GoogleSatellite,
             "googlesatellite" => SkiaMapControl.MapTileProvider.GoogleSatellite,
             "googleterrain" => SkiaMapControl.MapTileProvider.GoogleTerrain,
             "googlehybrid" => SkiaMapControl.MapTileProvider.GoogleHybrid,
             "openstreetmap" => SkiaMapControl.MapTileProvider.OpenStreetMap,
-            _ => SkiaMapControl.MapTileProvider.ArcGISTopographic
+            _ => SkiaMapControl.MapTileProvider.GoogleSatellite
         };
         DashboardMapControl.SetTileProvider(provider);
     }
@@ -804,6 +1172,7 @@ public sealed partial class DashboardPage : Page
         {
             // No geofence active — clear it, same as Map menu.
             DashboardMapControl.SetGeofence(true, 0, 0, 0);
+            UpdateOfflineAndReadiness(_flightViewModel?.Telemetry, _flightViewModel?.IsConnected == true);
             return;
         }
 
@@ -819,6 +1188,7 @@ public sealed partial class DashboardPage : Page
             var vertices = _mapViewModel.GeofenceVertices.Select(v => (v.Lat, v.Lon)).ToList();
             DashboardMapControl.SetGeofence(false, 0, 0, 0, vertices);
         }
+        UpdateOfflineAndReadiness(_flightViewModel?.Telemetry, _flightViewModel?.IsConnected == true);
     }
 
     // ================ CAMERA ================
@@ -873,10 +1243,10 @@ public sealed partial class DashboardPage : Page
             int healthy = 0, stress = 0, drought = 0, bareSoil = 0;
             if (root.TryGetProperty("classes", out var cls))
             {
-                healthy = ReadClassPercent(cls, "Healthy", "healthy_crop", "Lush Green", "lush_green");
-                stress = ReadClassPercent(cls, "Stress", "stressed_crop", "Inconsistent Growth", "inconsistent_growth");
-                drought = ReadClassPercent(cls, "Drought", "Drought/Severe Stress", "drought_stress", "Disease");
-                bareSoil = ReadClassPercent(cls, "Bare Soil", "BareSoil", "bare_soil", "Bare Soil / Gap", "Pest");
+                healthy = ReadClassPercent(cls, "Healthy", "healthy_crop", "Lush Green", "lush_green", "0_zona_normal");
+                stress = ReadClassPercent(cls, "Stress", "stressed_crop", "Inconsistent Growth", "inconsistent_growth", "1_ketidakmerataan_irigasi");
+                drought = ReadClassPercent(cls, "Drought", "Drought/Severe Stress", "drought_stress", "Disease", "2_defisit_air_kanopi");
+                bareSoil = ReadClassPercent(cls, "Bare Soil", "BareSoil", "bare_soil", "Bare Soil / Gap", "Pest", "3_defisit_air_tanah");
             }
             int total = healthy + stress + drought + bareSoil;
             double liveFhi = root.TryGetProperty("fhi", out var fhiProp) && fhiProp.TryGetDouble(out var fVal) ? fVal : -1.0;
@@ -1056,7 +1426,7 @@ public sealed partial class DashboardPage : Page
                         _lastFpsCalcTime = now;
                     }
                     FpsHudText.Text = _aiOn
-                        ? $"YOLOv8 · {_currentInferenceFps:F0} FPS"
+                        ? $"YOLO11n · {_currentInferenceFps:F0} FPS"
                         : $"OpenCV · {_currentInferenceFps:F0} FPS";
 
                     // Update top bar AI FPS indicator
@@ -1083,7 +1453,7 @@ public sealed partial class DashboardPage : Page
                 {
                     // OpenCV fallback mode: clear normal target overlays, but we can draw severe/critical stress bounding boxes!
                     DashboardVideoStream?.SetDetectionOverlays(boxes
-                        .Where(b => MapToDemo(b.ClassName) == "Drought/Severe Stress" || MapToDemo(b.ClassName) == "Bare Soil / Gap")
+                        .Where(b => MapToDemo(b.ClassName) == "Defisit Air (Kanopi)" || MapToDemo(b.ClassName) == "Defisit Air (Tanah)" || MapToDemo(b.ClassName) == "Drought/Severe Stress" || MapToDemo(b.ClassName) == "Bare Soil / Gap")
                         .Select(b => new VideoDetectionOverlay
                         {
                             Label = MapToDemo(b.ClassName),
@@ -1095,6 +1465,7 @@ public sealed partial class DashboardPage : Page
                         }));
                 }
 
+                _lastRenderedBoxes = boxes;
                 if (!_isDemoRunning)
                 {
                     RenderDetectionListFromBoxes(boxes);
@@ -1106,9 +1477,13 @@ public sealed partial class DashboardPage : Page
                     {
                         switch (MapToDemo(box.ClassName))
                         {
+                            case "Ketidakmerataan Irigasi":
                             case "Inconsistent Growth": inconsistent++; break;
+                            case "Defisit Air (Kanopi)":
                             case "Drought/Severe Stress": drought++; break;
+                            case "Defisit Air (Tanah)":
                             case "Bare Soil / Gap": bareSoil++; break;
+                            case "Zona Normal":
                             case "Lush Green": lushGreen++; break;
                         }
                     }
@@ -1162,6 +1537,7 @@ public sealed partial class DashboardPage : Page
 
     private void RenderDetectionList(HarvestFunctionalService.HarvestAnalysisResult result)
     {
+        _lastRenderedBoxes = result.DetectionBoxes;
         DetectionsListStack.Children.Clear();
         var filtered = result.DetectionBoxes
             .Where(b => b.Confidence * 100 >= _confThreshold)
@@ -1196,10 +1572,19 @@ public sealed partial class DashboardPage : Page
         {
             switch (MapToDemo(box.ClassName))
             {
-                case "Inconsistent Growth": inconsistent++; break;
-                case "Drought/Severe Stress": drought++; break;
-                case "Bare Soil / Gap": bareSoil++; break;
-                case "Lush Green": lushGreen++; break;
+                case "Ketidakmerataan Irigasi":
+                case "Inconsistent Growth":
+                    inconsistent++; break;
+                case "Defisit Air (Kanopi)":
+                case "Drought/Severe Stress":
+                    drought++; break;
+                case "Defisit Air (Tanah)":
+                case "Bare Soil / Gap":
+                    bareSoil++; break;
+                case "Zona Normal":
+                case "Lush Green":
+                default:
+                    lushGreen++; break;
             }
         }
 
@@ -1210,18 +1595,14 @@ public sealed partial class DashboardPage : Page
         var bareSoilPct     = bareSoil     * 100.0 / total;
 
         SummaryHealthyCount.Text = $"{lushGreenPct:F0}%";
-        if (SummaryWellIrrigatedCount != null) SummaryWellIrrigatedCount.Text = "0%";
         SummaryStressCount.Text  = $"{inconsistentPct:F0}%";
-        if (SummarySoilIssuesCount != null) SummarySoilIssuesCount.Text = "0%";
         SummaryDiseaseCount.Text = $"{droughtPct:F0}%";
         SummaryPestCount.Text    = $"{bareSoilPct:F0}%";
 
-        if (SummaryHealthyBar        != null) SummaryHealthyBar.Value        = lushGreenPct;
-        if (SummaryWellIrrigatedBar  != null) SummaryWellIrrigatedBar.Value  = 0;
-        if (SummaryStressBar         != null) SummaryStressBar.Value         = inconsistentPct;
-        if (SummarySoilIssuesBar     != null) SummarySoilIssuesBar.Value     = 0;
-        if (SummaryDiseaseBar        != null) SummaryDiseaseBar.Value        = droughtPct;
-        if (SummaryPestBar           != null) SummaryPestBar.Value           = bareSoilPct;
+        if (SummaryHealthyBar != null) SummaryHealthyBar.Value = lushGreenPct;
+        if (SummaryStressBar  != null) SummaryStressBar.Value  = inconsistentPct;
+        if (SummaryDiseaseBar != null) SummaryDiseaseBar.Value = droughtPct;
+        if (SummaryPestBar    != null) SummaryPestBar.Value    = bareSoilPct;
 
         var dominant = DominantV5Label(lushGreenPct, inconsistentPct, droughtPct, bareSoilPct);
         if (SummaryDominantText != null) SummaryDominantText.Text = dominant;
@@ -1242,49 +1623,164 @@ public sealed partial class DashboardPage : Page
         });
     }
 
-    /// <summary>Remap detector class name to one of the 4 v5 datasheet labels.</summary>
-    private static string MapToDemo(string className)
+    private void ModePlantBtn_Click(object sender, RoutedEventArgs e) => SetLabelMode(DetectionLabelMode.Plant);
+    private void ModeZoneBtn_Click(object sender, RoutedEventArgs e) => SetLabelMode(DetectionLabelMode.Zone);
+
+    private void SetLabelMode(DetectionLabelMode mode)
     {
-        // Normalize: collapse whitespace, remove special chars, lowercase
-        var key = System.Text.RegularExpressions.Regex.Replace(
-            className.ToLowerInvariant().Trim(), @"[\s/\-]+", "_");
-        return key switch
+        _activeLabelMode = mode;
+        if (_irrigationService != null)
         {
-            "healthy" or "healthy_crop" or "lush_green" or "well_irrigated" => "Lush Green",
-            "stress" or "stressed_crop" or "inconsistent_growth" => "Inconsistent Growth",
-            "drought" or "drought_stress" or "drought_severe_stress"
-                or "drought__severe_stress" or "disease" => "Drought/Severe Stress",
-            "bare_soil" or "bare_soil_gap" or "bare_soil__gap"
-                or "soil_issues" or "pest" => "Bare Soil / Gap",
-            _ => string.Empty
-        };
+            _irrigationService.LabelMode = mode;
+        }
+        UpdateModeUi();
+        RefreshActiveLabels();
+    }
+
+    private void OnIrrigationServiceLabelModeChanged(object? sender, DetectionLabelMode mode)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            _activeLabelMode = mode;
+            UpdateModeUi();
+            RefreshActiveLabels();
+        });
+    }
+
+    private void UpdateModeUi()
+    {
+        bool isPlant = _activeLabelMode == DetectionLabelMode.Plant;
+
+        if (ModePlantBtn != null)
+        {
+            ModePlantBtn.Background = isPlant
+                ? new SolidColorBrush(Color.FromArgb(255, 46, 125, 50))
+                : new SolidColorBrush(Color.FromArgb(25, 100, 116, 139));
+            ModePlantBtn.Foreground = isPlant
+                ? new SolidColorBrush(Microsoft.UI.Colors.White)
+                : new SolidColorBrush(Color.FromArgb(255, 100, 116, 139));
+            ModePlantBtn.FontWeight = isPlant
+                ? Microsoft.UI.Text.FontWeights.Bold
+                : Microsoft.UI.Text.FontWeights.Normal;
+        }
+
+        if (ModeZoneBtn != null)
+        {
+            ModeZoneBtn.Background = !isPlant
+                ? new SolidColorBrush(Color.FromArgb(255, 29, 78, 216))
+                : new SolidColorBrush(Color.FromArgb(25, 100, 116, 139));
+            ModeZoneBtn.Foreground = !isPlant
+                ? new SolidColorBrush(Microsoft.UI.Colors.White)
+                : new SolidColorBrush(Color.FromArgb(255, 100, 116, 139));
+            ModeZoneBtn.FontWeight = !isPlant
+                ? Microsoft.UI.Text.FontWeights.Bold
+                : Microsoft.UI.Text.FontWeights.Normal;
+        }
+
+        if (SummaryHealthyLabel != null) SummaryHealthyLabel.Text = isPlant ? "Lush Green" : "Zona Normal";
+        if (SummaryStressLabel != null) SummaryStressLabel.Text = isPlant ? "Inconsistent Growth" : "Ketidakmerataan Irigasi";
+        if (SummaryDiseaseLabel != null) SummaryDiseaseLabel.Text = isPlant ? "Drought / Severe Stress" : "Defisit Air (Kanopi)";
+        if (SummaryPestLabel != null) SummaryPestLabel.Text = isPlant ? "Bare Soil / Gap" : "Defisit Air (Tanah)";
+
+        if (DetectionsListTitle != null)
+        {
+            DetectionsListTitle.Text = isPlant
+                ? $"Live Detections ({_lastDetectionCount})"
+                : $"Deteksi Irigasi ({_lastDetectionCount})";
+        }
+    }
+
+    private void RefreshActiveLabels()
+    {
+        if (_isDemoRunning)
+        {
+            InjectDemoDetectionUI(_demoStep);
+            return;
+        }
+
+        if (_lastRenderedBoxes != null && _lastRenderedBoxes.Count > 0)
+        {
+            RenderDetectionListFromBoxes(_lastRenderedBoxes);
+            UpdateSummaryFromDetections(_lastRenderedBoxes);
+        }
+        else if (SummaryHealthyBar != null && SummaryStressBar != null && SummaryDiseaseBar != null && SummaryPestBar != null)
+        {
+            if (SummaryDominantText != null)
+            {
+                SummaryDominantText.Text = DominantV5Label(
+                    SummaryHealthyBar.Value,
+                    SummaryStressBar.Value,
+                    SummaryDiseaseBar.Value,
+                    SummaryPestBar.Value);
+            }
+        }
+    }
+
+    /// <summary>Remap detector class name to one of the 4 labels depending on active mode.</summary>
+    private string MapToDemo(string className)
+    {
+        var key = System.Text.RegularExpressions.Regex.Replace(
+            (className ?? string.Empty).ToLowerInvariant().Trim(), @"[\s/\-]+", "_");
+
+        bool isPlant = _activeLabelMode == DetectionLabelMode.Plant;
+
+        if (key.Contains("kanopi") || key.Contains("drought") || key.Contains("disease"))
+            return isPlant ? "Drought / Severe Stress" : "Defisit Air (Kanopi)";
+
+        if (key.Contains("tanah") || key.Contains("bare") || key.Contains("soil") || key.Contains("pest"))
+            return isPlant ? "Bare Soil / Gap" : "Defisit Air (Tanah)";
+
+        if (key.Contains("irigasi") || key.Contains("inconsistent") || key.Contains("stress"))
+            return isPlant ? "Inconsistent Growth" : "Ketidakmerataan Irigasi";
+
+        return isPlant ? "Lush Green" : "Zona Normal";
     }
 
     private static Color ColorForLabel(string label)
     {
-        var lower = label.ToLowerInvariant();
-        if (lower.Contains("drought"))      return Color.FromArgb(255, 230,  81,   0);  // orange
-        if (lower.Contains("bare") || lower.Contains("soil")) return Color.FromArgb(255,  93,  64,  55);  // brown
-        if (lower.Contains("inconsistent")) return Color.FromArgb(255, 178, 107,   0);  // amber
-        return Color.FromArgb(255, 46, 125, 50);                                         // green (lush)
+        var lower = (label ?? string.Empty).ToLowerInvariant();
+        if (lower.Contains("kanopi") || lower.Contains("drought")) return Color.FromArgb(255, 234,  88,  12);  // #EA580C orange
+        if (lower.Contains("tanah") || lower.Contains("bare") || lower.Contains("soil")) return Color.FromArgb(255, 220,  38,  38);  // #DC2626 red
+        if (lower.Contains("irigasi") || lower.Contains("inconsistent")) return Color.FromArgb(255, 217, 119,   6);  // #D97706 amber
+        return Color.FromArgb(255, 34, 197, 94);                                         // #22C55E green (zona normal)
     }
 
-    private static (string Emoji, string Label, string Description) CropClassInfo(string className)
+    private (string Emoji, string Label, string Description) CropClassInfo(string className)
     {
-        var lower = className.ToLowerInvariant().Replace(" ", "_").Replace("-", "_");
-        if (lower.Contains("drought"))      return ("🟠", "Drought/Severe Stress", "Severe water stress");
-        if (lower.Contains("bare") || lower.Contains("soil")) return ("🟤", "Bare Soil / Gap", "Bare or missing crop");
-        if (lower.Contains("inconsistent")) return ("🟡", "Inconsistent Growth", "Stressed / uneven crop");
-        return                                     ("🌿", "Lush Green",          "Healthy vegetation");
+        var lower = (className ?? string.Empty).ToLowerInvariant().Replace(" ", "_").Replace("-", "_");
+        bool isPlant = _activeLabelMode == DetectionLabelMode.Plant;
+
+        if (lower.Contains("kanopi") || lower.Contains("drought") || lower.Contains("disease"))
+            return isPlant
+                ? ("🟠", "Drought / Severe Stress", "Severe water stress / canopy dehydration")
+                : ("🟠", "Defisit Air (Kanopi)", "Defisit air kanopi / severe stress");
+
+        if (lower.Contains("tanah") || lower.Contains("bare") || lower.Contains("soil") || lower.Contains("pest"))
+            return isPlant
+                ? ("🔴", "Bare Soil / Gap", "Exposed dry soil / canopy gap")
+                : ("🔴", "Defisit Air (Tanah)", "Defisit air tanah / retakan kering");
+
+        if (lower.Contains("irigasi") || lower.Contains("inconsistent") || lower.Contains("stress"))
+            return isPlant
+                ? ("🟡", "Inconsistent Growth", "Uneven irrigation / early growth stress")
+                : ("🟡", "Ketidakmerataan Irigasi", "Stres awal / pertumbuhan tidak seragam");
+
+        return isPlant
+            ? ("🌿", "Lush Green", "Normal vegetative vigor & well-hydrated")
+            : ("🌿", "Zona Normal", "Vegetasi normal & terhidrasi baik");
     }
 
-    private static string DominantV5Label(double lushGreenPct, double inconsistentPct, double droughtPct, double bareSoilPct)
+    private string DominantV5Label(double lushGreenPct, double inconsistentPct, double droughtPct, double bareSoilPct)
     {
+        bool isPlant = _activeLabelMode == DetectionLabelMode.Plant;
         var max = Math.Max(Math.Max(lushGreenPct, inconsistentPct), Math.Max(droughtPct, bareSoilPct));
-        if (Math.Abs(max - droughtPct) < 0.001) return $"Drought/Severe Stress {droughtPct:F0}%";
-        if (Math.Abs(max - bareSoilPct) < 0.001) return $"Bare Soil / Gap {bareSoilPct:F0}%";
-        if (Math.Abs(max - inconsistentPct) < 0.001) return $"Inconsistent Growth {inconsistentPct:F0}%";
-        return $"Lush Green {lushGreenPct:F0}%";
+        if (Math.Abs(max - droughtPct) < 0.001)
+            return isPlant ? $"Drought / Severe Stress {droughtPct:F0}%" : $"Defisit Air (Kanopi) {droughtPct:F0}%";
+        if (Math.Abs(max - bareSoilPct) < 0.001)
+            return isPlant ? $"Bare Soil / Gap {bareSoilPct:F0}%" : $"Defisit Air (Tanah) {bareSoilPct:F0}%";
+        if (Math.Abs(max - inconsistentPct) < 0.001)
+            return isPlant ? $"Inconsistent Growth {inconsistentPct:F0}%" : $"Ketidakmerataan Irigasi {inconsistentPct:F0}%";
+        return isPlant ? $"Lush Green {lushGreenPct:F0}%" : $"Zona Normal {lushGreenPct:F0}%";
     }
 
     private Grid BuildCropDetectionRow(string className, double confidence)
@@ -1292,7 +1788,7 @@ public sealed partial class DashboardPage : Page
         var (emoji, label, desc) = CropClassInfo(className);
         var color = ColorForLabel(className);
 
-        var row = new Grid { Padding = new Thickness(6, 5, 6, 5) };
+        var row = new Grid { Padding = new Thickness(4, 1.5, 4, 1.5) };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -1301,42 +1797,45 @@ public sealed partial class DashboardPage : Page
         var emojiBlock = new TextBlock
         {
             Text = emoji,
-            FontSize = 13,
+            FontSize = 11,
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 8, 0)
+            Margin = new Thickness(0, 0, 6, 0)
         };
         Grid.SetColumn(emojiBlock, 0);
         row.Children.Add(emojiBlock);
 
-        // Label + description stacked
-        var labelStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        labelStack.Children.Add(new TextBlock
+        // Label with class name
+        var labelBlock = new TextBlock
         {
-            Text = label,
-            FontSize = 12,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(color),
-        });
-        labelStack.Children.Add(new TextBlock
-        {
-            Text = desc,
+            Text = className,
             FontSize = 10,
-            Foreground = new SolidColorBrush(Color.FromArgb(255, 100, 116, 139)),
-        });
-        Grid.SetColumn(labelStack, 1);
-        row.Children.Add(labelStack);
-
-        // Confidence
-        var confBlock = new TextBlock
-        {
-            Text = $"{confidence * 100:F0}%",
-            FontSize = 12,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             Foreground = new SolidColorBrush(color),
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        Grid.SetColumn(labelBlock, 1);
+        row.Children.Add(labelBlock);
+
+        // Pill badge for confidence
+        var confPill = new Border
+        {
+            Background = new SolidColorBrush(Color.FromArgb(28, color.R, color.G, color.B)),
+            BorderBrush = new SolidColorBrush(color),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(5, 1, 5, 1),
             VerticalAlignment = VerticalAlignment.Center
         };
-        Grid.SetColumn(confBlock, 2);
-        row.Children.Add(confBlock);
+        confPill.Child = new TextBlock
+        {
+            Text = $"{confidence * 100:F0}%",
+            FontSize = 9.5,
+            FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+            Foreground = new SolidColorBrush(color)
+        };
+        Grid.SetColumn(confPill, 2);
+        row.Children.Add(confPill);
 
         return row;
     }
@@ -1353,14 +1852,10 @@ public sealed partial class DashboardPage : Page
             SummaryStressCount.Text   = "0%";
             SummaryDiseaseCount.Text  = "0%";
             SummaryPestCount.Text     = "0%";
-            if (SummaryHealthyBar        != null) SummaryHealthyBar.Value        = 0;
-            if (SummaryWellIrrigatedBar  != null) SummaryWellIrrigatedBar.Value  = 0;
-            if (SummaryStressBar         != null) SummaryStressBar.Value         = 0;
-            if (SummarySoilIssuesBar     != null) SummarySoilIssuesBar.Value     = 0;
-            if (SummaryDiseaseBar        != null) SummaryDiseaseBar.Value        = 0;
-            if (SummaryPestBar           != null) SummaryPestBar.Value           = 0;
-            if (SummaryWellIrrigatedCount != null) SummaryWellIrrigatedCount.Text = "0%";
-            if (SummarySoilIssuesCount    != null) SummarySoilIssuesCount.Text   = "0%";
+            if (SummaryHealthyBar != null) SummaryHealthyBar.Value = 0;
+            if (SummaryStressBar  != null) SummaryStressBar.Value  = 0;
+            if (SummaryDiseaseBar != null) SummaryDiseaseBar.Value = 0;
+            if (SummaryPestBar    != null) SummaryPestBar.Value    = 0;
             SummaryPriorityText.Text = "Standby";
             if (SummaryDominantText != null) SummaryDominantText.Text = "—";
             return;
@@ -1371,37 +1866,66 @@ public sealed partial class DashboardPage : Page
         {
             switch (MapToDemo(box.ClassName))
             {
-                case "Inconsistent Growth": inconsistent++; break;
-                case "Drought/Severe Stress": drought++; break;
-                case "Bare Soil / Gap": bareSoil++; break;
-                case "Lush Green": lushGreen++; break;
+                case "Ketidakmerataan Irigasi":
+                case "Inconsistent Growth":
+                    inconsistent++; break;
+                case "Defisit Air (Kanopi)":
+                case "Drought/Severe Stress":
+                    drought++; break;
+                case "Defisit Air (Tanah)":
+                case "Bare Soil / Gap":
+                    bareSoil++; break;
+                case "Zona Normal":
+                case "Lush Green":
+                default:
+                    lushGreen++; break;
             }
         }
 
         int total           = Math.Max(1, lushGreen + inconsistent + drought + bareSoil);
-        var lushGreenPct    = lushGreen   * 100 / total;
-        var inconsistentPct = inconsistent * 100 / total;
-        var droughtPct      = drought     * 100 / total;
-        var bareSoilPct     = bareSoil    * 100 / total;
+        var lushGreenPct    = lushGreen   * 100.0 / total;
+        var inconsistentPct = inconsistent * 100.0 / total;
+        var droughtPct      = drought     * 100.0 / total;
+        var bareSoilPct     = bareSoil    * 100.0 / total;
 
         SummaryHealthyCount.Text = $"{lushGreenPct:F0}%";
         SummaryStressCount.Text  = $"{inconsistentPct:F0}%";
         SummaryDiseaseCount.Text = $"{droughtPct:F0}%";
         SummaryPestCount.Text    = $"{bareSoilPct:F0}%";
-        // WellIrrigated = proxy for LushGreen (most hydrated/healthy zones)
-        // SoilIssues    = proxy for BareSoil  (exposed/degraded soil)
-        if (SummaryWellIrrigatedCount != null) SummaryWellIrrigatedCount.Text = $"{lushGreenPct:F0}%";
-        if (SummarySoilIssuesCount    != null) SummarySoilIssuesCount.Text    = $"{bareSoilPct:F0}%";
 
-        if (SummaryHealthyBar        != null) SummaryHealthyBar.Value        = lushGreenPct;
-        if (SummaryWellIrrigatedBar  != null) SummaryWellIrrigatedBar.Value  = lushGreenPct;
-        if (SummaryStressBar         != null) SummaryStressBar.Value         = inconsistentPct;
-        if (SummarySoilIssuesBar     != null) SummarySoilIssuesBar.Value     = bareSoilPct;
-        if (SummaryDiseaseBar        != null) SummaryDiseaseBar.Value        = droughtPct;
-        if (SummaryPestBar           != null) SummaryPestBar.Value           = bareSoilPct;
+        if (SummaryHealthyBar != null) SummaryHealthyBar.Value = lushGreenPct;
+        if (SummaryStressBar  != null) SummaryStressBar.Value  = inconsistentPct;
+        if (SummaryDiseaseBar != null) SummaryDiseaseBar.Value = droughtPct;
+        if (SummaryPestBar    != null) SummaryPestBar.Value    = bareSoilPct;
 
         var dominant = DominantV5Label(lushGreenPct, inconsistentPct, droughtPct, bareSoilPct);
         if (SummaryDominantText != null) SummaryDominantText.Text = dominant;
+
+        if (_irrigationService != null && boxes.Count > 0)
+        {
+            double uavLat = _telemetry?.Latitude ?? DemoFieldLat;
+            double uavLon = _telemetry?.Longitude ?? DemoFieldLon;
+            double uavAlt = _telemetry?.Altitude ?? 50.0;
+            double headingRad = (_telemetry?.Heading ?? _yaw) * Math.PI / 180.0;
+            double groundWidthM = Math.Max(8.0, uavAlt * 1.15);
+
+            foreach (var box in boxes.Where(b => b.Confidence * 100 >= _confThreshold))
+            {
+                double normX = Math.Clamp((box.X + box.Width / 2.0) / 640.0 - 0.5, -0.5, 0.5);
+                double normY = Math.Clamp((box.Y + box.Height / 2.0) / 640.0 - 0.5, -0.5, 0.5);
+
+                double offsetXMeters = normX * groundWidthM;
+                double offsetYMeters = -normY * groundWidthM;
+
+                double eastMeters = offsetXMeters * Math.Cos(headingRad) + offsetYMeters * Math.Sin(headingRad);
+                double northMeters = -offsetXMeters * Math.Sin(headingRad) + offsetYMeters * Math.Cos(headingRad);
+
+                double targetLat = uavLat + (northMeters / 111111.0);
+                double targetLon = uavLon + (eastMeters / (111111.0 * Math.Cos(Math.Max(-85.0, Math.Min(85.0, uavLat)) * Math.PI / 180.0)));
+
+                _irrigationService.AddDataPoint(targetLat, targetLon, uavAlt, box.ClassName, box.Confidence);
+            }
+        }
 
         var priority = drought > 0 || bareSoil > 0 ? "High" : inconsistent > 0 ? "Medium" : "Low";
         SummaryPriorityText.Text = priority;
@@ -1431,6 +1955,7 @@ public sealed partial class DashboardPage : Page
             {
                 DashboardVideoStream?.ShowStatus("Camera stopped", false);
             }
+            UpdateOfflineAndReadiness(_flightViewModel?.Telemetry, _flightViewModel?.IsConnected == true);
         });
     }
 
@@ -1805,6 +2330,7 @@ public sealed partial class DashboardPage : Page
                 _mapViewModel.GeofenceCenterLat = _currentScenario.FieldCenterLat;
                 _mapViewModel.GeofenceCenterLon = _currentScenario.FieldCenterLon;
                 _mapViewModel.GeofenceRadius    = _currentScenario.GeofenceRadiusMeters;
+                _mapViewModel.GeofenceMaxAltitude = 120.0;
                 _mapViewModel.GeofenceType      = GeofenceType.Circular;
                 _mapViewModel.IsGeofenceActive  = true;
             }
@@ -1821,9 +2347,12 @@ public sealed partial class DashboardPage : Page
                 }
                 DashboardMapControl.SetGeofence(true, _currentScenario.FieldCenterLat, _currentScenario.FieldCenterLon, _currentScenario.GeofenceRadiusMeters);
                 DashboardMapControl.SetFollowVehicle(true);
+                EnsurePDPThematicDataLoaded(_currentScenario.FieldCenterLat, _currentScenario.FieldCenterLon);
             }
+            _geofenceService?.SetGeofenceType(GeofenceType.Circular);
             _geofenceService?.SetGeofenceCenter(_currentScenario.FieldCenterLat, _currentScenario.FieldCenterLon);
             _geofenceService?.SetGeofenceRadius(_currentScenario.GeofenceRadiusMeters);
+            _geofenceService?.SetMaxAltitude(120.0);
             _geofenceService?.SetGeofenceActive(true);
         }
 
@@ -1935,13 +2464,19 @@ public sealed partial class DashboardPage : Page
             }
 #endif
 
-            // 2. AI state: respect current toggle (don't force on)
-            _aiOn = _harvestFunctionalService?.IsYoloOptionEnabled ?? false;
-            if (YoloToggleSwitch != null) YoloToggleSwitch.IsOn = _aiOn;
+            // 2. AI state: ensure active during demo mode for journal & flight test verification
+            _aiOn = true;
+            _harvestFunctionalService?.SetYoloOptionEnabled(true);
+            if (YoloToggleSwitch != null) YoloToggleSwitch.IsOn = true;
+            AiStatusText.Text = "AI ON";
+            AiStatusPill.Style = (Style)Resources["PillSuccessStyle"];
+            PauseAiLabel.Text = "Pause AI";
 
             // 3. Geofence around current scenario field
+            _geofenceService?.SetGeofenceType(GeofenceType.Circular);
             _geofenceService?.SetGeofenceCenter(_currentScenario.FieldCenterLat, _currentScenario.FieldCenterLon);
             _geofenceService?.SetGeofenceRadius(_currentScenario.GeofenceRadiusMeters);
+            _geofenceService?.SetMaxAltitude(120.0);
             _geofenceService?.SetGeofenceActive(true);
 
             // 4. MAVLink connection
@@ -1963,6 +2498,7 @@ public sealed partial class DashboardPage : Page
                 _mapViewModel.GeofenceCenterLat = _currentScenario.FieldCenterLat;
                 _mapViewModel.GeofenceCenterLon = _currentScenario.FieldCenterLon;
                 _mapViewModel.GeofenceRadius    = _currentScenario.GeofenceRadiusMeters;
+                _mapViewModel.GeofenceMaxAltitude = 120.0;
                 _mapViewModel.GeofenceType      = GeofenceType.Circular;
                 _mapViewModel.IsGeofenceActive  = true;
             }
@@ -1978,6 +2514,7 @@ public sealed partial class DashboardPage : Page
                 DashboardMapControl.SetGeofence(true, _currentScenario.FieldCenterLat, _currentScenario.FieldCenterLon, _currentScenario.GeofenceRadiusMeters);
                 DashboardMapControl.SetCenter(_currentScenario.FieldCenterLat, _currentScenario.FieldCenterLon, _currentScenario.MapZoomLevel);
                 DashboardMapControl.SetFollowVehicle(true);
+                EnsurePDPThematicDataLoaded(_currentScenario.FieldCenterLat, _currentScenario.FieldCenterLon);
             }
 
             // 5. Initial telemetry
@@ -2037,7 +2574,7 @@ public sealed partial class DashboardPage : Page
         }
 #endif
         _harvestFunctionalService?.SetDemoModeActive(false);
-        ReadinessChecklistPanel.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
+        ReadinessChecklistPanel.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
         MissionMetadataPanel.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
         _classifyRealData = null;
         _classifyFirstFrameReceived = false;
@@ -2133,28 +2670,36 @@ public sealed partial class DashboardPage : Page
         // True bearing from current segment start → end
         double newHeading = GeodesicBearing(lat0, lon0, lat1, lon1);
 
-        // Detect turns: heading change > 45° → UAV is banking
+        // Detect turns: heading change > 15° → UAV is executing coordinated bank turn
         double headingDelta = ((newHeading - _demoHeading + 540) % 360) - 180; // [-180, +180]
-        bool isTurning      = Math.Abs(headingDelta) > 45;
+        bool isTurning      = Math.Abs(headingDelta) > 15;
         _demoHeading        = newHeading;
 
-        // Altitude: gentle oscillation around ~60 m AGL to keep the demo stable and believable.
-        double altitude     = _demoAltitudeBase + Math.Sin(step * 0.31) * 0.6;
+        // Altitude: gentle oscillation around ~50 m AGL to keep the demo stable and believable.
+        double altitude     = _demoAltitudeBase + Math.Sin(step * 0.28) * 0.45;
 
-        // Roll: gentle banking during turns, subtle waggle on straights
-        double roll = isTurning
-            ? Math.Sign(headingDelta) * 10.0
-            : Math.Sin(step * 0.4) * 5.0;
+        // Realistic aerodynamics:
+        // 1. Roll: Banks into the turn smoothly, plus multi-frequency micro wind buffeting
+        double targetRoll = isTurning ? Math.Clamp(headingDelta * 0.45, -16.0, 16.0) : 0.0;
+        double microRoll = Math.Sin(step * 0.73) * 2.1 + Math.Cos(step * 1.52) * 1.0;
+        double roll = targetRoll + microRoll;
 
-        // Pitch: very subtle nose-down oscillation for level cruise flight feel
-        double pitch = -2.5 + Math.Sin(step * 0.23) * 2.5;
+        // 2. Pitch: Forward quadcopter propulsion requires steady nose-down attitude (-3.5 to -5.0 deg).
+        // During bank turns, autopilot applies turn-compensation elevator (+1.2 deg) to prevent altitude loss.
+        double basePitch = -4.0;
+        double turnPitchComp = Math.Abs(roll) * 0.10;
+        double microPitch = Math.Sin(step * 0.58 + 0.8) * 1.2 + Math.Cos(step * 1.25) * 0.5;
+        double pitch = basePitch + turnPitchComp + microPitch;
+
+        // 3. Yaw: Compass heading with subtle wind drift angle
+        double yaw = (newHeading + Math.Sin(step * 0.35) * 0.8 + 360.0) % 360.0;
 
         // Speed: slightly slower through turns, using randomized base
-        double speedTurn = Math.Max(6.5, _demoSpeedBase - 1.8);
-        double speed = isTurning ? speedTurn : _demoSpeedBase;
+        double speedTurn = Math.Max(7.0, _demoSpeedBase - 1.6);
+        double speed = isTurning ? speedTurn : _demoSpeedBase + Math.Sin(step * 0.4) * 0.3;
 
-        // Vertical speed: tiny oscillation
-        double verticalSpeed = Math.Sin(step * 0.5) * 0.15;
+        // Vertical speed: tiny atmospheric oscillation
+        double verticalSpeed = Math.Sin(step * 0.45) * 0.12;
 
         // Smooth battery drain and voltage curve (3S LiPo: 12.36V - 12.54V)
         _demoBattery = Math.Max(84.0, _demoBatteryStart - (step % 120) * 0.05);
@@ -2166,7 +2711,7 @@ public sealed partial class DashboardPage : Page
             Longitude          = lon,
             Altitude           = altitude,
             RelativeAltitude   = altitude,
-            Heading            = newHeading,
+            Heading            = yaw,
             Speed              = speed,
             GroundSpeed        = speed,
             BatteryPercentage  = _demoBattery,
@@ -2177,13 +2722,13 @@ public sealed partial class DashboardPage : Page
             GPSFixType         = 6,   // GPS_FIX_TYPE_RTK_FIXED (real MAVLink enum tops out at 8 — 15 was never a valid fix type)
             FlightMode         = HarvestmoonGCS.Core.Models.FlightMode.AUTO,
             IsArmed            = true,
-            ThrottlePercent    = isTurning ? 60 : 68,
+            ThrottlePercent    = isTurning ? 62 : 68,
             Roll               = roll  * Math.PI / 180.0,
             Pitch              = pitch * Math.PI / 180.0,
-            Yaw                = newHeading,
+            Yaw                = yaw,
             VerticalSpeed      = verticalSpeed,
         };
-        SetDemoImu(roll, pitch, newHeading, altitude, speed);
+        SetDemoImu(roll, pitch, yaw, altitude, speed);
         _flightViewModel.UpdateTelemetry(telemetry);
 
         // Fire real MAVLink telemetry event so FlightPage, MissionPage etc. all respond
@@ -2303,96 +2848,229 @@ public sealed partial class DashboardPage : Page
     private void InjectDemoDetectionUI(int step)
     {
         double dLushGreen, dStress, dDrought, dBareSoil, avgConf;
-        int count;
+        double fhiScore;
+        List<VideoDetectionOverlay> dynamicOverlays;
 
-        // Use REAL Python detection data when classify stream has sent at least one result
-        if (_classifyRealData.HasValue)
+        // Check if environment variable explicitly forces a phase (0..4)
+        var envPhase = Environment.GetEnvironmentVariable("MOONHARVEST_DEMO_PHASE");
+        int phase = !string.IsNullOrEmpty(envPhase) && int.TryParse(envPhase, out int p) ? p : ((step / 11) % 5);
+
+        switch (phase)
         {
-            var r = _classifyRealData.Value;
-            double tot = Math.Max(1, r.Total);
-            dLushGreen = r.Healthy * 100.0 / tot;
-            dStress    = r.Stress  * 100.0 / tot;
-            dDrought   = r.Drought * 100.0 / tot;
-            dBareSoil  = r.BareSoil * 100.0 / tot;
-            count    = r.Total;
-            avgConf  = 0.86; // fixed confidence avg 86% for demo
+            case 0:
+                // --- Kondisi 1: Sektor A - Survei Normal & Takeoff (Dominan Hijau Subur) ---
+                dLushGreen = 78.0 + Math.Sin(step * 0.4) * 2.0;
+                dStress    = 14.0 + Math.Cos(step * 0.3) * 1.0;
+                dDrought   = 5.0;
+                dBareSoil  = 3.0;
+                fhiScore   = 94.8 + Math.Sin(step * 0.2) * 0.8;
+                avgConf    = 0.94;
 
-            // Build detection rows from real class counts
-            DetectionsListStack.Children.Clear();
-            if (r.Stress  > 0) DetectionsListStack.Children.Add(BuildCropDetectionRow("Inconsistent Growth", NormalizeDemoConfidence(0.84 + Math.Sin(step * 0.4) * 0.02)));
-            if (r.Healthy > 0) DetectionsListStack.Children.Add(BuildCropDetectionRow("Lush Green",           NormalizeDemoConfidence(0.88 + Math.Sin(step * 0.2) * 0.02)));
-            if (r.Drought > 0) DetectionsListStack.Children.Add(BuildCropDetectionRow("Drought/Severe Stress", NormalizeDemoConfidence(0.83 + Math.Sin(step * 0.5) * 0.02)));
-            if (r.BareSoil > 0) DetectionsListStack.Children.Add(BuildCropDetectionRow("Bare Soil / Gap",      NormalizeDemoConfidence(0.82 + Math.Sin(step * 0.6) * 0.02)));
+                dynamicOverlays = new List<VideoDetectionOverlay>
+                {
+                    // 8 x Zona Normal
+                    new VideoDetectionOverlay { Label = "Zona Normal", Confidence = (float)NormalizeDemoConfidence(0.96), X = 160 + (int)(Math.Sin(step * 0.3) * 12), Y = 130, Width = 340, Height = 220 },
+                    new VideoDetectionOverlay { Label = "Zona Normal", Confidence = (float)NormalizeDemoConfidence(0.94), X = 540, Y = 140 + (int)(Math.Cos(step * 0.3) * 10), Width = 320, Height = 190 },
+                    new VideoDetectionOverlay { Label = "Zona Normal", Confidence = (float)NormalizeDemoConfidence(0.97), X = 910, Y = 120, Width = 360, Height = 230 },
+                    new VideoDetectionOverlay { Label = "Zona Normal", Confidence = (float)NormalizeDemoConfidence(0.93), X = 1320, Y = 160, Width = 350, Height = 200 },
+                    new VideoDetectionOverlay { Label = "Zona Normal", Confidence = (float)NormalizeDemoConfidence(0.95), X = 220, Y = 380, Width = 300, Height = 190 },
+                    new VideoDetectionOverlay { Label = "Zona Normal", Confidence = (float)NormalizeDemoConfidence(0.92), X = 600, Y = 360, Width = 340, Height = 210 },
+                    new VideoDetectionOverlay { Label = "Zona Normal", Confidence = (float)NormalizeDemoConfidence(0.96), X = 1000, Y = 390, Width = 310, Height = 180 },
+                    new VideoDetectionOverlay { Label = "Zona Normal", Confidence = (float)NormalizeDemoConfidence(0.94), X = 1400, Y = 410, Width = 280, Height = 190 },
+                    // 2 x Ketidakmerataan Irigasi
+                    new VideoDetectionOverlay { Label = "Ketidakmerataan Irigasi", Confidence = (float)NormalizeDemoConfidence(0.89), X = 320, Y = 620, Width = 280, Height = 180 },
+                    new VideoDetectionOverlay { Label = "Ketidakmerataan Irigasi", Confidence = (float)NormalizeDemoConfidence(0.87), X = 780, Y = 640, Width = 290, Height = 190 },
+                    // 1 x Defisit Kanopi & 1 x Defisit Tanah
+                    new VideoDetectionOverlay { Label = "Defisit Air (Kanopi)", Confidence = (float)NormalizeDemoConfidence(0.86), X = 1240, Y = 650, Width = 260, Height = 170 },
+                    new VideoDetectionOverlay { Label = "Defisit Air (Tanah)", Confidence = (float)NormalizeDemoConfidence(0.88), X = 1580, Y = 640, Width = 240, Height = 180 }
+                };
+
+                DetectionsListStack.Children.Clear();
+                DetectionsListStack.Children.Add(BuildCropDetectionRow("Zona Normal (8 objek)",           NormalizeDemoConfidence(0.96)));
+                DetectionsListStack.Children.Add(BuildCropDetectionRow("Ketidakmerataan Irigasi (2 objek)", NormalizeDemoConfidence(0.89)));
+                DetectionsListStack.Children.Add(BuildCropDetectionRow("Defisit Air (Kanopi) (1 objek)", NormalizeDemoConfidence(0.86)));
+                DetectionsListStack.Children.Add(BuildCropDetectionRow("Defisit Air (Tanah) (1 objek)",      NormalizeDemoConfidence(0.88)));
+                break;
+
+            case 1:
+                // --- Kondisi 2: Sektor B - Ketidakmerataan Irigasi (Dominan Saluran Cacing) ---
+                dLushGreen = 42.0 + Math.Sin(step * 0.4) * 2.0;
+                dStress    = 44.0 + Math.Cos(step * 0.3) * 2.0;
+                dDrought   = 10.0;
+                dBareSoil  = 4.0;
+                fhiScore   = 81.5 + Math.Sin(step * 0.2) * 0.7;
+                avgConf    = 0.91;
+
+                dynamicOverlays = new List<VideoDetectionOverlay>
+                {
+                    // 7 x Ketidakmerataan Irigasi
+                    new VideoDetectionOverlay { Label = "Ketidakmerataan Irigasi", Confidence = (float)NormalizeDemoConfidence(0.93), X = 180, Y = 140, Width = 320, Height = 200 },
+                    new VideoDetectionOverlay { Label = "Ketidakmerataan Irigasi", Confidence = (float)NormalizeDemoConfidence(0.90), X = 560 + (int)(Math.Sin(step * 0.3) * 10), Y = 160, Width = 310, Height = 190 },
+                    new VideoDetectionOverlay { Label = "Ketidakmerataan Irigasi", Confidence = (float)NormalizeDemoConfidence(0.94), X = 940, Y = 130, Width = 350, Height = 220 },
+                    new VideoDetectionOverlay { Label = "Ketidakmerataan Irigasi", Confidence = (float)NormalizeDemoConfidence(0.89), X = 1360, Y = 180, Width = 330, Height = 190 },
+                    new VideoDetectionOverlay { Label = "Ketidakmerataan Irigasi", Confidence = (float)NormalizeDemoConfidence(0.92), X = 260, Y = 410, Width = 300, Height = 190 },
+                    new VideoDetectionOverlay { Label = "Ketidakmerataan Irigasi", Confidence = (float)NormalizeDemoConfidence(0.91), X = 720, Y = 390, Width = 340, Height = 210 },
+                    new VideoDetectionOverlay { Label = "Ketidakmerataan Irigasi", Confidence = (float)NormalizeDemoConfidence(0.95), X = 1180, Y = 430, Width = 320, Height = 190 },
+                    // 3 x Zona Normal
+                    new VideoDetectionOverlay { Label = "Zona Normal", Confidence = (float)NormalizeDemoConfidence(0.92), X = 150, Y = 660, Width = 280, Height = 180 },
+                    new VideoDetectionOverlay { Label = "Zona Normal", Confidence = (float)NormalizeDemoConfidence(0.94), X = 580, Y = 640, Width = 320, Height = 200 },
+                    new VideoDetectionOverlay { Label = "Zona Normal", Confidence = (float)NormalizeDemoConfidence(0.90), X = 1020, Y = 660, Width = 290, Height = 180 },
+                    // 2 x Defisit Kanopi & 1 x Defisit Tanah
+                    new VideoDetectionOverlay { Label = "Defisit Air (Kanopi)", Confidence = (float)NormalizeDemoConfidence(0.87), X = 1440, Y = 630, Width = 270, Height = 180 },
+                    new VideoDetectionOverlay { Label = "Defisit Air (Kanopi)", Confidence = (float)NormalizeDemoConfidence(0.85), X = 1580, Y = 380, Width = 250, Height = 170 },
+                    new VideoDetectionOverlay { Label = "Defisit Air (Tanah)", Confidence = (float)NormalizeDemoConfidence(0.89), X = 1620, Y = 150, Width = 220, Height = 160 }
+                };
+
+                DetectionsListStack.Children.Clear();
+                DetectionsListStack.Children.Add(BuildCropDetectionRow("Ketidakmerataan Irigasi (7 objek)", NormalizeDemoConfidence(0.93)));
+                DetectionsListStack.Children.Add(BuildCropDetectionRow("Zona Normal (3 objek)",           NormalizeDemoConfidence(0.92)));
+                DetectionsListStack.Children.Add(BuildCropDetectionRow("Defisit Air (Kanopi) (2 objek)", NormalizeDemoConfidence(0.87)));
+                DetectionsListStack.Children.Add(BuildCropDetectionRow("Defisit Air (Tanah) (1 objek)",      NormalizeDemoConfidence(0.89)));
+                break;
+
+            case 2:
+                // --- Kondisi 3: Sektor C - Defisit Air Kanopi (Dominan Stres Transpirasi) ---
+                dLushGreen = 25.0 + Math.Sin(step * 0.4) * 1.5;
+                dStress    = 25.0 + Math.Cos(step * 0.3) * 1.5;
+                dDrought   = 42.0 + Math.Sin(step * 0.5) * 1.5;
+                dBareSoil  = 8.0;
+                fhiScore   = 66.4 + Math.Sin(step * 0.2) * 0.7;
+                avgConf    = 0.90;
+
+                dynamicOverlays = new List<VideoDetectionOverlay>
+                {
+                    // 7 x Defisit Air (Kanopi)
+                    new VideoDetectionOverlay { Label = "Defisit Air (Kanopi)", Confidence = (float)NormalizeDemoConfidence(0.92), X = 180, Y = 130, Width = 310, Height = 200 },
+                    new VideoDetectionOverlay { Label = "Defisit Air (Kanopi)", Confidence = (float)NormalizeDemoConfidence(0.89), X = 540 + (int)(Math.Sin(step * 0.3) * 10), Y = 150, Width = 330, Height = 210 },
+                    new VideoDetectionOverlay { Label = "Defisit Air (Kanopi)", Confidence = (float)NormalizeDemoConfidence(0.93), X = 920, Y = 140, Width = 340, Height = 220 },
+                    new VideoDetectionOverlay { Label = "Defisit Air (Kanopi)", Confidence = (float)NormalizeDemoConfidence(0.90), X = 1340, Y = 170, Width = 320, Height = 190 },
+                    new VideoDetectionOverlay { Label = "Defisit Air (Kanopi)", Confidence = (float)NormalizeDemoConfidence(0.94), X = 250, Y = 390, Width = 320, Height = 210 },
+                    new VideoDetectionOverlay { Label = "Defisit Air (Kanopi)", Confidence = (float)NormalizeDemoConfidence(0.91), X = 760, Y = 400, Width = 330, Height = 200 },
+                    new VideoDetectionOverlay { Label = "Defisit Air (Kanopi)", Confidence = (float)NormalizeDemoConfidence(0.93), X = 1200, Y = 380, Width = 350, Height = 220 },
+                    // 3 x Ketidakmerataan Irigasi
+                    new VideoDetectionOverlay { Label = "Ketidakmerataan Irigasi", Confidence = (float)NormalizeDemoConfidence(0.88), X = 170, Y = 660, Width = 280, Height = 190 },
+                    new VideoDetectionOverlay { Label = "Ketidakmerataan Irigasi", Confidence = (float)NormalizeDemoConfidence(0.89), X = 590, Y = 640, Width = 310, Height = 200 },
+                    new VideoDetectionOverlay { Label = "Ketidakmerataan Irigasi", Confidence = (float)NormalizeDemoConfidence(0.87), X = 1040, Y = 650, Width = 300, Height = 180 },
+                    // 2 x Zona Normal & 2 x Defisit Tanah
+                    new VideoDetectionOverlay { Label = "Zona Normal", Confidence = (float)NormalizeDemoConfidence(0.91), X = 1420, Y = 640, Width = 270, Height = 180 },
+                    new VideoDetectionOverlay { Label = "Zona Normal", Confidence = (float)NormalizeDemoConfidence(0.89), X = 1600, Y = 420, Width = 240, Height = 170 },
+                    new VideoDetectionOverlay { Label = "Defisit Air (Tanah)", Confidence = (float)NormalizeDemoConfidence(0.90), X = 1610, Y = 180, Width = 230, Height = 160 },
+                    new VideoDetectionOverlay { Label = "Defisit Air (Tanah)", Confidence = (float)NormalizeDemoConfidence(0.88), X = 430, Y = 560, Width = 250, Height = 170 }
+                };
+
+                DetectionsListStack.Children.Clear();
+                DetectionsListStack.Children.Add(BuildCropDetectionRow("Defisit Air (Kanopi) (7 objek)", NormalizeDemoConfidence(0.92)));
+                DetectionsListStack.Children.Add(BuildCropDetectionRow("Ketidakmerataan Irigasi (3 objek)", NormalizeDemoConfidence(0.88)));
+                DetectionsListStack.Children.Add(BuildCropDetectionRow("Zona Normal (2 objek)",           NormalizeDemoConfidence(0.90)));
+                DetectionsListStack.Children.Add(BuildCropDetectionRow("Defisit Air (Tanah) (2 objek)",      NormalizeDemoConfidence(0.89)));
+                break;
+
+            case 3:
+                // --- Kondisi 4: Sektor D - Defisit Kritis Air Tanah & Retakan (Dominan Retakan Kering) ---
+                dLushGreen = 12.0;
+                dStress    = 18.0;
+                dDrought   = 24.0 + Math.Sin(step * 0.4) * 1.5;
+                dBareSoil  = 46.0 + Math.Cos(step * 0.3) * 2.0;
+                fhiScore   = 46.5 + Math.Sin(step * 0.2) * 0.6;
+                avgConf    = 0.93;
+
+                dynamicOverlays = new List<VideoDetectionOverlay>
+                {
+                    // 7 x Defisit Air (Tanah) - Bounding Box Merah Kritis
+                    new VideoDetectionOverlay { Label = "Defisit Air (Tanah)", Confidence = (float)NormalizeDemoConfidence(0.97), X = 180, Y = 140, Width = 330, Height = 210 },
+                    new VideoDetectionOverlay { Label = "Defisit Air (Tanah)", Confidence = (float)NormalizeDemoConfidence(0.95), X = 560 + (int)(Math.Sin(step * 0.3) * 10), Y = 150, Width = 320, Height = 200 },
+                    new VideoDetectionOverlay { Label = "Defisit Air (Tanah)", Confidence = (float)NormalizeDemoConfidence(0.98), X = 930, Y = 130, Width = 350, Height = 220 },
+                    new VideoDetectionOverlay { Label = "Defisit Air (Tanah)", Confidence = (float)NormalizeDemoConfidence(0.96), X = 1350, Y = 160, Width = 340, Height = 200 },
+                    new VideoDetectionOverlay { Label = "Defisit Air (Tanah)", Confidence = (float)NormalizeDemoConfidence(0.94), X = 240, Y = 400, Width = 310, Height = 200 },
+                    new VideoDetectionOverlay { Label = "Defisit Air (Tanah)", Confidence = (float)NormalizeDemoConfidence(0.97), X = 740, Y = 390, Width = 330, Height = 210 },
+                    new VideoDetectionOverlay { Label = "Defisit Air (Tanah)", Confidence = (float)NormalizeDemoConfidence(0.95), X = 1190, Y = 410, Width = 340, Height = 210 },
+                    // 4 x Defisit Air (Kanopi)
+                    new VideoDetectionOverlay { Label = "Defisit Air (Kanopi)", Confidence = (float)NormalizeDemoConfidence(0.90), X = 160, Y = 660, Width = 290, Height = 190 },
+                    new VideoDetectionOverlay { Label = "Defisit Air (Kanopi)", Confidence = (float)NormalizeDemoConfidence(0.88), X = 600, Y = 640, Width = 300, Height = 190 },
+                    new VideoDetectionOverlay { Label = "Defisit Air (Kanopi)", Confidence = (float)NormalizeDemoConfidence(0.91), X = 1050, Y = 650, Width = 310, Height = 180 },
+                    new VideoDetectionOverlay { Label = "Defisit Air (Kanopi)", Confidence = (float)NormalizeDemoConfidence(0.87), X = 1440, Y = 630, Width = 280, Height = 180 },
+                    // 2 x Ketidakmerataan Irigasi & 1 x Zona Normal
+                    new VideoDetectionOverlay { Label = "Ketidakmerataan Irigasi", Confidence = (float)NormalizeDemoConfidence(0.88), X = 1590, Y = 400, Width = 240, Height = 170 },
+                    new VideoDetectionOverlay { Label = "Ketidakmerataan Irigasi", Confidence = (float)NormalizeDemoConfidence(0.87), X = 1600, Y = 170, Width = 230, Height = 160 },
+                    new VideoDetectionOverlay { Label = "Zona Normal", Confidence = (float)NormalizeDemoConfidence(0.89), X = 450, Y = 570, Width = 260, Height = 180 }
+                };
+
+                DetectionsListStack.Children.Clear();
+                DetectionsListStack.Children.Add(BuildCropDetectionRow("Defisit Air (Tanah) (7 objek)",      NormalizeDemoConfidence(0.97)));
+                DetectionsListStack.Children.Add(BuildCropDetectionRow("Defisit Air (Kanopi) (4 objek)", NormalizeDemoConfidence(0.89)));
+                DetectionsListStack.Children.Add(BuildCropDetectionRow("Ketidakmerataan Irigasi (2 objek)", NormalizeDemoConfidence(0.88)));
+                DetectionsListStack.Children.Add(BuildCropDetectionRow("Zona Normal (1 objek)",           NormalizeDemoConfidence(0.89)));
+                break;
+
+            default:
+                // --- Kondisi 5: Misi Transek Selesai & RTL Approach (Sebaran Seimbang 14 WP) ---
+                dLushGreen = 52.3 + Math.Sin(step * 0.3) * 1.5;
+                dStress    = 32.1 + Math.Cos(step * 0.3) * 1.2;
+                dDrought   = 3.5;
+                dBareSoil  = 12.1;
+                fhiScore   = 85.4 + Math.Sin(step * 0.2) * 0.5;
+                avgConf    = 0.92;
+
+                dynamicOverlays = new List<VideoDetectionOverlay>
+                {
+                    // 5 x Zona Normal
+                    new VideoDetectionOverlay { Label = "Zona Normal", Confidence = (float)NormalizeDemoConfidence(0.95), X = 160, Y = 130, Width = 340, Height = 220 },
+                    new VideoDetectionOverlay { Label = "Zona Normal", Confidence = (float)NormalizeDemoConfidence(0.92), X = 540, Y = 150, Width = 320, Height = 190 },
+                    new VideoDetectionOverlay { Label = "Zona Normal", Confidence = (float)NormalizeDemoConfidence(0.96), X = 910, Y = 120, Width = 360, Height = 230 },
+                    new VideoDetectionOverlay { Label = "Zona Normal", Confidence = (float)NormalizeDemoConfidence(0.91), X = 1320, Y = 160, Width = 350, Height = 200 },
+                    new VideoDetectionOverlay { Label = "Zona Normal", Confidence = (float)NormalizeDemoConfidence(0.93), X = 1580, Y = 210, Width = 260, Height = 170 },
+                    // 4 x Ketidakmerataan Irigasi
+                    new VideoDetectionOverlay { Label = "Ketidakmerataan Irigasi", Confidence = (float)NormalizeDemoConfidence(0.89), X = 280, Y = 390, Width = 290, Height = 180 },
+                    new VideoDetectionOverlay { Label = "Ketidakmerataan Irigasi", Confidence = (float)NormalizeDemoConfidence(0.87), X = 650, Y = 370, Width = 320, Height = 210 },
+                    new VideoDetectionOverlay { Label = "Ketidakmerataan Irigasi", Confidence = (float)NormalizeDemoConfidence(0.91), X = 1230, Y = 400, Width = 330, Height = 190 },
+                    new VideoDetectionOverlay { Label = "Ketidakmerataan Irigasi", Confidence = (float)NormalizeDemoConfidence(0.86), X = 410, Y = 260, Width = 220, Height = 150 },
+                    // 3 x Defisit Air Kanopi
+                    new VideoDetectionOverlay { Label = "Defisit Air (Kanopi)", Confidence = (float)NormalizeDemoConfidence(0.88), X = 1020, Y = 370, Width = 270, Height = 180 },
+                    new VideoDetectionOverlay { Label = "Defisit Air (Kanopi)", Confidence = (float)NormalizeDemoConfidence(0.85), X = 190, Y = 640, Width = 320, Height = 220 },
+                    new VideoDetectionOverlay { Label = "Defisit Air (Kanopi)", Confidence = (float)NormalizeDemoConfidence(0.89), X = 840, Y = 620, Width = 310, Height = 200 },
+                    // 3 x Defisit Air Tanah
+                    new VideoDetectionOverlay { Label = "Defisit Air (Tanah)", Confidence = (float)NormalizeDemoConfidence(0.94), X = 560, Y = 650, Width = 270, Height = 200 },
+                    new VideoDetectionOverlay { Label = "Defisit Air (Tanah)", Confidence = (float)NormalizeDemoConfidence(0.90), X = 1200, Y = 660, Width = 340, Height = 220 },
+                    new VideoDetectionOverlay { Label = "Defisit Air (Tanah)", Confidence = (float)NormalizeDemoConfidence(0.87), X = 1560, Y = 450, Width = 280, Height = 230 }
+                };
+
+                DetectionsListStack.Children.Clear();
+                DetectionsListStack.Children.Add(BuildCropDetectionRow("Zona Normal (5 objek)",           NormalizeDemoConfidence(0.95)));
+                DetectionsListStack.Children.Add(BuildCropDetectionRow("Ketidakmerataan Irigasi (4 objek)", NormalizeDemoConfidence(0.89)));
+                DetectionsListStack.Children.Add(BuildCropDetectionRow("Defisit Air (Tanah) (3 objek)",      NormalizeDemoConfidence(0.94)));
+                DetectionsListStack.Children.Add(BuildCropDetectionRow("Defisit Air (Kanopi) (3 objek)", NormalizeDemoConfidence(0.88)));
+                break;
         }
-        else
-        {
-            // Fall back to scenario detection frames
-            var frames = _currentScenario.DetectionFrames;
-            var frame = (frames != null && frames.Length > 0)
-                ? frames[step % frames.Length]
-                : DemoDetectionFrames[step % DemoDetectionFrames.Length];
 
-            count   = frame.Length;
-            avgConf = 0.85;
+        // Pastikan tidak ada overlay teks sintetis tambahan yang menutupi atau merusak label asli di layar video
+        DashboardVideoStream?.SetDetectionOverlays(Array.Empty<VideoDetectionOverlay>());
 
-            double jitter = Math.Sin(step * 0.7) * 1.5;
-            dLushGreen = Math.Clamp(_currentScenario.LushGreenPct + jitter * 0.5, 0, 100);
-            dStress    = Math.Clamp(_currentScenario.InconsistentGrowthPct - jitter * 0.4, 0, 100);
-            dDrought   = Math.Clamp(_currentScenario.DroughtPct + jitter * 0.1, 0, 100);
-            dBareSoil  = Math.Clamp(_currentScenario.BareSoilPct + Math.Cos(step * 0.4) * 0.3, 0, 100);
-
-            DetectionsListStack.Children.Clear();
-            foreach (var (cls, conf) in frame)
-                DetectionsListStack.Children.Add(BuildCropDetectionRow(cls, NormalizeDemoConfidence(conf)));
-        }
-
-        _lastDetectionCount = count;
+        int denseCount = dynamicOverlays.Count;
+        _lastDetectionCount = denseCount;
         _lastConfidence = avgConf;
 
-        DetectionCountText.Text  = $"{count} det";
-        MissionDetectionsText.Text = ((_demoStep / 2) + count).ToString();
+        DetectionCountText.Text  = $"{denseCount} det";
+        MissionDetectionsText.Text = (220 + step).ToString();
         ConfAvgText.Text         = $"Conf avg {avgConf * 100:F0}%";
         SummaryConfidenceText.Text = $"{avgConf * 100:F0}%";
-        DetectionsListTitle.Text = $"Live Detections ({Math.Min(count, 4)})";
+        DetectionsListTitle.Text = $"Live Detections · 4 Kelas PDP ({denseCount} objek)";
 
         int[] _fpsTable = { 15, 16, 15, 16, 15, 16, 15, 16, 15, 16 };
         int demofps = _fpsTable[step % _fpsTable.Length];
         FpsHudText.Text = $"{_currentScenario.ShortDescription} · {demofps} FPS";
 
-        if (_useFusedOnlyDemoSummary)
-        {
-            dLushGreen = _currentScenario.LushGreenPct;
-            dStress = _currentScenario.InconsistentGrowthPct;
-            dDrought = _currentScenario.DroughtPct;
-            dBareSoil = _currentScenario.BareSoilPct;
-        }
-
-        if (SummaryHealthyCount       != null) SummaryHealthyCount.Text       = $"{dLushGreen:F0}%";
-        if (SummaryWellIrrigatedCount != null) SummaryWellIrrigatedCount.Text = "0%";
-        if (SummaryStressCount        != null) SummaryStressCount.Text        = $"{dStress:F0}%";
-        if (SummarySoilIssuesCount    != null) SummarySoilIssuesCount.Text    = "0%";
-        if (SummaryDiseaseCount       != null) SummaryDiseaseCount.Text       = $"{dDrought:F0}%";
-        if (SummaryPestCount          != null) SummaryPestCount.Text          = $"{dBareSoil:F0}%";
-        if (SummaryHealthyBar        != null) SummaryHealthyBar.Value        = dLushGreen;
-        if (SummaryWellIrrigatedBar  != null) SummaryWellIrrigatedBar.Value  = 0;
-        if (SummaryStressBar         != null) SummaryStressBar.Value         = dStress;
-        if (SummarySoilIssuesBar     != null) SummarySoilIssuesBar.Value     = 0;
-        if (SummaryDiseaseBar        != null) SummaryDiseaseBar.Value        = dDrought;
-        if (SummaryPestBar           != null) SummaryPestBar.Value           = dBareSoil;
+        if (SummaryHealthyCount != null) SummaryHealthyCount.Text = $"{dLushGreen:F0}%";
+        if (SummaryStressCount  != null) SummaryStressCount.Text  = $"{dStress:F0}%";
+        if (SummaryDiseaseCount != null) SummaryDiseaseCount.Text = $"{dDrought:F0}%";
+        if (SummaryPestCount    != null) SummaryPestCount.Text    = $"{dBareSoil:F0}%";
+        if (SummaryHealthyBar   != null) SummaryHealthyBar.Value   = dLushGreen;
+        if (SummaryStressBar    != null) SummaryStressBar.Value    = dStress;
+        if (SummaryDiseaseBar   != null) SummaryDiseaseBar.Value   = dDrought;
+        if (SummaryPestBar      != null) SummaryPestBar.Value      = dBareSoil;
 
         if (SummaryDominantText != null) SummaryDominantText.Text = DominantV5Label(dLushGreen, dStress, dDrought, dBareSoil);
 
-        if (_useFusedOnlyDemoSummary)
-        {
-            UpdateDemoFieldReport();
-        }
-        else
-        {
-            var liveFhi = (_classifyRealData.HasValue && _classifyRealData.Value.Fhi > 0)
-                ? _classifyRealData.Value.Fhi
-                : _currentScenario.TargetFhi;
-            UpdateFarmerReport(dLushGreen, dStress, dDrought, dBareSoil, 0, overrideFhi: liveFhi);
-        }
+        UpdateFarmerReport(dLushGreen, dStress, dDrought, dBareSoil, 0, overrideFhi: fhiScore);
         UpdateVegetationOverlay(dLushGreen, dStress, dDrought, dBareSoil);
         UpdateAlertCenter(_flightViewModel?.Telemetry, true);
     }
@@ -2400,18 +3078,14 @@ public sealed partial class DashboardPage : Page
     private void ApplyDemoVideoAnalysisSummary()
     {
         var sc = _currentScenario;
-        if (SummaryHealthyCount       != null) SummaryHealthyCount.Text       = $"{sc.LushGreenPct:F0}%";
-        if (SummaryWellIrrigatedCount != null) SummaryWellIrrigatedCount.Text = "0%";
-        if (SummaryStressCount        != null) SummaryStressCount.Text        = $"{sc.InconsistentGrowthPct:F0}%";
-        if (SummarySoilIssuesCount    != null) SummarySoilIssuesCount.Text    = "0%";
-        if (SummaryDiseaseCount       != null) SummaryDiseaseCount.Text       = $"{sc.DroughtPct:F0}%";
-        if (SummaryPestCount          != null) SummaryPestCount.Text          = $"{sc.BareSoilPct:F0}%";
-        if (SummaryHealthyBar         != null) SummaryHealthyBar.Value        = sc.LushGreenPct;
-        if (SummaryWellIrrigatedBar   != null) SummaryWellIrrigatedBar.Value  = 0;
-        if (SummaryStressBar          != null) SummaryStressBar.Value         = sc.InconsistentGrowthPct;
-        if (SummarySoilIssuesBar      != null) SummarySoilIssuesBar.Value     = 0;
-        if (SummaryDiseaseBar         != null) SummaryDiseaseBar.Value        = sc.DroughtPct;
-        if (SummaryPestBar            != null) SummaryPestBar.Value           = sc.BareSoilPct;
+        if (SummaryHealthyCount != null) SummaryHealthyCount.Text = $"{sc.LushGreenPct:F0}%";
+        if (SummaryStressCount  != null) SummaryStressCount.Text  = $"{sc.InconsistentGrowthPct:F0}%";
+        if (SummaryDiseaseCount != null) SummaryDiseaseCount.Text = $"{sc.DroughtPct:F0}%";
+        if (SummaryPestCount    != null) SummaryPestCount.Text    = $"{sc.BareSoilPct:F0}%";
+        if (SummaryHealthyBar   != null) SummaryHealthyBar.Value  = sc.LushGreenPct;
+        if (SummaryStressBar    != null) SummaryStressBar.Value   = sc.InconsistentGrowthPct;
+        if (SummaryDiseaseBar   != null) SummaryDiseaseBar.Value  = sc.DroughtPct;
+        if (SummaryPestBar      != null) SummaryPestBar.Value     = sc.BareSoilPct;
         if (SummaryDominantText       != null) SummaryDominantText.Text       = DominantV5Label(
             sc.LushGreenPct,
             sc.InconsistentGrowthPct,
@@ -2663,7 +3337,7 @@ public sealed partial class DashboardPage : Page
     /// </summary>
     private async Task StartLiveModeAsync()
     {
-        if (_isLiveRunning) return;
+        if (_isLiveRunning || _isDemoRunning) return;
 
         try
         {
@@ -2787,7 +3461,7 @@ public sealed partial class DashboardPage : Page
 
         if (_cameraService != null) await _cameraService.StopCameraAsync();
 
-        ReadinessChecklistPanel.Visibility = Visibility.Collapsed;
+        ReadinessChecklistPanel.Visibility = Visibility.Visible;
         MissionMetadataPanel.Visibility = Visibility.Collapsed;
         _missionTimer.Stop();
         _missionTimerStarted = false;
@@ -3110,10 +3784,16 @@ public sealed partial class DashboardPage : Page
             _isSwitchingScenario = false;
         }
 
-        // 4. Update DashboardMapControl Center only
+        // 4. Update DashboardMapControl Center and Waypoints
         if (DashboardMapControl != null)
         {
+            DashboardMapControl.ClearWaypoints();
+            foreach (var wp in profile.Waypoints)
+                DashboardMapControl.AddWaypointMarker(wp.Sequence, wp.Latitude, wp.Longitude, wp.Altitude, "WAYPOINT");
+            DashboardMapControl.SetGeofence(true, profile.FieldCenterLat, profile.FieldCenterLon, profile.GeofenceRadiusMeters);
             DashboardMapControl.SetCenter(profile.FieldCenterLat, profile.FieldCenterLon, profile.MapZoomLevel);
+            DashboardMapControl.SetTileProvider(SkiaMapControl.MapTileProvider.GoogleSatellite);
+            DashboardMapControl.SetFollowVehicle(true);
         }
 
         // 7. Update Mission ID & HUD Text
@@ -3247,11 +3927,15 @@ public sealed partial class DashboardPage : Page
         if (DemoScenarioComboBox != null)
         {
             var idx = DemoScenarioComboBox.SelectedIndex;
-            if (idx == 0) // Multi-Sektor 60s
+            if (idx == 0) // Multi-Sektor Riset PDP (Subang 1080p)
             {
                 var p = ResolveFilePath(
-                    Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "stream_multisector_60s_detected.mp4"),
+                    Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "pdp_sawah_4sektor_1080p.mp4"),
+                    Path.Combine(Directory.GetCurrentDirectory(), "Assets", "demo_videos", "pdp_sawah_4sektor_1080p.mp4"),
+                    "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/pdp_sawah_4sektor_1080p.mp4",
+                    "/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/Assets/demo_videos/pdp_sawah_4sektor_1080p.mp4",
                     Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "stream_multisector_60s.mp4"),
+                    Path.Combine(AppContext.BaseDirectory, "Assets", "demo_videos", "stream_multisector_60s_detected.mp4"),
                     Path.Combine(Directory.GetCurrentDirectory(), "Assets", "demo_videos", "stream_multisector_60s_detected.mp4"),
                     Path.Combine(Directory.GetCurrentDirectory(), "Assets", "demo_videos", "stream_multisector_60s.mp4"),
                     "/home/fawwazfa/Program/Harvestmoon/TEKNOFEST_SIAP/demo_video/stream_multisector_60s.mp4",
@@ -3466,6 +4150,28 @@ public sealed partial class DashboardPage : Page
             AddAlertRow("YOLO screenshot unavailable, exporting without it", "warning");
         }
 
+        double healthyPct = 0, stressPct = 0, droughtPct = 0, bareSoilPct = 0;
+        if (_classifyRealData.HasValue && _classifyRealData.Value.Total > 0)
+        {
+            var crd = _classifyRealData.Value;
+            double tot = Math.Max(1, crd.Total);
+            healthyPct = crd.Healthy * 100.0 / tot;
+            stressPct = crd.Stress * 100.0 / tot;
+            droughtPct = crd.Drought * 100.0 / tot;
+            bareSoilPct = crd.BareSoil * 100.0 / tot;
+        }
+        else if (SummaryHealthyBar != null)
+        {
+            healthyPct = SummaryHealthyBar.Value;
+            stressPct = SummaryStressBar?.Value ?? 0;
+            droughtPct = SummaryDiseaseBar?.Value ?? 0;
+            bareSoilPct = SummaryPestBar?.Value ?? 0;
+        }
+
+        string groundTruthSummary = _soilMoistureService != null
+            ? $"Kelembaban Tanah: {_soilMoistureService.CurrentMoisture:F1}% ({(_soilMoistureService.IsConnected ? "Sensor IoT Online" : "Simulasi IoT Aktif")})"
+            : "Simulasi Sensor Aktif";
+
         var record = new HarvestFunctionalService.HarvestReportRecord
         {
             Id = MissionIdText.Text,
@@ -3474,7 +4180,13 @@ public sealed partial class DashboardPage : Page
             Duration = MissionElapsedText.Text,
             Detections = _lastDetectionCount,
             Priority = _lastDetectionCount > 0 ? "Medium" : "Low",
-            AiModelUsed = _harvestFunctionalService.IsYoloOptionEnabled ? "YOLOv8n ONNX local" : "OpenCV fallback",
+            AiModelUsed = _harvestFunctionalService.IsYoloOptionEnabled ? "YOLOv11 ONNX (Proposal PDP)" : "OpenCV fallback",
+            HealthyPercentage = healthyPct,
+            StressedPercentage = stressPct,
+            DroughtPercentage = droughtPct,
+            BareSoilPercentage = bareSoilPct,
+            GroundTruthValidationSummary = groundTruthSummary,
+            AverageConfidence = _lastConfidence * 100,
             OperatorNote = $"Avg conf {(_lastConfidence * 100):F0}%",
             MapScreenshotPath = mapPath,
             YoloScreenshotPath = yoloPath,
@@ -3720,8 +4432,8 @@ sys.stdout.buffer.write(buf.tobytes())
             _yaw   = (_yaw + (rnd.NextDouble() - 0.5) * 6 + 360) % 360;
         }
         ImuRollTransform.Angle = _roll;
-        ImuPitchTransform.Y = Math.Clamp(_pitch * 1.4, -42, 42);
-        ImuLabelText.Text = $"P{_pitch:F0}° R{_roll:F0}° Y{_yaw:F0}°";
+        ImuPitchTransform.Y = Math.Clamp(_pitch * 2.0, -36, 36);
+        ImuLabelText.Text = $"P {_pitch:+0.0;-0.0;0.0}° · R {_roll:+0.0;-0.0;0.0}° · Y {_yaw:000}°";
     }
 
     private void SetDemoImu(double rollDeg, double pitchDeg, double yawDeg, double altitudeMeters, double speedMetersPerSecond)
@@ -3753,8 +4465,8 @@ sys.stdout.buffer.write(buf.tobytes())
         _roll = rollDeg;
         _yaw = (yawDeg + 360.0) % 360.0;
         ImuRollTransform.Angle = _roll;
-        ImuPitchTransform.Y = Math.Clamp(_pitch * 1.4, -42, 42);
-        ImuLabelText.Text = $"P{_pitch:F0}° R{_roll:F0}° Y{_yaw:F0}°";
+        ImuPitchTransform.Y = Math.Clamp(_pitch * 2.0, -36, 36);
+        ImuLabelText.Text = $"P {_pitch:+0.0;-0.0;0.0}° · R {_roll:+0.0;-0.0;0.0}° · Y {_yaw:000}°";
     }
 
     private void OnMissionTick(object? sender, object e)
@@ -3791,49 +4503,187 @@ sys.stdout.buffer.write(buf.tobytes())
         }
     }
 
+    private enum ChecklistState
+    {
+        Standby,
+        Ready,
+        Warning
+    }
+
     private void UpdateOfflineAndReadiness(TelemetryData? telemetry, bool connected)
     {
-        var modelName = Path.GetFileName(_harvestFunctionalService?.RuntimeModelPath ?? "bundled-auto");
+        var modelName = Path.GetFileName(_harvestFunctionalService?.RuntimeModelPath ?? "yolo11n_proposal_pdp.onnx");
         OfflineModeText.Text = _harvestFunctionalService?.IsYoloRuntimeReady == true
-            ? "Running offline · YOLO active · No cloud dependency"
-            : "Running offline · YOLO active · No cloud dependency";
+            ? "Running offline · YOLO11n active · Edge computing"
+            : "Running offline · AI Standby";
         ModelRuntimeText.Text = $"Model: {modelName} · threshold {_harvestFunctionalService?.RuntimeConfidenceThreshold * 100:F0}%";
         RecorderRuntimeText.Text = _videoRecorderService?.IsRecording == true
             ? $"Recorder: recording · {_videoRecorderService.CurrentRecordingPath}"
             : "Recorder: standby";
 
+        bool isScenarioActive = _isDemoRunning;
+        bool isLinkConnected = connected || _mavLinkService?.IsConnected == true;
+
+        // 1. Telemetry Link
+        ChecklistState telemetryState;
+        string telemetryLabel;
+        if (isLinkConnected)
+        {
+            telemetryState = ChecklistState.Ready;
+            var connType = _mavLinkService?.ConnectionType == HarvestmoonGCS.Core.Models.ConnectionType.Serial ? "Serial" : "14550";
+            telemetryLabel = $"Link OK ({connType})";
+        }
+        else if (isScenarioActive)
+        {
+            telemetryState = ChecklistState.Ready;
+            telemetryLabel = "Link OK (Sim)";
+        }
+        else
+        {
+            telemetryState = ChecklistState.Standby;
+            telemetryLabel = "Link Standby";
+        }
+
+        // 2. GPS 3D Fix
+        var hasValidGps = telemetry != null && IsValidCoordinate(telemetry.Latitude, telemetry.Longitude);
+        var satCount = telemetry?.SatelliteCount ?? 0;
+        var fixType = telemetry?.GPSFixType ?? 0;
+        var hdop = telemetry?.HDOP ?? 0;
+        ChecklistState gpsState;
+        string gpsLabel;
+        if (isScenarioActive)
+        {
+            gpsState = ChecklistState.Ready;
+            gpsLabel = $"GPS RTK ({_demoSatCount}s)";
+        }
+        else if (isLinkConnected)
+        {
+            if (fixType >= 5)
+            {
+                gpsState = ChecklistState.Ready;
+                gpsLabel = $"GPS RTK ({satCount}s)";
+            }
+            else if (hasValidGps && satCount >= 6)
+            {
+                gpsState = ChecklistState.Ready;
+                gpsLabel = hdop > 0 ? $"GPS 3D ({satCount}s, H:{hdop:F1})" : $"GPS 3D ({satCount}s)";
+            }
+            else
+            {
+                gpsState = ChecklistState.Warning;
+                gpsLabel = satCount > 0 ? $"GPS Weak ({satCount}s)" : "GPS No Fix";
+            }
+        }
+        else
+        {
+            gpsState = ChecklistState.Standby;
+            gpsLabel = "GPS Standby";
+        }
+
+        // 3. Battery Power
         var battery = telemetry?.BatteryPercent is > 0
             ? telemetry.BatteryPercent
             : telemetry?.BatteryRemaining ?? 0;
-        var hasValidGps = telemetry != null && IsValidCoordinate(telemetry.Latitude, telemetry.Longitude);
-        var gpsReady = hasValidGps && (telemetry?.SatelliteCount ?? 0) >= 6;
-        var geofenceReady = _mapViewModel?.IsGeofenceActive == true || _geofenceService?.CurrentGeofence.IsActive == true;
+        var voltage = telemetry?.BatteryVoltage ?? 0;
+        ChecklistState battState;
+        string battLabel;
+        if (isScenarioActive)
+        {
+            battState = ChecklistState.Ready;
+            battLabel = $"Batt {(int)_demoBattery}% ({_demoBatteryVoltage:F1}V)";
+        }
+        else if (isLinkConnected && (battery > 0 || voltage > 0))
+        {
+            if (battery >= 20 || voltage >= 11.1)
+            {
+                battState = ChecklistState.Ready;
+                battLabel = voltage > 0 ? $"Batt {battery:F0}% ({voltage:F1}V)" : $"Batt {battery:F0}%";
+            }
+            else
+            {
+                battState = ChecklistState.Warning;
+                battLabel = $"Batt Low ({battery:F0}%)";
+            }
+        }
+        else
+        {
+            battState = ChecklistState.Standby;
+            battLabel = "Battery Standby";
+        }
+
+        // 4. Camera Feed
+        bool cameraActive = _cameraService?.IsStreaming == true || isScenarioActive;
+        ChecklistState camState = cameraActive ? ChecklistState.Ready : ChecklistState.Standby;
+        string camLabel = cameraActive ? "Camera Feed OK" : "Camera Standby";
+
+        // 5. AI Detection (YOLO)
+        bool yoloActive = _harvestFunctionalService?.IsYoloRuntimeReady == true;
+        ChecklistState yoloState = yoloActive ? ChecklistState.Ready : ChecklistState.Standby;
+        string yoloLabel = yoloActive ? "AI YOLO11n OK" : "AI Standby";
+
+        // 6. Geofence Lock
+        bool geofenceActive = _mapViewModel?.IsGeofenceActive == true || _geofenceService?.CurrentGeofence.IsActive == true || isScenarioActive;
+        ChecklistState fenceState = geofenceActive ? ChecklistState.Ready : ChecklistState.Standby;
+        var fenceRadius = (int)(_mapViewModel?.GeofenceRadius > 0 ? _mapViewModel.GeofenceRadius : 500);
+        string fenceLabel = geofenceActive ? $"Geofence ({fenceRadius}m)" : "Geofence Standby";
+
+        // 7. Mission Waypoints
         var wpCount = _mapViewModel?.Waypoints?.Count ?? 0;
-        var waypointReady = wpCount > 0;
-        var yoloReady = _harvestFunctionalService?.IsYoloRuntimeReady == true;
-        var cameraReady = _cameraService?.IsStreaming == true;
-        var recorderReady = _videoRecorderService != null;
-        var battOk = battery >= 20;
+        bool hasWps = wpCount > 0 || (isScenarioActive && _demoWaypoints.Length > 0);
+        ChecklistState wpState = hasWps ? ChecklistState.Ready : ChecklistState.Standby;
+        string wpLabel = hasWps ? $"Mission WPs ({Math.Max(wpCount, isScenarioActive ? _demoWaypoints.Length : 0)})" : "No Mission WPs";
 
-        SetChecklistText(ReadyTelemetryText, connected, connected ? "Telemetry Link OK" : "Telemetry Offline");
-        SetChecklistText(ReadyGpsText, gpsReady, gpsReady ? $"GPS 3D Fix ({telemetry!.SatelliteCount} Sats)" : "GPS No Fix");
-        SetChecklistText(ReadyBatteryText, battOk, battery > 0 ? $"Battery {battery:F0}% OK" : "Battery Standby");
-        SetChecklistText(ReadyCameraText, cameraReady, cameraReady ? "Camera Feed Active" : "Camera Feed Standby");
-        SetChecklistText(ReadyYoloText, yoloReady, yoloReady ? "AI Model Ready" : "AI Initializing");
-        SetChecklistText(ReadyGeofenceText, geofenceReady, geofenceReady ? "Geofence Active" : "Geofence Standby");
-        SetChecklistText(ReadyWaypointText, waypointReady, waypointReady ? $"Mission WPs ({wpCount})" : "No Mission WPs");
-        SetChecklistText(ReadyRecorderText, recorderReady, _videoRecorderService?.IsRecording == true ? "Recording Blackbox" : "Recorder Armed");
+        // 8. Flight Recorder / Blackbox
+        bool isRecording = _videoRecorderService?.IsRecording == true;
+        bool recorderReady = _videoRecorderService != null;
+        ChecklistState recState = isRecording ? ChecklistState.Ready : (recorderReady ? ChecklistState.Ready : ChecklistState.Standby);
+        string recLabel = isRecording ? "Recording Log" : (recorderReady ? "Recorder Armed" : "Recorder Standby");
 
-        // Calculate overall GO / NO-GO status
-        bool isScenarioActive = _isDemoRunning || _videoScenarioService?.CurrentScenario != null;
-        bool allGo = (connected || isScenarioActive) &&
-                     (gpsReady || isScenarioActive) &&
-                     (battOk || isScenarioActive) &&
-                     waypointReady;
+        // Update UI tiles
+        SetChecklistItem(ReadyTelemetryBorder, ReadyTelemetryText, telemetryState, telemetryLabel);
+        SetChecklistItem(ReadyGpsBorder, ReadyGpsText, gpsState, gpsLabel);
+        SetChecklistItem(ReadyBatteryBorder, ReadyBatteryText, battState, battLabel);
+        SetChecklistItem(ReadyCameraBorder, ReadyCameraText, camState, camLabel);
+        SetChecklistItem(ReadyYoloBorder, ReadyYoloText, yoloState, yoloLabel);
+        SetChecklistItem(ReadyGeofenceBorder, ReadyGeofenceText, fenceState, fenceLabel);
+        SetChecklistItem(ReadyWaypointBorder, ReadyWaypointText, wpState, wpLabel);
+        SetChecklistItem(ReadyRecorderBorder, ReadyRecorderText, recState, recLabel);
+
+        int passedCount = (telemetryState == ChecklistState.Ready ? 1 : 0) +
+                          (gpsState == ChecklistState.Ready ? 1 : 0) +
+                          (battState == ChecklistState.Ready ? 1 : 0) +
+                          (camState == ChecklistState.Ready ? 1 : 0) +
+                          (yoloState == ChecklistState.Ready ? 1 : 0) +
+                          (fenceState == ChecklistState.Ready ? 1 : 0) +
+                          (wpState == ChecklistState.Ready ? 1 : 0) +
+                          (recState == ChecklistState.Ready ? 1 : 0);
+
+        if (ReadyScoreText != null)
+        {
+            ReadyScoreText.Text = $"({passedCount}/8 Passed)";
+            ReadyScoreText.Foreground = new SolidColorBrush(passedCount == 8
+                ? Color.FromArgb(255, 6, 95, 70)
+                : (passedCount >= 4 ? Color.FromArgb(255, 146, 64, 14) : Color.FromArgb(255, 100, 116, 139)));
+        }
+
+        // Overall GO / NO-GO status
+        bool hasWarning = (gpsState == ChecklistState.Warning) || (battState == ChecklistState.Warning);
+        bool allGo = (telemetryState == ChecklistState.Ready) &&
+                     (gpsState == ChecklistState.Ready) &&
+                     (battState == ChecklistState.Ready) &&
+                     (wpState == ChecklistState.Ready) &&
+                     (fenceState == ChecklistState.Ready);
 
         if (ReadinessStatusPill != null && ReadinessStatusText != null)
         {
-            if (allGo)
+            if (hasWarning)
+            {
+                ReadinessStatusPill.Background = new SolidColorBrush(Color.FromArgb(255, 254, 242, 242));
+                ReadinessStatusPill.BorderBrush = new SolidColorBrush(Color.FromArgb(255, 239, 68, 68));
+                ReadinessStatusText.Text = "HOLD: FAULT DETECTED";
+                ReadinessStatusText.Foreground = new SolidColorBrush(Color.FromArgb(255, 153, 27, 27));
+            }
+            else if (allGo)
             {
                 ReadinessStatusPill.Background = new SolidColorBrush(Color.FromArgb(255, 236, 253, 245));
                 ReadinessStatusPill.BorderBrush = new SolidColorBrush(Color.FromArgb(255, 16, 185, 129));
@@ -3844,18 +4694,65 @@ sys.stdout.buffer.write(buf.tobytes())
             {
                 ReadinessStatusPill.Background = new SolidColorBrush(Color.FromArgb(255, 254, 243, 199));
                 ReadinessStatusPill.BorderBrush = new SolidColorBrush(Color.FromArgb(255, 245, 158, 11));
-                ReadinessStatusText.Text = "PRE-FLIGHT CHECK";
+                ReadinessStatusText.Text = isLinkConnected ? "PRE-FLIGHT HOLD" : "STANDBY / NO-LINK";
                 ReadinessStatusText.Foreground = new SolidColorBrush(Color.FromArgb(255, 146, 64, 14));
             }
         }
     }
 
-    private static void SetChecklistText(TextBlock textBlock, bool ok, string label)
+    private static void SetChecklistItem(Border? border, TextBlock? textBlock, ChecklistState state, string label)
     {
-        textBlock.Text = $"{(ok ? "✓" : "○")} {label}";
-        textBlock.Foreground = new SolidColorBrush(ok
-            ? Color.FromArgb(255, 6, 95, 70)
-            : Color.FromArgb(255, 100, 116, 139));
+        if (textBlock == null) return;
+
+        switch (state)
+        {
+            case ChecklistState.Ready:
+                textBlock.Text = $"✓ {label}";
+                textBlock.Foreground = new SolidColorBrush(Color.FromArgb(255, 22, 101, 52));
+                if (border != null)
+                {
+                    border.Background = new SolidColorBrush(Color.FromArgb(255, 240, 253, 244));
+                    border.BorderBrush = new SolidColorBrush(Color.FromArgb(255, 187, 247, 208));
+                }
+                break;
+
+            case ChecklistState.Warning:
+                textBlock.Text = $"✕ {label}";
+                textBlock.Foreground = new SolidColorBrush(Color.FromArgb(255, 153, 27, 27));
+                if (border != null)
+                {
+                    border.Background = new SolidColorBrush(Color.FromArgb(255, 254, 242, 242));
+                    border.BorderBrush = new SolidColorBrush(Color.FromArgb(255, 254, 202, 202));
+                }
+                break;
+
+            case ChecklistState.Standby:
+            default:
+                textBlock.Text = $"○ {label}";
+                textBlock.Foreground = new SolidColorBrush(Color.FromArgb(255, 100, 116, 139));
+                if (border != null)
+                {
+                    border.Background = new SolidColorBrush(Color.FromArgb(255, 248, 250, 252));
+                    border.BorderBrush = new SolidColorBrush(Color.FromArgb(255, 226, 232, 240));
+                }
+                break;
+        }
+    }
+
+    private void BtnDiagnosticsPreflight_Click(object sender, RoutedEventArgs e)
+    {
+        var telemetry = _flightViewModel?.Telemetry;
+        var connected = _flightViewModel?.IsConnected == true || _mavLinkService?.IsConnected == true;
+        UpdateOfflineAndReadiness(telemetry, connected);
+
+        var isLink = connected || _isDemoRunning;
+        var hasGps = isLink && telemetry != null && telemetry.SatelliteCount >= 6;
+        var isBattOk = isLink && (telemetry?.BatteryPercent >= 20 || _demoBattery >= 20);
+
+        AlertsStack?.Children.Insert(0, BuildAlertRow(
+            $"Pre-Flight Self-Test: Telemetry={(isLink ? "OK" : "STANDBY")}, GPS={(hasGps ? $"{telemetry?.SatelliteCount} Sats" : "NO-FIX")}, AI={(_harvestFunctionalService?.IsYoloRuntimeReady == true ? "YOLO11n READY" : "STANDBY")}",
+            DateTime.Now.ToString("HH:mm:ss"),
+            isLink && hasGps && isBattOk ? "info" : "warning"));
     }
 
     private void RenderIncidentTimeline()
@@ -3894,6 +4791,12 @@ sys.stdout.buffer.write(buf.tobytes())
         }
 
         yield return ($"Mission detections: {_lastDetectionCount}", _lastDetectionCount > 0 ? "info" : "warning");
+
+        var autoCheck = _soilMoistureService?.LatestAutoCheck;
+        if (autoCheck != null && autoCheck.AlertNodes > 0 && !string.IsNullOrEmpty(autoCheck.SummaryMessage))
+        {
+            yield return (autoCheck.SummaryMessage, autoCheck.OverallStatus == "CRITICAL" ? "critical" : "warning");
+        }
     }
 
     // BuildGeofenceAlerts removed — geofence alerts no longer shown in alert center
@@ -4079,17 +4982,13 @@ sys.stdout.buffer.write(buf.tobytes())
         SummaryStressCount.Text  = "0%";
         SummaryDiseaseCount.Text = "0%";
         SummaryPestCount.Text    = "0%";
-        if (SummaryWellIrrigatedCount != null) SummaryWellIrrigatedCount.Text = "0%";
-        if (SummarySoilIssuesCount    != null) SummarySoilIssuesCount.Text    = "0%";
         SummaryPriorityText.Text   = "Standby";
         SummaryConfidenceText.Text = "0%";
-        if (SummaryDominantText      != null) SummaryDominantText.Text      = "—";
-        if (SummaryHealthyBar        != null) SummaryHealthyBar.Value        = 0;
-        if (SummaryWellIrrigatedBar  != null) SummaryWellIrrigatedBar.Value  = 0;
-        if (SummaryStressBar         != null) SummaryStressBar.Value         = 0;
-        if (SummarySoilIssuesBar     != null) SummarySoilIssuesBar.Value     = 0;
-        if (SummaryDiseaseBar        != null) SummaryDiseaseBar.Value        = 0;
-        if (SummaryPestBar           != null) SummaryPestBar.Value           = 0;
+        if (SummaryDominantText != null) SummaryDominantText.Text = "—";
+        if (SummaryHealthyBar  != null) SummaryHealthyBar.Value  = 0;
+        if (SummaryStressBar   != null) SummaryStressBar.Value   = 0;
+        if (SummaryDiseaseBar  != null) SummaryDiseaseBar.Value  = 0;
+        if (SummaryPestBar     != null) SummaryPestBar.Value     = 0;
     }
 
     private static bool IsValidCoordinate(double lat, double lon)

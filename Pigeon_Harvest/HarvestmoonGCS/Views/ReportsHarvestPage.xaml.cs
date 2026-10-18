@@ -43,7 +43,7 @@ public sealed partial class ReportsHarvestPage : Page
     private readonly HarvestFunctionalService? _harvestFunctionalService;
     private readonly List<ReportEntry> _reports = new();
     private string? _selectedId;
-    private string _operatorNote = "Area Sektor B3 perlu tindak lanjut inspeksi hama minggu depan.";
+    private string _operatorNote = "Area Petak Sektor B3 perlu penyesuaian debit irigasi tersier dan pemantauan defisit air kanopi.";
 
     public ReportsHarvestPage()
     {

@@ -164,21 +164,41 @@
                     </Button>
                 </Grid>
 
-                <!-- Tab baris 2: RunCam WiFi Link -->
-                <Button x:Name="RuncamTab" 
-                        HorizontalAlignment="Stretch"
-                        Style="{StaticResource TabButtonStyle}" 
-                        Click="TypeTab_Click" 
-                        Tag="RuncamWifi">
-                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
-                        <FontIcon Glyph="&#xE714;" FontSize="14" VerticalAlignment="Center"/>
-                        <StackPanel>
-                            <TextBlock Text="RUNCAM WIFI LINK 2" FontSize="10" FontWeight="Bold"/>
-                            <TextBlock Text="Camera + MAVLink via WiFi" FontSize="9" 
-                                       Foreground="{ThemeResource MutedForegroundBrush}"/>
+                <!-- Tab baris 2: RunCam WiFi Link & LoRa Soil Sensor -->
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <Button x:Name="RuncamTab" 
+                            Grid.Column="0"
+                            Style="{StaticResource TabButtonStyle}" 
+                            Click="TypeTab_Click" 
+                            Tag="RuncamWifi">
+                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                            <FontIcon Glyph="&#xE714;" FontSize="13" VerticalAlignment="Center"/>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="SIYI HM30" FontSize="9.5" FontWeight="Bold"/>
+                                <TextBlock Text="Kamera HD + MAVLink" FontSize="8" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                            </StackPanel>
                         </StackPanel>
-                    </StackPanel>
-                </Button>
+                    </Button>
+
+                    <Button x:Name="LoraTab" 
+                            Grid.Column="1"
+                            Style="{StaticResource TabButtonStyle}" 
+                            Click="TypeTab_Click" 
+                            Tag="LoRaSoil">
+                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                            <FontIcon Glyph="&#xE701;" FontSize="13" VerticalAlignment="Center"/>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="LORA SENSOR" FontSize="9.5" FontWeight="Bold"/>
+                                <TextBlock Text="Ground Truth IoT" FontSize="8" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Button>
+                </Grid>
 
                 <!-- Form Fields -->
                 <StackPanel x:Name="FormFieldsStack" Spacing="16">
@@ -306,22 +326,22 @@
                             </Grid>
                         </Border>
 
-<!-- IP Kamera -->
-                         <StackPanel Spacing="4">
-                             <TextBlock Text="IP KAMERA (default: 192.168.1.100 atau 10.235.141.127)"
-                                        FontSize="10" FontWeight="Bold"
-                                        Foreground="{ThemeResource MutedForegroundBrush}"/>
-                             <TextBox x:Name="RuncamIpTextBox"
-                                      Text="192.168.1.100"
-                                      PlaceholderText="192.168.1.100 (LAN TP-Link) / 192.168.0.100 (hotspot)"
-                                      Background="{ThemeResource BackgroundBrush}"
-                                      BorderBrush="{ThemeResource BorderBrush}"
-                                      FontSize="14"/>
+                        <!-- IP Kamera -->
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="IP KAMERA SIYI / AIR UNIT (default: 192.168.144.25)"
+                                       FontSize="10" FontWeight="Bold"
+                                       Foreground="{ThemeResource MutedForegroundBrush}"/>
+                            <TextBox x:Name="RuncamIpTextBox"
+                                     Text="192.168.144.25"
+                                     PlaceholderText="192.168.144.25 (Kamera SIYI) / 192.168.144.11 (Ground Unit)"
+                                     Background="{ThemeResource BackgroundBrush}"
+                                     BorderBrush="{ThemeResource BorderBrush}"
+                                     FontSize="14"/>
                         </StackPanel>
 
                         <!-- Stream Protocol -->
                         <StackPanel Spacing="4">
-                            <TextBlock Text="PROTOKOL STREAM"
+                            <TextBlock Text="PROTOKOL STREAM VIDEO HD"
                                        FontSize="10" FontWeight="Bold"
                                        Foreground="{ThemeResource MutedForegroundBrush}"/>
                             <ComboBox x:Name="RuncamProtocolComboBox"
@@ -329,10 +349,11 @@
                                       Background="{ThemeResource BackgroundBrush}"
                                       BorderBrush="{ThemeResource BorderBrush}"
                                       FontSize="13"
-                                      SelectedIndex="2">
-                                <ComboBoxItem Content="RTSP (rtsp://192.168.1.100:554/live)" Tag="Rtsp"/>
-                                <ComboBoxItem Content="MJPEG (http://192.168.1.100:8080/video_feed)" Tag="Mjpeg"/>
-                                <ComboBoxItem Content="Auto (RTSP → fallback MJPEG)" Tag="Auto"/>
+                                      SelectedIndex="0">
+                                <ComboBoxItem Content="RTSP (rtsp://192.168.144.25:8554/main.264)" Tag="Rtsp"/>
+                                <ComboBoxItem Content="RTSP Sub-Stream (rtsp://192.168.144.25:8554/live/ch0)" Tag="RtspSub"/>
+                                <ComboBoxItem Content="MJPEG (http://192.168.144.25:8080/video_feed)" Tag="Mjpeg"/>
+                                <ComboBoxItem Content="Auto Detect Stream" Tag="Auto"/>
                             </ComboBox>
                         </StackPanel>
 
@@ -343,7 +364,7 @@
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <StackPanel Spacing="4">
-                                <TextBlock Text="MAVLINK PORT LOKAL"
+                                <TextBlock Text="MAVLINK PORT LOKAL GCS"
                                            FontSize="10" FontWeight="Bold"
                                            Foreground="{ThemeResource MutedForegroundBrush}"/>
                                 <TextBox x:Name="RuncamMavLocalPortTextBox"
@@ -353,11 +374,11 @@
                                          FontSize="14"/>
                             </StackPanel>
                             <StackPanel Grid.Column="1" Spacing="4">
-                                <TextBlock Text="MAVLINK PORT REMOTE"
+                                <TextBlock Text="MAVLINK PORT REMOTE (HM30)"
                                            FontSize="10" FontWeight="Bold"
                                            Foreground="{ThemeResource MutedForegroundBrush}"/>
                                 <TextBox x:Name="RuncamMavRemotePortTextBox"
-                                         Text="14551"
+                                         Text="14550"
                                          Background="{ThemeResource BackgroundBrush}"
                                          BorderBrush="{ThemeResource BorderBrush}"
                                          FontSize="14"/>
@@ -368,19 +389,71 @@
                         <TextBlock FontSize="11"
                                    Foreground="{ThemeResource MutedForegroundBrush}"
                                    TextWrapping="Wrap"
-                                   Text="Otomatis: stream kamera (RTSP/MJPEG) dan MAVLink terhubung bersamaan dalam satu kali Connect."/>
+                                   Text="Otomatis: stream kamera Full HD (RTSP 8554) dan MAVLink UDP 14550 terhubung bersamaan dalam 1 kali Connect."/>
 
                         <!-- Info box -->
                         <Border CornerRadius="8" Padding="10,8"
-                                Background="#1A2563EB"
-                                BorderBrush="#3B2563EB"
+                                Background="#1A8B5CF6"
+                                BorderBrush="#3B8B5CF6"
                                 BorderThickness="1">
                             <TextBlock FontSize="11"
                                        Foreground="{ThemeResource MutedForegroundBrush}"
                                        TextWrapping="Wrap">
-                                <Run FontWeight="Bold">RunCam WiFi Link 2 / UAV:</Run>
-                                <Run> Hubungkan laptop ke WiFi "RUNCAM_WIFILINK_XXXXXX" (hotspot) atau ke router TP-Link lewat LAN, lalu tekan Connect. IP UAV terdeteksi otomatis.</Run>
+                                <Run FontWeight="Bold">SIYI HM30 HD Digital Link:</Run>
+                                <Run> Hubungkan port LAN Ground Unit ke laptop. Atur IP adapter LAN laptop ke </Run>
+                                <Run FontWeight="Bold">192.168.144.20</Run>
+                                <Run> (Gateway: 192.168.144.11). Klik Connect untuk mengaktifkan video RTSP &amp; telemetri Pixhawk bersamaan.</Run>
                             </TextBlock>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- ══════════════════════════════════════════════════
+                         LoRa Soil Sensor Fields (Ground Truth)
+                         ══════════════════════════════════════════════════ -->
+                    <StackPanel x:Name="LoraSoilFields" Spacing="10" Visibility="Collapsed">
+                        <Border CornerRadius="8" Padding="10,8" Background="#1A10B981" BorderBrush="#3B10B981" BorderThickness="1">
+                            <StackPanel Spacing="3">
+                                <TextBlock Text="SISTEM PENERIMA LORA GROUND-TRUTH (4 NODE PDP)" FontSize="10.5" FontWeight="Bold" Foreground="#10B981"/>
+                                <TextBlock Text="Menerima data telemetri kelembaban tanah (VWC %), suhu, voltase &amp; RSSI dari node P-01 s.d. P-04 di petak sawah." FontSize="9.5" Foreground="{ThemeResource MutedForegroundBrush}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
+
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="SUMBER INPUT LORA" FontSize="10" FontWeight="Bold" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                            <ComboBox x:Name="LoraSourceComboBox" HorizontalAlignment="Stretch" SelectedIndex="0">
+                                <ComboBoxItem Content="Serial USB / UART (Dongle LoRa)" Tag="Serial"/>
+                                <ComboBoxItem Content="UDP Socket Port 14552 (Companion/WiFi Gateway)" Tag="UDP"/>
+                                <ComboBoxItem Content="Simulasi Multi-Node PDP (P-01..P-04)" Tag="Sim"/>
+                            </ComboBox>
+                        </StackPanel>
+
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="PORT LORA (SERIAL / UDP)" FontSize="10" FontWeight="Bold" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                <TextBox x:Name="LoraPortTextBox" Text="/dev/ttyUSB0" Background="{ThemeResource BackgroundBrush}" FontSize="13"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="4">
+                                <TextBlock Text="BAUD RATE" FontSize="10" FontWeight="Bold" Foreground="{ThemeResource MutedForegroundBrush}"/>
+                                <ComboBox x:Name="LoraBaudComboBox" HorizontalAlignment="Stretch" SelectedIndex="1">
+                                    <x:Int32>9600</x:Int32>
+                                    <x:Int32>115200</x:Int32>
+                                    <x:Int32>57600</x:Int32>
+                                </ComboBox>
+                            </StackPanel>
+                        </Grid>
+
+                        <Button x:Name="BtnTriggerLoraAutoCheck" Content="⚡ Jalankan Pengecekan Otomatis (Auto-Check)" HorizontalAlignment="Stretch" FontSize="11" FontWeight="SemiBold" CornerRadius="8" Background="{ThemeResource PrimaryBrush20}" BorderBrush="{ThemeResource PrimaryBrush}" BorderThickness="1" Foreground="{ThemeResource PrimaryBrush}" Click="BtnTriggerLoraAutoCheck_Click"/>
+
+                        <!-- Hasil evaluasi otomatis ringkas -->
+                        <Border x:Name="LoraAutoCheckStatusBorder" CornerRadius="8" Padding="10,8" Background="{ThemeResource CardBrush}" BorderBrush="{ThemeResource BorderBrush}" BorderThickness="1">
+                            <StackPanel Spacing="3">
+                                <TextBlock x:Name="LoraAutoCheckTitle" Text="Status Pengecekan: Siap Diverifikasi" FontSize="10.5" FontWeight="Bold" Foreground="{ThemeResource ForegroundBrush}"/>
+                                <TextBlock x:Name="LoraAutoCheckDesc" Text="Tekan 'Connect' atau 'Auto-Check' untuk memverifikasi 4 probe in-situ." FontSize="9.5" Foreground="{ThemeResource MutedForegroundBrush}" TextWrapping="Wrap"/>
+                            </StackPanel>
                         </Border>
                     </StackPanel>
                 </StackPanel>
@@ -396,7 +469,7 @@
                         <Button Content="UAV LISTEN" FontSize="10" FontWeight="Bold" Padding="10,4" CornerRadius="6" Background="#1A2563EB" BorderBrush="#3B2563EB" BorderThickness="1" Foreground="#60A5FA" Click="Preset_Click" Tag="UAVLISTEN"/>
                         <Button Content="GCS RELAY" FontSize="10" FontWeight="Bold" Padding="10,4" CornerRadius="6" Background="{ThemeResource MutedBrush}" Foreground="{ThemeResource MutedForegroundBrush}" BorderThickness="0" Click="Preset_Click" Tag="GCS"/>
                         <Button Content="TELEMETRY" FontSize="10" FontWeight="Bold" Padding="10,4" CornerRadius="6" Background="{ThemeResource MutedBrush}" Foreground="{ThemeResource MutedForegroundBrush}" BorderThickness="0" Click="Preset_Click" Tag="TELEMETRY"/>
-                        <Button Content="RUNCAM" FontSize="10" FontWeight="Bold" Padding="10,4" CornerRadius="6" Background="#1A22C55E" BorderBrush="#3B22C55E" BorderThickness="1" Foreground="#22C55E" Click="Preset_Click" Tag="RUNCAM"/>
+                        <Button Content="HM30" FontSize="10" FontWeight="Bold" Padding="10,4" CornerRadius="6" Background="#1A8B5CF6" BorderBrush="#3B8B5CF6" BorderThickness="1" Foreground="#A78BFA" Click="Preset_Click" Tag="HM30"/>
                     </StackPanel>
                 </StackPanel>
 

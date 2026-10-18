@@ -95,12 +95,23 @@ public class RuncamWifiLinkService : IRuncamWifiLinkService
                 if (config.StreamProtocol == RuncamStreamProtocol.Rtsp)
                 {
                     candidates.Add(config.RtspUrl);
+                    if (config.CameraIp.Contains("192.168.144."))
+                    {
+                        candidates.Add("rtsp://192.168.144.25:8554/main.264");
+                        candidates.Add("rtsp://192.168.144.25:8554/live/ch0");
+                        candidates.Add("rtsp://192.168.144.11:8554/main.264");
+                    }
                     candidates.AddRange(config.MjpegUrls);
                 }
                 else
                 {
                     candidates.AddRange(config.MjpegUrls);
                     candidates.Add(config.RtspUrl);
+                    if (config.CameraIp.Contains("192.168.144."))
+                    {
+                        candidates.Add("rtsp://192.168.144.25:8554/main.264");
+                        candidates.Add("rtsp://192.168.144.25:8554/live/ch0");
+                    }
                 }
 
                 VideoCapture? cap = null;

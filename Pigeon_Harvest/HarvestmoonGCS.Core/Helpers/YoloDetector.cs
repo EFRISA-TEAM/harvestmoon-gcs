@@ -340,14 +340,25 @@ namespace HarvestmoonGCS.Core.Helpers
 
         private List<DetectionResult> PostProcess(IReadOnlyList<Tensor<float>> outputs, int originalWidth, int originalHeight)
         {
-            if (outputs.Count >= 2 && outputs.Any(IsYoloV4TinyOutput))
+            if (outputs == null || outputs.Count == 0)
             {
-                return PostProcessYoloV4Tiny(outputs, originalWidth, originalHeight);
+                return new List<DetectionResult>();
             }
 
-            return outputs.Count > 0
-                ? PostProcessYoloV8(outputs[0], originalWidth, originalHeight)
-                : new List<DetectionResult>();
+            try
+            {
+                if (outputs.Count >= 2 && outputs.Any(IsYoloV4TinyOutput))
+                {
+                    return PostProcessYoloV4Tiny(outputs, originalWidth, originalHeight);
+                }
+
+                return PostProcessYoloV8(outputs[0], originalWidth, originalHeight);
+            }
+            catch (Exception ex)
+            {
+                Serilog.Log.Error(ex, "[YoloDetector] PostProcess failed safely");
+                return new List<DetectionResult>();
+            }
         }
 
         private static bool IsYoloV4TinyOutput(Tensor<float> output)
@@ -356,31 +367,23 @@ namespace HarvestmoonGCS.Core.Helpers
         private List<DetectionResult> PostProcessYoloV8(Tensor<float> output, int originalWidth, int originalHeight)
         {
             var results = new List<DetectionResult>();
-            
-            // YOLOv8n output shape: [1, 84, 8400] for COCO (84 = 4 bbox + 80 classes).
-            int numClasses = _classNames.Length;
-            int numDetections = output.Dimensions[2];
+            if (output == null) return results;
 
-            float xScale = (float)originalWidth / _inputWidth;
-            float yScale = (float)originalHeight / _inputHeight;
+            var dims = output.Dimensions;
+            if (dims.Length < 2) return results;
 
-            // OPTIMIZED: Convert tensor to array for faster access
             float[] outputArray = output.ToArray();
-            int stride = numDetections; // Each row has numDetections elements
+            if (outputArray == null || outputArray.Length == 0) return results;
 
-            // Pre-filter candidates in parallel
-            var candidates = new System.Collections.Concurrent.ConcurrentBag<(int idx, float score, int classId)>();
-            
-            System.Threading.Tasks.Parallel.For(0, numDetections, i =>
+            // Case 1: 2D Output [1, numClasses] or 3D/4D single-anchor [1, numClasses, 1, 1] -> Classifier model
+            if (dims.Length == 2 || (dims.Length == 3 && dims[2] == 1) || (dims.Length == 4 && dims[2] == 1 && dims[3] == 1))
             {
-                // Quick check: find max class score
+                int numClasses = dims[1];
                 float maxScore = 0;
                 int maxClassId = 0;
-
-                int baseIdx = (4 * stride) + i; // Start at class scores
-                for (int c = 0; c < numClasses; c++)
+                for (int c = 0; c < numClasses && c < outputArray.Length; c++)
                 {
-                    float score = outputArray[baseIdx + (c * stride)];
+                    float score = outputArray[c];
                     if (score > maxScore)
                     {
                         maxScore = score;
@@ -388,59 +391,194 @@ namespace HarvestmoonGCS.Core.Helpers
                     }
                 }
 
-                if (maxScore > _confThreshold)
+                if (maxScore >= _confThreshold)
                 {
-                    candidates.Add((i, maxScore, maxClassId));
-                }
-            });
-
-            // Extract bounding boxes only for candidates
-            var boxes = new List<Rect>();
-            var confidences = new List<float>();
-            var classIds = new List<int>();
-
-            foreach (var (i, maxScore, maxClassId) in candidates)
-            {
-                // Get bounding box (center x, center y, width, height)
-                float cx = outputArray[i];
-                float cy = outputArray[stride + i];
-                float w = outputArray[(2 * stride) + i];
-                float h = outputArray[(3 * stride) + i];
-
-                // Convert to top-left corner
-                int x = (int)((cx - w / 2) * xScale);
-                int y = (int)((cy - h / 2) * yScale);
-                int boxWidth = (int)(w * xScale);
-                int boxHeight = (int)(h * yScale);
-
-                // Clamp to image bounds
-                x = Math.Max(0, Math.Min(x, originalWidth - 1));
-                y = Math.Max(0, Math.Min(y, originalHeight - 1));
-                boxWidth = Math.Min(boxWidth, originalWidth - x);
-                boxHeight = Math.Min(boxHeight, originalHeight - y);
-
-                if (boxWidth > 0 && boxHeight > 0)
-                {
-                    boxes.Add(new Rect(x, y, boxWidth, boxHeight));
-                    confidences.Add(maxScore);
-                    classIds.Add(maxClassId);
-                }
-            }
-
-            // Apply Non-Maximum Suppression
-            if (boxes.Count > 0)
-            {
-                var selectedIndices = ApplyNMS(boxes, confidences, _nmsThreshold);
-
-                foreach (int idx in selectedIndices.Take(20))
-                {
+                    string className = (maxClassId >= 0 && maxClassId < _classNames.Length)
+                        ? _classNames[maxClassId]
+                        : $"Class {maxClassId}";
                     results.Add(new DetectionResult
                     {
-                        ClassId = classIds[idx],
-                        ClassName = classIds[idx] < _classNames.Length ? _classNames[classIds[idx]] : "unknown",
-                        Confidence = confidences[idx],
-                        BoundingBox = boxes[idx]
+                        ClassId = maxClassId,
+                        ClassName = className,
+                        Confidence = maxScore,
+                        BoundingBox = new Rect(0, 0, originalWidth, originalHeight)
                     });
+                }
+                return results;
+            }
+
+            // Case 2: 3D Output [1, channels, numDetections] or [1, numDetections, channels] -> Object Detector
+            if (dims.Length >= 3)
+            {
+                bool isTransposed = dims[1] > dims[2]; // e.g. [1, 8400, 8] instead of [1, 8, 8400]
+                int channels = isTransposed ? dims[2] : dims[1];
+                int numDetections = isTransposed ? dims[1] : dims[2];
+
+                if (channels < 5 || numDetections <= 0)
+                {
+                    return results;
+                }
+
+                int modelClasses = channels - 4;
+                int numClasses = Math.Min(modelClasses, _classNames.Length);
+
+                float xScale = (float)originalWidth / _inputWidth;
+                float yScale = (float)originalHeight / _inputHeight;
+
+                var candidates = new System.Collections.Concurrent.ConcurrentBag<(int idx, float score, int classId)>();
+
+                if (!isTransposed)
+                {
+                    // Standard YOLO format: [1, C, N], stride = N
+                    int stride = numDetections;
+                    System.Threading.Tasks.Parallel.For(0, numDetections, i =>
+                    {
+                        float maxScore = 0;
+                        int maxClassId = 0;
+                        int baseIdx = (4 * stride) + i;
+
+                        for (int c = 0; c < numClasses; c++)
+                        {
+                            int idx = baseIdx + (c * stride);
+                            if (idx < outputArray.Length)
+                            {
+                                float score = outputArray[idx];
+                                if (score > maxScore)
+                                {
+                                    maxScore = score;
+                                    maxClassId = c;
+                                }
+                            }
+                        }
+
+                        if (maxScore > _confThreshold)
+                        {
+                            candidates.Add((i, maxScore, maxClassId));
+                        }
+                    });
+
+                    var boxes = new List<Rect>();
+                    var confidences = new List<float>();
+                    var classIds = new List<int>();
+
+                    foreach (var (i, maxScore, maxClassId) in candidates)
+                    {
+                        if ((3 * stride) + i >= outputArray.Length) continue;
+
+                        float cx = outputArray[i];
+                        float cy = outputArray[stride + i];
+                        float w = outputArray[(2 * stride) + i];
+                        float h = outputArray[(3 * stride) + i];
+
+                        int x = (int)((cx - w / 2) * xScale);
+                        int y = (int)((cy - h / 2) * yScale);
+                        int boxWidth = (int)(w * xScale);
+                        int boxHeight = (int)(h * yScale);
+
+                        x = Math.Max(0, Math.Min(x, originalWidth - 1));
+                        y = Math.Max(0, Math.Min(y, originalHeight - 1));
+                        boxWidth = Math.Min(boxWidth, originalWidth - x);
+                        boxHeight = Math.Min(boxHeight, originalHeight - y);
+
+                        if (boxWidth > 0 && boxHeight > 0)
+                        {
+                            boxes.Add(new Rect(x, y, boxWidth, boxHeight));
+                            confidences.Add(maxScore);
+                            classIds.Add(maxClassId);
+                        }
+                    }
+
+                    if (boxes.Count > 0)
+                    {
+                        var selectedIndices = ApplyNMS(boxes, confidences, _nmsThreshold);
+                        foreach (int idx in selectedIndices.Take(25))
+                        {
+                            results.Add(new DetectionResult
+                            {
+                                ClassId = classIds[idx],
+                                ClassName = classIds[idx] < _classNames.Length ? _classNames[classIds[idx]] : $"Class {classIds[idx]}",
+                                Confidence = confidences[idx],
+                                BoundingBox = boxes[idx]
+                            });
+                        }
+                    }
+                }
+                else
+                {
+                    // Transposed format: [1, N, C]
+                    int stride = channels;
+                    System.Threading.Tasks.Parallel.For(0, numDetections, i =>
+                    {
+                        int rowOffset = i * stride;
+                        float maxScore = 0;
+                        int maxClassId = 0;
+
+                        for (int c = 0; c < numClasses; c++)
+                        {
+                            int idx = rowOffset + 4 + c;
+                            if (idx < outputArray.Length)
+                            {
+                                float score = outputArray[idx];
+                                if (score > maxScore)
+                                {
+                                    maxScore = score;
+                                    maxClassId = c;
+                                }
+                            }
+                        }
+
+                        if (maxScore > _confThreshold)
+                        {
+                            candidates.Add((i, maxScore, maxClassId));
+                        }
+                    });
+
+                    var boxes = new List<Rect>();
+                    var confidences = new List<float>();
+                    var classIds = new List<int>();
+
+                    foreach (var (i, maxScore, maxClassId) in candidates)
+                    {
+                        int rowOffset = i * stride;
+                        if (rowOffset + 3 >= outputArray.Length) continue;
+
+                        float cx = outputArray[rowOffset];
+                        float cy = outputArray[rowOffset + 1];
+                        float w = outputArray[rowOffset + 2];
+                        float h = outputArray[rowOffset + 3];
+
+                        int x = (int)((cx - w / 2) * xScale);
+                        int y = (int)((cy - h / 2) * yScale);
+                        int boxWidth = (int)(w * xScale);
+                        int boxHeight = (int)(h * yScale);
+
+                        x = Math.Max(0, Math.Min(x, originalWidth - 1));
+                        y = Math.Max(0, Math.Min(y, originalHeight - 1));
+                        boxWidth = Math.Min(boxWidth, originalWidth - x);
+                        boxHeight = Math.Min(boxHeight, originalHeight - y);
+
+                        if (boxWidth > 0 && boxHeight > 0)
+                        {
+                            boxes.Add(new Rect(x, y, boxWidth, boxHeight));
+                            confidences.Add(maxScore);
+                            classIds.Add(maxClassId);
+                        }
+                    }
+
+                    if (boxes.Count > 0)
+                    {
+                        var selectedIndices = ApplyNMS(boxes, confidences, _nmsThreshold);
+                        foreach (int idx in selectedIndices.Take(25))
+                        {
+                            results.Add(new DetectionResult
+                            {
+                                ClassId = classIds[idx],
+                                ClassName = classIds[idx] < _classNames.Length ? _classNames[classIds[idx]] : $"Class {classIds[idx]}",
+                                Confidence = confidences[idx],
+                                BoundingBox = boxes[idx]
+                            });
+                        }
+                    }
                 }
             }
 

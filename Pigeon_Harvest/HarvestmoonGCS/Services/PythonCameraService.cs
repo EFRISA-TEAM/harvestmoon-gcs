@@ -289,11 +289,15 @@ public class PythonCameraService : ICameraService
         bool showOverlay = true,
         bool demoMode = true)
     {
-        // Resolve the .venv-yolo Python interpreter
+        // Resolve the .venv-yolo / .venv Python interpreter
         var (yoloPython, _) = ResolvePythonCommand(".venv-yolo");
         if (string.IsNullOrWhiteSpace(yoloPython))
         {
-            var errMsg = "YOLO Python (.venv-yolo/bin/python3) not found. Please ensure .venv-yolo exists with ultralytics installed.";
+            (yoloPython, _) = ResolvePythonCommand(".venv");
+        }
+        if (string.IsNullOrWhiteSpace(yoloPython))
+        {
+            var errMsg = "YOLO Python (.venv/bin/python3) not found. Please ensure .venv exists with ultralytics installed.";
             Serilog.Log.Error("[PythonCameraService] {Msg}", errMsg);
             ConnectionError?.Invoke(this, errMsg);
             return false;
@@ -381,8 +385,12 @@ public class PythonCameraService : ICameraService
         float playbackRate = 1.0f,
         bool yoloEnabled = false)
     {
-        // Prefer .venv-yolo (has ultralytics → YOLO fusion aktif); fallback .venv-camera
+        // Prefer .venv-yolo / .venv (has ultralytics & onnxruntime → YOLO fusion aktif); fallback .venv-camera
         var (yoloPython, _) = ResolvePythonCommand(".venv-yolo");
+        if (string.IsNullOrWhiteSpace(yoloPython))
+        {
+            (yoloPython, _) = ResolvePythonCommand(".venv");
+        }
         var (camPython,  _) = ResolvePythonCommand(null);
         var pythonCmd = yoloPython ?? camPython;
         if (string.IsNullOrWhiteSpace(pythonCmd))
@@ -939,7 +947,16 @@ public class PythonCameraService : ICameraService
             var current = root;
             for (var depth = 0; depth < 8; depth++)
             {
-                // v5/v6 model (moonharvest-health-cls-v5.onnx) — 88.5% accuracy, 4 kelas Teknofest
+                // YOLO11n PDP proposal model (moonharvest-health-cls.onnx) — 95.75% Top-1, 4 kelas PDP SINTA 2
+                AddCandidate(candidates, seen,
+                    Path.Combine(current, "Assets", "models", "moonharvest-health-cls.onnx"));
+                AddCandidate(candidates, seen,
+                    Path.Combine(current, "HarvestmoonGCS", "Assets", "models", "moonharvest-health-cls.onnx"));
+                AddCandidate(candidates, seen,
+                    Path.Combine(current, "Assets", "models", "yolo11n_proposal_pdp.onnx"));
+                AddCandidate(candidates, seen,
+                    Path.Combine(current, "HarvestmoonGCS", "Assets", "models", "yolo11n_proposal_pdp.onnx"));
+                // v5/v6 model (moonharvest-health-cls-v5.onnx) — fallback
                 AddCandidate(candidates, seen,
                     Path.Combine(current, "Assets", "models", "moonharvest-health-cls-v5.onnx"));
                 AddCandidate(candidates, seen,
@@ -1117,6 +1134,10 @@ public class PythonCameraService : ICameraService
             }
             else
             {
+                probes.Add((Path.Combine(root, ".venv", "bin", "python3"), "--version", string.Empty));
+                probes.Add((Path.Combine(root, ".venv", "bin", "python"), "--version", string.Empty));
+                probes.Add((Path.Combine(root, "Pigeon_Harvest", ".venv", "bin", "python3"), "--version", string.Empty));
+                probes.Add((Path.Combine(root, "Pigeon_Harvest", ".venv", "bin", "python"), "--version", string.Empty));
                 probes.Add((Path.Combine(root, ".venv-camera", "bin", "python"), "--version", string.Empty));
                 probes.Add((Path.Combine(root, ".venv-camera", "bin", "python3"), "--version", string.Empty));
                 probes.Add((Path.Combine(root, "Pigeon_Harvest", ".venv-camera", "bin", "python"), "--version", string.Empty));

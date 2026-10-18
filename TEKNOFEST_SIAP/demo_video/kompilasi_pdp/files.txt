@@ -1,0 +1,4 @@
+file 'seg1_defisit_tanah.mp4'
+file 'seg2_defisit_kanopi.mp4'
+file 'seg3_ketidakmerataan.mp4'
+file 'seg4_zona_normal.mp4'

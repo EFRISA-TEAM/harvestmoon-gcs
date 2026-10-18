@@ -50,8 +50,10 @@ public class RuncamWifiLinkConfig
 
     // ── Computed helpers ───────────────────────────────────────────────────────
 
-    /// <summary>URL RTSP lengkap.</summary>
-    public string RtspUrl => $"rtsp://{CameraIp}:{RtspPort}{RtspPath}";
+    /// <summary>URL RTSP lengkap atau custom URL jika diawali rtsp://.</summary>
+    public string RtspUrl => CameraIp.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase)
+        ? CameraIp
+        : $"rtsp://{CameraIp}:{RtspPort}{RtspPath}";
 
     /// <summary>URL MJPEG lengkap (path default RunCam).</summary>
     public string MjpegUrl => $"http://{CameraIp}:{MjpegPort}{MjpegPath}";
@@ -94,11 +96,13 @@ public class RuncamWifiLinkConfig
     /// <summary>Subnet default hotspot RunCam WiFi Link 2.</summary>
     public static readonly string DefaultSubnet = "192.168.0.";
 
-    /// <summary>Semua IP yang biasanya digunakan RunCam sebagai gateway.</summary>
+    /// <summary>Semua IP yang biasanya digunakan RunCam / SIYI HM30 sebagai gateway.</summary>
     public static readonly List<string> KnownGatewayIps = new()
     {
         "192.168.0.1",
         "192.168.1.1",
+        "192.168.144.11",
+        "192.168.144.25",
         "10.0.0.1"
     };
 

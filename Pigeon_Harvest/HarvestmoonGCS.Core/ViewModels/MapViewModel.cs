@@ -4,6 +4,7 @@ using System.Windows.Input;
 using CommunityToolkit.Mvvm.Input;
 using HarvestmoonGCS.Core.Models;
 using HarvestmoonGCS.Core.Services;
+using HarvestmoonGCS.Models;
 using HarvestmoonGCS.Core.Helpers;
 using Mapsui;
 using Mapsui.Tiling;
@@ -40,7 +41,7 @@ public partial class MapViewModel : ViewModelBase
     [ObservableProperty] private WaypointData? _vehiclePosition;
     [ObservableProperty] private WaypointData? _homePosition;
     [ObservableProperty] private WaypointData? _selectedWaypoint;
-    [ObservableProperty] private string _mapProvider = "OpenStreetMap";
+    [ObservableProperty] private string _mapProvider = "GoogleMap";
     [ObservableProperty] private bool _isFollowing = false;
     [ObservableProperty] private double _waypointRadius = 2.0;
     [ObservableProperty] private double _totalDistance = 0.0;
@@ -129,6 +130,25 @@ public partial class MapViewModel : ViewModelBase
         CancelDownloadCommand = new RelayCommand(CancelDownload);
         ClearCacheCommand = new RelayCommand(async () => await ClearCacheAsync());
         RefreshStorageInfoCommand = new RelayCommand(async () => await RefreshStorageInfoAsync());
+
+        // Wire real-time MAVLink telemetry for live vehicle tracking on map
+        if (_mavLinkService != null)
+        {
+            _mavLinkService.TelemetryReceived += OnMavLinkTelemetryReceived;
+        }
+    }
+
+    private void OnMavLinkTelemetryReceived(object? sender, FlightData data)
+    {
+        if (data?.GPS != null && (data.GPS.Latitude != 0 || data.GPS.Longitude != 0))
+        {
+            double lat = data.GPS.Latitude / 1e7;
+            double lon = data.GPS.Longitude / 1e7;
+            if (Math.Abs(lat) > 0.0001 && Math.Abs(lon) > 0.0001)
+            {
+                UpdateVehiclePosition(lat, lon, data.AltitudeFloat, data.IMU?.Yaw ?? 0f);
+            }
+        }
     }
 
     private void InitializeMap()

@@ -32,6 +32,10 @@ DEMO_MODE = os.environ.get("MOONHARVEST_DEMO", "0") == "1"
 
 # Mapping display label → GCS key (read by C# EdgeModePage / DashboardPage)
 DISPLAY_TO_GCS = {
+    "Zona Normal":             "Healthy",
+    "Ketidakmerataan Irigasi": "Stress",
+    "Defisit Air (Kanopi)":    "Drought",
+    "Defisit Air (Tanah)":     "Bare Soil",
     "Lush Green":              "Healthy",
     "Inconsistent Growth":     "Stress",
     "Drought / Severe Stress": "Drought",
@@ -41,6 +45,10 @@ DISPLAY_TO_GCS = {
 
 # ── Warna display ──────────────────────────────────────────────────────────────
 COLORS = {
+    "Zona Normal":             ( 50, 210,  50),
+    "Ketidakmerataan Irigasi": (  0, 200, 255),
+    "Defisit Air (Kanopi)":    (  0,  90, 255),
+    "Defisit Air (Tanah)":     (140, 140, 140),
     "Lush Green":              ( 50, 210,  50),
     "Inconsistent Growth":     (  0, 200, 255),
     "Drought / Severe Stress": (  0,  90, 255),
@@ -48,6 +56,10 @@ COLORS = {
 }
 
 SEVERITY = {
+    "Zona Normal":             0.00,
+    "Ketidakmerataan Irigasi": 0.23,
+    "Defisit Air (Kanopi)":    0.80,
+    "Defisit Air (Tanah)":     0.10,
     "Lush Green":              0.00,
     "Inconsistent Growth":     0.23,  # Agronomical calibration: 77% vegetative vitality (tillering phase) -> FHI ~81.6%
     "Drought / Severe Stress": 0.80,
@@ -61,6 +73,10 @@ ONNX_MAP = {
     "inconsistent_growth":   "Inconsistent Growth",
     "drought_severe_stress": "Drought / Severe Stress",
     "bare_soil":             "Bare Soil / Gap",
+    "0_zona_normal":             "Zona Normal",
+    "1_ketidakmerataan_irigasi": "Ketidakmerataan Irigasi",
+    "2_defisit_air_kanopi":      "Defisit Air (Kanopi)",
+    "3_defisit_air_tanah":       "Defisit Air (Tanah)",
     # Kelas lama (backward compatibility)
     "healthy_crop":          "Lush Green",
     "stressed_crop":         "Inconsistent Growth",
@@ -381,6 +397,10 @@ YOLO_DET_MAP = {
     "inconsistent_growth":        "Inconsistent Growth",
     "drought_severe_stress":      "Drought / Severe Stress",
     "bare_soil":                  "Bare Soil / Gap",
+    "0_zona_normal":             "Zona Normal",
+    "1_ketidakmerataan_irigasi": "Ketidakmerataan Irigasi",
+    "2_defisit_air_kanopi":      "Defisit Air",
+    "3_defisit_air_tanah":       "Defisit Air",
     # Legacy / Backward compatibility
     "crop":                       "Lush Green",
     "crop_row":                   "Lush Green",

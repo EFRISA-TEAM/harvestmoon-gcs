@@ -166,6 +166,11 @@
                                  MinWidth="140"
                                  HorizontalAlignment="Left"/>
 
+                        <Button x:Name="ApplyVisionRuntimeButton"
+                                Content="Test &amp; Apply Vision Model"
+                                Click="ApplyVisionRuntimeButton_Click"
+                                Margin="0,4,0,0"/>
+
                         <TextBlock x:Name="VisionRuntimeStatusText"
                                    Text="Vision runtime not configured."
                                    TextWrapping="Wrap"

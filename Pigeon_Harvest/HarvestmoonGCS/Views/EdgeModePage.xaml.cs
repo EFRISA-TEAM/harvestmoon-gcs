@@ -166,6 +166,18 @@ public sealed partial class EdgeModePage : Page
         var samplePath = _harvestService.LatestYoloScreenshotPath;
         if (string.IsNullOrWhiteSpace(samplePath) || !System.IO.File.Exists(samplePath))
         {
+            var candidates = new[]
+            {
+                System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "sample_uav_crop.jpg"),
+                System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "Assets", "sample_uav_crop.jpg"),
+                "/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/Assets/sample_uav_crop.jpg",
+                "/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/bin/Release/net9.0-desktop/Assets/sample_uav_crop.jpg"
+            };
+            samplePath = candidates.FirstOrDefault(System.IO.File.Exists);
+        }
+
+        if (string.IsNullOrWhiteSpace(samplePath) || !System.IO.File.Exists(samplePath))
+        {
             BenchmarkStatusText.Text = "No captured frame available yet — open Camera and start the feed first, then come back here.";
             return;
         }
@@ -269,25 +281,30 @@ public sealed partial class EdgeModePage : Page
         if (_harvestService != null)
         {
             var baseDirectory = AppContext.BaseDirectory;
-            var defaultModelPath = System.IO.Path.Combine(baseDirectory, "Assets", "models", selected);
+            var modelCandidates = new[]
+            {
+                System.IO.Path.Combine(baseDirectory, "Assets", "models", selected),
+                System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "Assets", "models", selected),
+                System.IO.Path.Combine("/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/Assets/models", selected),
+                System.IO.Path.Combine("/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/bin/Release/net9.0-desktop/Assets/models", selected)
+            };
+            var defaultModelPath = modelCandidates.FirstOrDefault(System.IO.File.Exists) ?? modelCandidates[0];
 
             string classFileName = selected switch
             {
-                // The int8 detector is the older 416px crop/weed model — it needs its own labels,
-                // not the 4-class agronomy list used by moonharvest-uav-det.onnx.
-                var s when s.Contains("uav-det-int8", StringComparison.OrdinalIgnoreCase)
-                    => "classes-moonharvest-uav-det-legacy.txt",
                 var s when s.Contains("uav", StringComparison.OrdinalIgnoreCase)
                     => "classes-moonharvest-uav-det.txt",
-                var s when s.Contains("weed", StringComparison.OrdinalIgnoreCase)
-                    => "classes-crop-weed.txt",
-                var s when s.Contains("320", StringComparison.OrdinalIgnoreCase)
-                        || s.Contains("coco", StringComparison.OrdinalIgnoreCase)
-                    => "classes-yolov8n-coco.txt",
                 _ => "classes-moonharvest-health.txt",
             };
 
-            var defaultClassPath = System.IO.Path.Combine(baseDirectory, "Assets", "models", classFileName);
+            var classCandidates = new[]
+            {
+                System.IO.Path.Combine(baseDirectory, "Assets", "models", classFileName),
+                System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "Assets", "models", classFileName),
+                System.IO.Path.Combine("/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/Assets/models", classFileName),
+                System.IO.Path.Combine("/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/bin/Release/net9.0-desktop/Assets/models", classFileName)
+            };
+            var defaultClassPath = classCandidates.FirstOrDefault(System.IO.File.Exists) ?? classCandidates[0];
             
             float conf = (float)(ConfThresholdSlider.Value / 100.0);
             float nms = (float)(NmsThresholdSlider.Value / 100.0);
@@ -297,10 +314,12 @@ public sealed partial class EdgeModePage : Page
             {
                 Log.Information("EdgeModePage: Successfully applied model {ModelName}", selected);
                 RefreshRuntimeInfo();
+                BenchmarkStatusText.Text = $"Runtime aktif: {selected} (conf={conf:0.00}, nms={nms:0.00})";
             }
             else
             {
                 Log.Error("EdgeModePage: Failed to apply model {ModelName}", selected);
+                BenchmarkStatusText.Text = $"Gagal memuat model: {selected}. Pastikan file ONNX valid.";
             }
         }
     }

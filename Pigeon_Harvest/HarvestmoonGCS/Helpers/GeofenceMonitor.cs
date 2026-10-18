@@ -78,7 +78,9 @@ namespace HarvestmoonGCS.Helpers
                 Message = message
             });
 
-            await _dialogService.ShowAlertAsync(message, "Geofence Alert");
+            // Non-blocking notification: log and event raised above. Avoid blocking modal dialog during flight/demo.
+            // await _dialogService.ShowAlertAsync(message, "Geofence Alert");
+            await Task.CompletedTask;
         }
 
         private async Task TriggerRestoredAlert(GeofenceData geofence, GeoCoordinate position, double insideMeters)

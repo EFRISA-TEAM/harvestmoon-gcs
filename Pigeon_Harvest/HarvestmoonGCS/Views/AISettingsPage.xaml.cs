@@ -362,24 +362,33 @@ public sealed partial class AISettingsPage : Page
     private void LoadVisionRuntimeSettings()
     {
         var baseDirectory = AppContext.BaseDirectory;
-        // moonharvest-uav-det is the default: it's a detector with a 3-D YOLOv8-style output that
-        // YoloDetector.PostProcessYoloV8 actually knows how to read. moonharvest-health-cls is a
-        // classifier (2-D output) used in Python stream mode. Android:
-        // prefer INT8 (smaller, faster via NNAPI); desktop: full FP32.
 #if __ANDROID__
         var preferredModelName = "moonharvest-uav-det-int8.onnx";
         var preferredClassName = "classes-moonharvest-uav-det.txt";
 #else
-        var preferredModelName = "moonharvest-uav-det.onnx";
-        var preferredClassName = "classes-moonharvest-uav-det.txt";
+        var preferredModelName = "yolo11n_proposal_pdp.onnx";
+        var preferredClassName = "classes-moonharvest-health.txt";
 #endif
-        var defaultModelPath = Path.Combine(baseDirectory, "Assets", "models", preferredModelName);
-        // Fallback to FP32 if INT8 file is missing (e.g. first install before asset copy)
-        if (!File.Exists(defaultModelPath))
-            defaultModelPath = Path.Combine(baseDirectory, "Assets", "models", "moonharvest-uav-det.onnx");
-        var defaultClassPath = Path.Combine(baseDirectory, "Assets", "models", preferredClassName);
-        if (!File.Exists(defaultClassPath))
-            defaultClassPath = Path.Combine(baseDirectory, "Assets", "models", "classes-moonharvest-uav-det.txt");
+        var modelCandidates = new[]
+        {
+            Path.Combine(baseDirectory, "Assets", "models", preferredModelName),
+            Path.Combine(baseDirectory, "Assets", "models", "moonharvest-health-cls.onnx"),
+            Path.Combine(baseDirectory, "Assets", "models", "moonharvest-uav-det.onnx"),
+            Path.Combine(Directory.GetCurrentDirectory(), "Assets", "models", preferredModelName),
+            Path.Combine("/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/Assets/models", preferredModelName),
+            Path.Combine("/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/Assets/models", "moonharvest-health-cls.onnx"),
+            Path.Combine("/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/Assets/models", "moonharvest-uav-det.onnx")
+        };
+        var defaultModelPath = modelCandidates.FirstOrDefault(File.Exists) ?? modelCandidates[0];
+
+        var classCandidates = new[]
+        {
+            Path.Combine(baseDirectory, "Assets", "models", preferredClassName),
+            Path.Combine(baseDirectory, "Assets", "models", "classes-moonharvest-health.txt"),
+            Path.Combine(Directory.GetCurrentDirectory(), "Assets", "models", preferredClassName),
+            Path.Combine("/home/fawwazfa/Program/Harvestmoon/Pigeon_Harvest/HarvestmoonGCS/Assets/models", preferredClassName)
+        };
+        var defaultClassPath = classCandidates.FirstOrDefault(File.Exists) ?? classCandidates[0];
 
         var currentModel = _harvestFunctionalService?.RuntimeModelPath;
         var currentClass = _harvestFunctionalService?.RuntimeClassPath;
@@ -407,6 +416,11 @@ public sealed partial class AISettingsPage : Page
         }
 
         VisionRuntimeStatusText.Text = _harvestFunctionalService?.YoloStatusMessage ?? "Vision runtime standby.";
+    }
+
+    private void ApplyVisionRuntimeButton_Click(object sender, RoutedEventArgs e)
+    {
+        ApplyVisionRuntimeSettings();
     }
 
     private void ApplyVisionRuntimeSettings()

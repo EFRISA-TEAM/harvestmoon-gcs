@@ -13,6 +13,8 @@ using System.Threading.Tasks;
 using System.Threading;
 using HarvestmoonGCS.Core.Services;
 using HarvestmoonGCS.Core.Services.Optimization;
+using HarvestmoonGCS.Core.Models;
+using HarvestmoonGCS.Core.Helpers;
 
 namespace HarvestmoonGCS.Controls
 {
@@ -39,6 +41,13 @@ namespace HarvestmoonGCS.Controls
         private readonly Dictionary<int, LoRaNodeOverlay> _loRaNodes = new Dictionary<int, LoRaNodeOverlay>();
         private readonly Dictionary<int, List<(double Lat, double Lon)>> _loRaTrails = new Dictionary<int, List<(double Lat, double Lon)>>();
         private bool _loRaFirstFix = true;
+
+        // Irrigation and Soil Sensor Overlays
+        private readonly List<IrrigationDataPoint> _irrigationPoints = new();
+        private readonly List<SoilSensorData> _soilSensors = new();
+        private readonly List<IrrigationPlot> _irrigationPlots = new();
+        private bool _showIrrigationOverlay = true;
+        private bool _showSoilSensors = true;
         
         // Pan and zoom state
         private bool _isPanning = false;
@@ -51,8 +60,8 @@ namespace HarvestmoonGCS.Controls
         private const int MAX_TILE_CACHE_SIZE = 180; // Keep more nearby tiles to reduce placeholder redraws during pan
         private Queue<string> _tileCacheOrder = new Queue<string>(); // Track insertion order for LRU
         private HttpClient _httpClient = new HttpClient();
-        private string _currentTileServer = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
-        private MapTileProvider _currentProvider = MapTileProvider.OpenStreetMap;
+        private string _currentTileServer = "https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}";
+        private MapTileProvider _currentProvider = MapTileProvider.GoogleMap;
         
         // Offline map service
         private IOfflineMapService? _offlineMapService;
@@ -103,7 +112,7 @@ namespace HarvestmoonGCS.Controls
         public SkiaMapControl()
         {
             this.InitializeComponent();
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "PigeonGCS/1.0");
+            _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
             // Acquire DispatcherQueue early as fallback; Loaded event will update it
             _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
             this.Loaded += SkiaMapControl_Loaded;
@@ -265,7 +274,11 @@ namespace HarvestmoonGCS.Controls
             // Draw map tiles
             DrawMapTiles(canvas, width, height);
             
-            // Draw geofence (behind waypoints)
+            // Draw irrigation overlay & soil sensors
+            DrawIrrigationOverlay(canvas, width, height);
+            DrawSoilSensorsOverlay(canvas, width, height);
+
+            // Draw geofence (on top of thematic layers, behind waypoints)
             DrawGeofence(canvas, width, height);
             
             // Draw waypoint trail
@@ -551,9 +564,15 @@ namespace HarvestmoonGCS.Controls
 
         private string GetSubdomain(int tileX, int tileY)
         {
+            // For Google Maps servers, subdomains are mt0, mt1, mt2, mt3
+            if (_currentProvider is MapTileProvider.GoogleMap or MapTileProvider.GoogleSatellite or MapTileProvider.GoogleTerrain or MapTileProvider.GoogleHybrid)
+            {
+                return (Math.Abs(tileX + tileY) % 4).ToString();
+            }
+
             // Cycle through subdomains a, b, c for load balancing
             string[] subdomains = { "a", "b", "c" };
-            int index = (tileX + tileY) % subdomains.Length;
+            int index = Math.Abs(tileX + tileY) % subdomains.Length;
             return subdomains[index];
         }
 
@@ -1240,7 +1259,7 @@ namespace HarvestmoonGCS.Controls
         /// </summary>
         public void SetActive(bool active) { _isActive = active; }
 
-        private void RequestRender()
+        public void RequestRender()
         {
             if (!_isActive) return;
             SyncOptimizationSettings();
@@ -1903,6 +1922,9 @@ namespace HarvestmoonGCS.Controls
             RequestRender();
         }
 
+        public bool ShowWaypointGeofence { get; set; } = true;
+        public double WaypointGeofenceRadiusMeters { get; set; } = 150.0;
+
         /// <summary>
         /// Set geofence to display
         /// </summary>
@@ -1935,35 +1957,49 @@ namespace HarvestmoonGCS.Controls
         {
             if (_waypoints.Count == 0) return;
 
-            // Gambar lingkaran geofence 200m di setiap waypoint
-            const double waypointGeofenceMeters = 200.0;
-            using (var gfPaint = new SKPaint
+            // Gambar lingkaran geofence di setiap waypoint (koridor keamanan Eagle GCS)
+            if (ShowWaypointGeofence && _waypoints.Count > 0)
             {
-                IsAntialias = true,
-                Style       = SKPaintStyle.Fill,
-                Color       = new SKColor(255, 80, 80, 40),   // merah transparan
-            })
-            using (var gfStroke = new SKPaint
-            {
-                IsAntialias  = true,
-                Style        = SKPaintStyle.Stroke,
-                StrokeWidth  = 1.5f,
-                Color        = new SKColor(220, 60, 60, 120),
-                PathEffect   = SKPathEffect.CreateDash(new float[] { 6, 4 }, 0),
-            })
-            {
+                using var gfPaint = new SKPaint
+                {
+                    IsAntialias = true,
+                    Style = SKPaintStyle.Fill,
+                    Color = new SKColor(255, 80, 80, 40) // Merah transparan asli
+                };
+                using var gfStroke = new SKPaint
+                {
+                    IsAntialias = true,
+                    Style = SKPaintStyle.Stroke,
+                    StrokeWidth = 1.5f,
+                    Color = new SKColor(220, 60, 60, 120),
+                    PathEffect = SKPathEffect.CreateDash(new float[] { 6, 4 }, 0)
+                };
+
+                double waypointGeofenceMeters = WaypointGeofenceRadiusMeters > 0 ? WaypointGeofenceRadiusMeters : 150.0;
+
                 foreach (var wp in _waypoints)
                 {
                     var pt = LatLonToScreen(wp.Lat, wp.Lon, width, height);
                     double cosLat = Math.Cos(wp.Lat * Math.PI / 180.0);
                     double metersPerPixel = (40075016.0 * cosLat) / (256.0 * Math.Pow(2, _zoomLevel));
                     float radiusPx = (float)(waypointGeofenceMeters / metersPerPixel);
-                    canvas.DrawCircle(pt.X, pt.Y, radiusPx, gfPaint);
-                    canvas.DrawCircle(pt.X, pt.Y, radiusPx, gfStroke);
+
+                    if (radiusPx > 4)
+                    {
+                        canvas.DrawCircle(pt.X, pt.Y, radiusPx, gfPaint);
+                        canvas.DrawCircle(pt.X, pt.Y, radiusPx, gfStroke);
+                    }
                 }
             }
 
-            using var paint = new SKPaint
+            using var shadowPaint = new SKPaint
+            {
+                IsAntialias = true,
+                Style = SKPaintStyle.Fill,
+                Color = new SKColor(0, 0, 0, 160)
+            };
+
+            using var fillPaint = new SKPaint
             {
                 IsAntialias = true,
                 Style = SKPaintStyle.Fill
@@ -1973,7 +2009,7 @@ namespace HarvestmoonGCS.Controls
             {
                 IsAntialias = true,
                 Style = SKPaintStyle.Stroke,
-                StrokeWidth = 2,
+                StrokeWidth = 3f,
                 Color = SKColors.White
             };
 
@@ -1981,20 +2017,28 @@ namespace HarvestmoonGCS.Controls
             {
                 IsAntialias = true,
                 Color = SKColors.White,
-                TextSize = 14,
+                TextSize = 15,
                 TextAlign = SKTextAlign.Center,
                 Typeface = SKTypeface.FromFamilyName("Arial", SKFontStyle.Bold)
             };
 
-            // Draw lines connecting waypoints
+            // Draw lines connecting waypoints with dark contrast outline
             if (_waypoints.Count > 1)
             {
+                using var lineShadowPaint = new SKPaint
+                {
+                    IsAntialias = true,
+                    Style = SKPaintStyle.Stroke,
+                    StrokeWidth = 6.0f,
+                    Color = new SKColor(0, 0, 0, 160)
+                };
+
                 using var linePaint = new SKPaint
                 {
                     IsAntialias = true,
                     Style = SKPaintStyle.Stroke,
-                    StrokeWidth = 3,
-                    Color = new SKColor(0, 150, 255, 200), // Blue with transparency
+                    StrokeWidth = 3.5f,
+                    Color = new SKColor(0, 229, 255), // Bright Electric Cyan
                     PathEffect = SKPathEffect.CreateDash(new float[] { 10, 5 }, 0)
                 };
 
@@ -2006,44 +2050,56 @@ namespace HarvestmoonGCS.Controls
                     var pt1 = LatLonToScreen(wp1.Lat, wp1.Lon, width, height);
                     var pt2 = LatLonToScreen(wp2.Lat, wp2.Lon, width, height);
                     
+                    canvas.DrawLine(pt1, pt2, lineShadowPaint);
                     canvas.DrawLine(pt1, pt2, linePaint);
                 }
             }
 
-            // Draw waypoint markers
-            foreach (var wp in _waypoints)
+            // Draw waypoint markers with high-contrast pins
+            for (int idx = 0; idx < _waypoints.Count; idx++)
             {
+                var wp = _waypoints[idx];
                 var pt = LatLonToScreen(wp.Lat, wp.Lon, width, height);
                 
                 // Skip if off-screen
                 if (pt.X < -50 || pt.X > width + 50 || pt.Y < -50 || pt.Y > height + 50)
                     continue;
 
-                // Check if this waypoint is being dragged
                 bool isDragging = _draggedCanvasWaypoint == wp;
-                float markerRadius = isDragging ? 18 : 15; // Larger when dragging
+                float markerRadius = isDragging ? 24 : 20; // 40-48px diameter for clear touch and visibility
 
-                // Draw marker circle
+                // Drop shadow
+                canvas.DrawCircle(pt.X, pt.Y + 2.5f, markerRadius + 1f, shadowPaint);
+
+                // Marker color: WP 1 is Green (Start), last WP is Red (Finish), middle is Electric Orange
                 if (isDragging)
                 {
-                    // Highlight when dragging
-                    paint.Color = new SKColor(255, 255, 0); // Yellow
+                    fillPaint.Color = new SKColor(255, 235, 59); // Yellow
+                }
+                else if (wp.Command == "TAKEOFF" || idx == 0)
+                {
+                    fillPaint.Color = new SKColor(16, 185, 129); // Emerald Green
+                }
+                else if (wp.Command == "LAND" || idx == _waypoints.Count - 1)
+                {
+                    fillPaint.Color = new SKColor(239, 68, 68); // Red
                 }
                 else
                 {
-                    paint.Color = wp.Command == "LAND" ? new SKColor(255, 0, 0) : 
-                                 wp.Command == "TAKEOFF" ? new SKColor(0, 255, 0) :
-                                 new SKColor(255, 165, 0); // Orange for waypoints
+                    fillPaint.Color = new SKColor(255, 122, 0); // Vibrant Electric Orange
                 }
                 
-                canvas.DrawCircle(pt.X, pt.Y, markerRadius, paint);
+                canvas.DrawCircle(pt.X, pt.Y, markerRadius, fillPaint);
                 
-                // Draw thicker border when dragging
-                strokePaint.StrokeWidth = isDragging ? 3 : 2;
+                // Crisp white border
+                strokePaint.StrokeWidth = isDragging ? 4f : 3f;
                 canvas.DrawCircle(pt.X, pt.Y, markerRadius, strokePaint);
                 
-                // Draw sequence number
-                canvas.DrawText(wp.Sequence.ToString(), pt.X, pt.Y + 5, textPaint);
+                // Sequence number centered vertically
+                var seqText = wp.Sequence.ToString();
+                var textBounds = new SKRect();
+                textPaint.MeasureText(seqText, ref textBounds);
+                canvas.DrawText(seqText, pt.X, pt.Y - textBounds.MidY, textPaint);
             }
         }
 
@@ -2058,15 +2114,24 @@ namespace HarvestmoonGCS.Controls
             {
                 IsAntialias = true,
                 Style = SKPaintStyle.Fill,
-                Color = new SKColor(255, 0, 0, 50) // Red with low transparency
+                Color = new SKColor(239, 68, 68, 45) // Translucent red fill
             };
 
             using var strokePaint = new SKPaint
             {
                 IsAntialias = true,
                 Style = SKPaintStyle.Stroke,
-                StrokeWidth = 3,
-                Color = new SKColor(255, 0, 0, 200) // Red with transparency
+                StrokeWidth = 3.5f,
+                Color = new SKColor(239, 68, 68, 240) // Solid bold red boundary
+            };
+
+            using var dashPaint = new SKPaint
+            {
+                IsAntialias = true,
+                Style = SKPaintStyle.Stroke,
+                StrokeWidth = 1.5f,
+                Color = new SKColor(255, 255, 255, 220),
+                PathEffect = SKPathEffect.CreateDash(new float[] { 8, 6 }, 0)
             };
 
             if (_geofence.IsCircular)
@@ -2074,30 +2139,31 @@ namespace HarvestmoonGCS.Controls
                 // Draw circular geofence
                 var center = LatLonToScreen(_geofence.CenterLat, _geofence.CenterLon, width, height);
                 
-                // Calculate radius in pixels (approximate)
+                // Calculate radius in pixels
                 double metersPerPixel = 156543.03392 * Math.Cos(_geofence.CenterLat * Math.PI / 180) / Math.Pow(2, _zoomLevel);
                 float radiusPixels = (float)(_geofence.Radius / metersPerPixel);
-                
+
                 canvas.DrawCircle(center.X, center.Y, radiusPixels, fillPaint);
                 canvas.DrawCircle(center.X, center.Y, radiusPixels, strokePaint);
+                canvas.DrawCircle(center.X, center.Y, radiusPixels, dashPaint);
                 
-                // Draw center marker (draggable)
+                // Draw center marker (draggable) - Eagle GCS standard clean pin
                 using var centerPaint = new SKPaint
                 {
                     IsAntialias = true,
                     Style = SKPaintStyle.Fill,
-                    Color = _isDraggingGeofenceCenter ? new SKColor(255, 255, 0) : new SKColor(255, 0, 0) // Yellow when dragging
+                    Color = _isDraggingGeofenceCenter ? new SKColor(255, 255, 0) : new SKColor(239, 68, 68)
                 };
                 
                 using var centerStrokePaint = new SKPaint
                 {
                     IsAntialias = true,
                     Style = SKPaintStyle.Stroke,
-                    StrokeWidth = _isDraggingGeofenceCenter ? 3 : 2,
+                    StrokeWidth = _isDraggingGeofenceCenter ? 2.5f : 1.5f,
                     Color = SKColors.White
                 };
                 
-                float centerRadius = _isDraggingGeofenceCenter ? 12 : 10;
+                float centerRadius = _isDraggingGeofenceCenter ? 8 : 6;
                 canvas.DrawCircle(center.X, center.Y, centerRadius, centerPaint);
                 canvas.DrawCircle(center.X, center.Y, centerRadius, centerStrokePaint);
                 
@@ -2106,11 +2172,11 @@ namespace HarvestmoonGCS.Controls
                 {
                     IsAntialias = true,
                     Style = SKPaintStyle.Stroke,
-                    StrokeWidth = 2,
+                    StrokeWidth = 1.5f,
                     Color = SKColors.White
                 };
-                canvas.DrawLine(center.X - 6, center.Y, center.X + 6, center.Y, crosshairPaint);
-                canvas.DrawLine(center.X, center.Y - 6, center.X, center.Y + 6, crosshairPaint);
+                canvas.DrawLine(center.X - 5, center.Y, center.X + 5, center.Y, crosshairPaint);
+                canvas.DrawLine(center.X, center.Y - 5, center.X, center.Y + 5, crosshairPaint);
             }
             else if (_geofence.Vertices.Count >= 3)
             {
@@ -2142,7 +2208,7 @@ namespace HarvestmoonGCS.Controls
                 {
                     IsAntialias = true,
                     Style = SKPaintStyle.Stroke,
-                    StrokeWidth = 2,
+                    StrokeWidth = 1.5f,
                     Color = SKColors.White
                 };
                 
@@ -2152,15 +2218,239 @@ namespace HarvestmoonGCS.Controls
                     var pt = LatLonToScreen(vertex.Lat, vertex.Lon, width, height);
                     
                     bool isDragging = _draggedGeofenceVertexIndex == i;
-                    float vertexRadius = isDragging ? 10 : 8;
+                    float vertexRadius = isDragging ? 9 : 7;
                     
-                    vertexPaint.Color = isDragging ? new SKColor(255, 255, 0) : new SKColor(255, 0, 0);
-                    vertexStrokePaint.StrokeWidth = isDragging ? 3 : 2;
+                    vertexPaint.Color = isDragging ? new SKColor(255, 235, 59) : new SKColor(239, 68, 68, 190);
+                    vertexStrokePaint.StrokeWidth = isDragging ? 2.5f : 1.5f;
                     
                     canvas.DrawCircle(pt.X, pt.Y, vertexRadius, vertexPaint);
                     canvas.DrawCircle(pt.X, pt.Y, vertexRadius, vertexStrokePaint);
                 }
             }
         }
+
+        #region Irrigation & Soil Moisture Overlays
+
+        public void SetIrrigationPoints(IEnumerable<IrrigationDataPoint> points)
+        {
+            _irrigationPoints.Clear();
+            if (points != null) _irrigationPoints.AddRange(points);
+            RequestRender();
+        }
+
+        public void AddIrrigationPoint(IrrigationDataPoint point)
+        {
+            if (point != null)
+            {
+                _irrigationPoints.Add(point);
+                RequestRender();
+            }
+        }
+
+        public void ClearIrrigationPoints()
+        {
+            _irrigationPoints.Clear();
+            RequestRender();
+        }
+
+        public void SetSoilSensors(IEnumerable<SoilSensorData> sensors)
+        {
+            _soilSensors.Clear();
+            if (sensors != null) _soilSensors.AddRange(sensors);
+            RequestRender();
+        }
+
+        public void UpdateSoilSensor(SoilSensorData sensor)
+        {
+            if (sensor == null) return;
+            var idx = _soilSensors.FindIndex(s => s.SensorId == sensor.SensorId);
+            if (idx >= 0) _soilSensors[idx] = sensor;
+            else _soilSensors.Add(sensor);
+            RequestRender();
+        }
+
+        public void ClearSoilSensors()
+        {
+            _soilSensors.Clear();
+            RequestRender();
+        }
+
+        public void SetIrrigationPlots(IEnumerable<IrrigationPlot> plots)
+        {
+            _irrigationPlots.Clear();
+            if (plots != null) _irrigationPlots.AddRange(plots);
+            RequestRender();
+        }
+
+        public void ClearIrrigationPlots()
+        {
+            _irrigationPlots.Clear();
+            RequestRender();
+        }
+
+        public void ToggleIrrigationOverlay(bool show)
+        {
+            _showIrrigationOverlay = show;
+            RequestRender();
+        }
+
+        public void ToggleSoilSensors(bool show)
+        {
+            _showSoilSensors = show;
+            RequestRender();
+        }
+
+        private void DrawIrrigationOverlay(SKCanvas canvas, int width, int height)
+        {
+            if (!_showIrrigationOverlay) return;
+
+            // Draw plots
+            if (_irrigationPlots.Count > 0)
+            {
+                using var plotFill = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
+                using var plotStroke = new SKPaint
+                {
+                    IsAntialias = true,
+                    Style = SKPaintStyle.Stroke,
+                    StrokeWidth = 2,
+                    PathEffect = SKPathEffect.CreateDash(new float[] { 6, 4 }, 0)
+                };
+                using var labelPaint = new SKPaint
+                {
+                    IsAntialias = true,
+                    Color = SKColors.White,
+                    TextSize = 13,
+                    FakeBoldText = true,
+                    TextAlign = SKTextAlign.Center
+                };
+
+                foreach (var plot in _irrigationPlots)
+                {
+                    if (plot.PolygonCoordinates == null || plot.PolygonCoordinates.Count < 3) continue;
+
+                    using var path = new SKPath();
+                    var p0 = LatLonToScreen(plot.PolygonCoordinates[0].Latitude, plot.PolygonCoordinates[0].Longitude, width, height);
+                    path.MoveTo(p0);
+
+                    for (int i = 1; i < plot.PolygonCoordinates.Count; i++)
+                    {
+                        var pt = LatLonToScreen(plot.PolygonCoordinates[i].Latitude, plot.PolygonCoordinates[i].Longitude, width, height);
+                        path.LineTo(pt);
+                    }
+                    path.Close();
+
+                    SKColor color = plot.Priority switch
+                    {
+                        IrrigationPriorityLevel.Emergency => new SKColor(231, 76, 60, 45),
+                        IrrigationPriorityLevel.High => new SKColor(230, 126, 34, 45),
+                        IrrigationPriorityLevel.Medium => new SKColor(241, 196, 15, 45),
+                        _ => new SKColor(46, 204, 113, 40)
+                    };
+                    plotFill.Color = color;
+                    plotStroke.Color = color.WithAlpha(210);
+
+                    canvas.DrawPath(path, plotFill);
+                    canvas.DrawPath(path, plotStroke);
+
+                    var center = GeometryHelper.CalculateCenter(plot.PolygonCoordinates);
+                    var cPt = LatLonToScreen(center.Latitude, center.Longitude, width, height);
+
+                    string plotTag = !string.IsNullOrWhiteSpace(plot.Id) ? plot.Id.Replace("PLOT-", "Blok ") : "Petak";
+                    using var tagBgPaint = new SKPaint
+                    {
+                        IsAntialias = true,
+                        Color = new SKColor(15, 23, 42, 180),
+                        Style = SKPaintStyle.Fill
+                    };
+                    using var tagTextPaint = new SKPaint
+                    {
+                        IsAntialias = true,
+                        Color = SKColors.White,
+                        TextSize = 10f,
+                        FakeBoldText = true,
+                        TextAlign = SKTextAlign.Center
+                    };
+                    float tagW = tagTextPaint.MeasureText(plotTag);
+                    var tagRect = new SKRoundRect(new SKRect(cPt.X - tagW / 2 - 6, cPt.Y - 11, cPt.X + tagW / 2 + 6, cPt.Y + 6), 3);
+                    canvas.DrawRoundRect(tagRect, tagBgPaint);
+                    canvas.DrawText(plotTag, cPt.X, cPt.Y + 2, tagTextPaint);
+                }
+            }
+
+            // Draw heat/data points
+            if (_irrigationPoints.Count > 0)
+            {
+                using var pointPaint = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
+                using var pointStroke = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1, Color = SKColors.White.WithAlpha(160) };
+
+                double cosLat = Math.Cos(_centerLat * Math.PI / 180.0);
+                double metersPerPixel = (40075016.0 * cosLat) / (256.0 * Math.Pow(2, _zoomLevel));
+                float radiusPx = Math.Max(6f, (float)(10.0 / metersPerPixel));
+
+                foreach (var pt in _irrigationPoints)
+                {
+                    var screenPt = LatLonToScreen(pt.Latitude, pt.Longitude, width, height);
+                    SKColor color = pt.ZoneType switch
+                    {
+                        IrrigationZoneType.Normal => new SKColor(46, 204, 113, 140),
+                        IrrigationZoneType.Inconsistent => new SKColor(241, 196, 15, 160),
+                        IrrigationZoneType.DeficitCanopy => new SKColor(230, 126, 34, 180),
+                        IrrigationZoneType.DeficitSoil => new SKColor(231, 76, 60, 200),
+                        _ => new SKColor(149, 165, 166, 100)
+                    };
+                    pointPaint.Color = color;
+                    canvas.DrawCircle(screenPt.X, screenPt.Y, radiusPx, pointPaint);
+                    canvas.DrawCircle(screenPt.X, screenPt.Y, radiusPx, pointStroke);
+                }
+            }
+        }
+
+        private void DrawSoilSensorsOverlay(SKCanvas canvas, int width, int height)
+        {
+            if (!_showSoilSensors || _soilSensors.Count == 0) return;
+
+            using var sensorFill = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
+            using var sensorOutline = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 2, Color = SKColors.Black };
+            using var textPaint = new SKPaint
+            {
+                IsAntialias = true,
+                Color = SKColors.White,
+                TextSize = 11,
+                FakeBoldText = true,
+                TextAlign = SKTextAlign.Center
+            };
+            using var textBgPaint = new SKPaint
+            {
+                IsAntialias = true,
+                Color = new SKColor(0, 0, 0, 180),
+                Style = SKPaintStyle.Fill
+            };
+
+            foreach (var sensor in _soilSensors)
+            {
+                var pt = LatLonToScreen(sensor.Latitude, sensor.Longitude, width, height);
+                SKColor color = sensor.MoisturePercent < 25.0 ? new SKColor(231, 76, 60) :
+                                sensor.MoisturePercent < 40.0 ? new SKColor(241, 196, 15) :
+                                                               new SKColor(52, 152, 219);
+                sensorFill.Color = color;
+
+                using var path = new SKPath();
+                path.MoveTo(pt.X, pt.Y - 10);
+                path.LineTo(pt.X + 10, pt.Y);
+                path.LineTo(pt.X, pt.Y + 10);
+                path.LineTo(pt.X - 10, pt.Y);
+                path.Close();
+
+                canvas.DrawPath(path, sensorFill);
+                canvas.DrawPath(path, sensorOutline);
+
+                string label = $"{sensor.SensorId}: {sensor.MoisturePercent:F0}%";
+                float textWidth = textPaint.MeasureText(label);
+                SKRect bgRect = new SKRect(pt.X - textWidth / 2 - 4, pt.Y + 12, pt.X + textWidth / 2 + 4, pt.Y + 26);
+                canvas.DrawRoundRect(bgRect, 3, 3, textBgPaint);
+                canvas.DrawText(label, pt.X, pt.Y + 23, textPaint);
+            }
+        }
+        #endregion
     }
 }

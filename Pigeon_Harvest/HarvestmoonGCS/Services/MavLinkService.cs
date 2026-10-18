@@ -290,33 +290,85 @@ public class MavLinkService : IMavLinkService, IDisposable
     
     private ConnectionConfig ParseConnectionString(string connectionString)
     {
-        // Parse connection string format: "protocol://address:port"
-        var uri = new Uri(connectionString);
-        
-        var config = new ConnectionConfig();
-        
-        switch (uri.Scheme.ToLower())
+        if (string.IsNullOrWhiteSpace(connectionString))
         {
-            case "tcp":
-                config.Type = Core.Models.ConnectionType.TCP;
-                config.Address = uri.Host;
-                config.Port = uri.Port > 0 ? uri.Port : 14550;
-                break;
-                
-            case "udp":
-                config.Type = Core.Models.ConnectionType.UDP;
-                config.Address = uri.Host;
-                config.Port = uri.Port > 0 ? uri.Port : 14550;
-                break;
-                
-            case "serial":
-                config.Type = Core.Models.ConnectionType.Serial;
-                config.SerialPort = uri.Host;
-                config.BaudRate = uri.Port > 0 ? uri.Port : 57600;
-                break;
-                
-            default:
-                throw new ArgumentException($"Unsupported protocol: {uri.Scheme}");
+            return new ConnectionConfig { Type = Core.Models.ConnectionType.UDP, Address = "0.0.0.0", Port = 14550 };
+        }
+
+        connectionString = connectionString.Trim();
+        var config = new ConnectionConfig();
+
+        if (connectionString.StartsWith("serial://", StringComparison.OrdinalIgnoreCase))
+        {
+            config.Type = Core.Models.ConnectionType.Serial;
+            var rem = connectionString.Substring("serial://".Length).TrimStart('/');
+            var colonIdx = rem.LastIndexOf(':');
+            if (colonIdx > 0 && int.TryParse(rem.Substring(colonIdx + 1), out int baud))
+            {
+                var portPart = rem.Substring(0, colonIdx);
+                config.SerialPort = portPart.StartsWith("dev/") ? "/" + portPart : portPart;
+                config.BaudRate = baud;
+            }
+            else
+            {
+                config.SerialPort = rem.StartsWith("dev/") ? "/" + rem : rem;
+                config.BaudRate = 57600;
+            }
+            return config;
+        }
+
+        if (connectionString.StartsWith("tcp://", StringComparison.OrdinalIgnoreCase) ||
+            connectionString.StartsWith("udp://", StringComparison.OrdinalIgnoreCase))
+        {
+            var isTcp = connectionString.StartsWith("tcp://", StringComparison.OrdinalIgnoreCase);
+            config.Type = isTcp ? Core.Models.ConnectionType.TCP : Core.Models.ConnectionType.UDP;
+            var rem = connectionString.Substring(6).TrimStart('/');
+            var colonIdx = rem.LastIndexOf(':');
+            if (colonIdx > 0 && int.TryParse(rem.Substring(colonIdx + 1), out int port))
+            {
+                config.Address = rem.Substring(0, colonIdx);
+                config.Port = port;
+            }
+            else
+            {
+                config.Address = string.IsNullOrWhiteSpace(rem) ? "0.0.0.0" : rem;
+                config.Port = 14550;
+            }
+            return config;
+        }
+
+        try
+        {
+            var uri = new Uri(connectionString);
+            switch (uri.Scheme.ToLower())
+            {
+                case "tcp":
+                    config.Type = Core.Models.ConnectionType.TCP;
+                    config.Address = uri.Host;
+                    config.Port = uri.Port > 0 ? uri.Port : 14550;
+                    break;
+                case "udp":
+                    config.Type = Core.Models.ConnectionType.UDP;
+                    config.Address = uri.Host;
+                    config.Port = uri.Port > 0 ? uri.Port : 14550;
+                    break;
+                case "serial":
+                    config.Type = Core.Models.ConnectionType.Serial;
+                    config.SerialPort = uri.Host;
+                    config.BaudRate = uri.Port > 0 ? uri.Port : 57600;
+                    break;
+                default:
+                    config.Type = Core.Models.ConnectionType.UDP;
+                    config.Address = "0.0.0.0";
+                    config.Port = 14550;
+                    break;
+            }
+        }
+        catch
+        {
+            config.Type = Core.Models.ConnectionType.UDP;
+            config.Address = "0.0.0.0";
+            config.Port = 14550;
         }
         
         return config;

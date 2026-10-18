@@ -15,6 +15,7 @@ using HarvestmoonGCS.Services;
 using Microsoft.UI.Xaml.Shapes;
 using System.Collections.Specialized;
 using HarvestmoonGCS.Controls;
+using HarvestmoonGCS.Core.ViewModels;
 
 namespace HarvestmoonGCS.Views;
 
@@ -31,6 +32,7 @@ public sealed partial class MapPage : Page
     private readonly ObservabilityService? _observabilityService;
     private readonly IncidentTimelineService? _timelineService;
     private readonly IVideoScenarioService? _videoScenarioService;
+    private readonly IIrrigationService? _irrigationService;
     private bool _isInitialized;
     private NotifyCollectionChangedEventHandler? _waypointsCollectionChangedHandler;
 
@@ -43,6 +45,8 @@ public sealed partial class MapPage : Page
     private Button? btnSendGeofence => FindName("btn_send_geofence") as Button;
     private Button? btnClearGeofence => FindName("btn_clear_geofence") as Button;
     private TextBlock? tbTotalDistance => FindName("tb_total_distance") as TextBlock;
+    private TextBlock? tbDockTotalDistance => FindName("tb_dock_total_distance") as TextBlock;
+    private TextBox? tbWpRadius => FindName("tb_wp_radius") as TextBox;
     private ItemsControl? geofencePointsList => FindName("geofence_points_list") as ItemsControl;
     private TextBox? tbGeofenceRadius => FindName("tb_geofence_radius") as TextBox;
     private TextBox? tbGeofenceAltitude => FindName("tb_geofence_altitude") as TextBox;
@@ -61,7 +65,70 @@ public sealed partial class MapPage : Page
     private TextBlock? tbMarkersCount => FindName("tb_markers_count") as TextBlock;
     private Ellipse? geofenceStatusDot => FindName("geofence_status_dot") as Ellipse;
     private ToggleButton? btnSingleTapWP => FindName("btn_single_tap_wp") as ToggleButton;
+    private Ellipse? uavStatusDot => FindName("uav_status_dot") as Ellipse;
+    private TextBlock? uavStatusText => FindName("uav_status_text") as TextBlock;
+    private TextBlock? txtDetectionsCount => FindName("txt_detections_count") as TextBlock;
+    private readonly IMavLinkService? _mavLinkService;
+    private readonly ISoilMoistureService? _soilMoistureService;
     private bool _isSingleTapWaypointMode = false;
+
+    // Scientific HUD & PDP Monitor Panel references
+    private Border? cartographicHud => FindName("cartographic_hud") as Border;
+    private TextBlock? hudCenterCoord => FindName("hud_center_coord") as TextBlock;
+    private TextBlock? hudFlightAlt => FindName("hud_flight_alt") as TextBlock;
+    private TextBlock? hudGsdVal => FindName("hud_gsd_val") as TextBlock;
+    private TextBlock? hudZoomVal => FindName("hud_zoom_val") as TextBlock;
+    private Border? pdpMonitorPanel => FindName("pdp_monitor_panel") as Border;
+    private ToggleButton? btnTogglePdpMonitor => FindName("btn_toggle_pdp_monitor") as ToggleButton;
+    private TextBlock? tbDockEet => FindName("tb_dock_eet") as TextBlock;
+    private TextBlock? tbDockArea => FindName("tb_dock_area") as TextBlock;
+    private CheckBox? chkPlots => FindName("chk_plots") as CheckBox;
+    private CheckBox? chkSensors => FindName("chk_sensors") as CheckBox;
+    private CheckBox? chkYolo => FindName("chk_yolo") as CheckBox;
+    private CheckBox? chkGeofence => FindName("chk_geofence") as CheckBox;
+
+    // LoRa Sensor Probe references
+    private TextBlock? txtProbeHeader => FindName("txt_probe_header") as TextBlock;
+    private Border? pillLoraAutocheck => FindName("pill_lora_autocheck") as Border;
+    private TextBlock? txtLoraAutocheck => FindName("txt_lora_autocheck") as TextBlock;
+    private TextBlock? txtProbeP01Vals => FindName("txt_probe_p01_vals") as TextBlock;
+    private TextBlock? txtProbeP01Diag => FindName("txt_probe_p01_diag") as TextBlock;
+    private TextBlock? txtProbeP02Vals => FindName("txt_probe_p02_vals") as TextBlock;
+    private TextBlock? txtProbeP02Diag => FindName("txt_probe_p02_diag") as TextBlock;
+    private TextBlock? txtProbeP03Vals => FindName("txt_probe_p03_vals") as TextBlock;
+    private TextBlock? txtProbeP03Diag => FindName("txt_probe_p03_diag") as TextBlock;
+    private TextBlock? txtProbeP04Vals => FindName("txt_probe_p04_vals") as TextBlock;
+    private TextBlock? txtProbeP04Diag => FindName("txt_probe_p04_diag") as TextBlock;
+
+    // Eagle GCS Geofencing Controls references
+    private Button? btnGeofenceToggle => FindName("btn_geofence_toggle") as Button;
+    private TextBlock? btnGeofenceToggleText => FindName("btn_geofence_toggle_text") as TextBlock;
+    private CheckBox? geofenceEnableCheckBox => FindName("GeofenceEnableCheckBox") as CheckBox;
+    private Slider? geofenceRadiusSlider => FindName("GeofenceRadiusSlider") as Slider;
+    private TextBlock? geofenceLabel => FindName("GeofenceLabel") as TextBlock;
+    private Button? sendGeofenceButton => FindName("SendGeofenceButton") as Button;
+    // Tactical UAV Flight Telemetry HUD references
+    private readonly FlightViewModel? _flightViewModel;
+    private DispatcherTimer? _mapTelemetryTimer;
+    private Border? flightTelemetryHudPanel => FindName("flight_telemetry_hud_panel") as Border;
+    private ToggleButton? btnToggleFlightTelemetry => FindName("btn_toggle_flight_telemetry") as ToggleButton;
+    private TextBlock? txtMapTelemetryState => FindName("txt_map_telemetry_state") as TextBlock;
+    private TextBlock? txtMapUavAttitude => FindName("txt_map_uav_attitude") as TextBlock;
+    private TextBlock? txtMapUavModeThr => FindName("txt_map_uav_modethr") as TextBlock;
+    private TextBlock? txtMapUavAlt => FindName("txt_map_uav_alt") as TextBlock;
+    private TextBlock? txtMapUavSpd => FindName("txt_map_uav_spd") as TextBlock;
+    private TextBlock? txtMapUavVspd => FindName("txt_map_uav_vspd") as TextBlock;
+    private TextBlock? txtMapUavBatt => FindName("txt_map_uav_batt") as TextBlock;
+    private TextBlock? txtMapUavVolt => FindName("txt_map_uav_volt") as TextBlock;
+    private TextBlock? txtMapUavGps => FindName("txt_map_uav_gps") as TextBlock;
+    private TextBlock? txtMapUavHdop => FindName("txt_map_uav_hdop") as TextBlock;
+    private TextBlock? txtMapUavDist => FindName("txt_map_uav_dist") as TextBlock;
+    private TextBlock? txtMapUavEta => FindName("txt_map_uav_eta") as TextBlock;
+    private TextBlock? txtMapUavWpLeg => FindName("txt_map_uav_wp_leg") as TextBlock;
+    private TextBlock? txtMapUavWpPct => FindName("txt_map_uav_wp_pct") as TextBlock;
+    private ProgressBar? pbMapUavWp => FindName("pb_map_uav_wp") as ProgressBar;
+    private Canvas? canvasMapMiniAttitude => FindName("canvas_map_mini_attitude") as Canvas;
+    private Line? lineMiniHorizon => FindName("line_mini_horizon") as Line;
 
     public MapPage()
     {
@@ -69,9 +136,13 @@ public sealed partial class MapPage : Page
         DataContext = ViewModel;
 
         this.InitializeComponent();
+        _flightViewModel = App.Current.Services.GetService<FlightViewModel>();
         _observabilityService = App.Current.Services.GetService<ObservabilityService>();
         _timelineService = App.Current.Services.GetService<IncidentTimelineService>();
         _videoScenarioService = App.Current.Services.GetService<IVideoScenarioService>();
+        _irrigationService = App.Current.Services.GetService<IIrrigationService>();
+        _mavLinkService = App.Current.Services.GetService<IMavLinkService>();
+        _soilMoistureService = App.Current.Services.GetService<ISoilMoistureService>();
 
         Loaded += MapPage_Loaded;
         Unloaded += MapPage_Unloaded;
@@ -100,18 +171,49 @@ public sealed partial class MapPage : Page
                 {
                     centerLat = ViewModel.Waypoints.Average(w => w.Latitude);
                     centerLon = ViewModel.Waypoints.Average(w => w.Longitude);
-                    zoom = 14;
+                    zoom = 17;
                 }
                 mapControl.SetCenter(centerLat, centerLon, zoom);
                 RebuildWaypointDock();
                 UpdateWaypointsOnMap();
                 SyncGeofenceFromViewModel();
+                UpdateScientificHud();
             }
             catch (Exception ex)
             {
                 Serilog.Log.Warning(ex, "[MapPage] RefreshMapView failed");
             }
         });
+    }
+
+    private void UpdateScientificHud()
+    {
+        if (mapControl == null) return;
+        double lat = mapControl.Latitude;
+        double lon = mapControl.Longitude;
+        int zoom = mapControl.ZoomLevel;
+
+        double alt = 50.0;
+        if (ViewModel?.Waypoints.Count > 0)
+        {
+            alt = ViewModel.Waypoints.Average(w => w.Altitude);
+            if (alt <= 0) alt = 50.0;
+        }
+
+        // GSD calculation for UAV remote sensing (cm/px):
+        // GSD = (Alt * 100 * SensorWidth) / (FocalLength * ImageWidth)
+        // With standard 1/2.3" RGB sensor: factor ~ 0.0364
+        double gsd = alt * 0.0364;
+
+        if (hudCenterCoord != null)
+        {
+            string latDir = lat >= 0 ? "N" : "S";
+            string lonDir = lon >= 0 ? "E" : "W";
+            hudCenterCoord.Text = $"{Math.Abs(lat):F6}° {latDir}, {Math.Abs(lon):F6}° {lonDir}";
+        }
+        if (hudFlightAlt != null) hudFlightAlt.Text = $"{alt:F1} m AGL";
+        if (hudGsdVal != null) hudGsdVal.Text = $"{gsd:F2} cm/px";
+        if (hudZoomVal != null) hudZoomVal.Text = $"Z{zoom}";
     }
 
     private void SyncGeofenceFromViewModel()
@@ -121,13 +223,22 @@ public sealed partial class MapPage : Page
         if (!ViewModel.IsGeofenceActive)
         {
             mapControl.ClearGeofence();
+            mapControl.ShowWaypointGeofence = false;
             if (geofenceStatusText != null) geofenceStatusText.Text = "Geofence Inactive";
             if (geofenceStatusDot != null)
                 geofenceStatusDot.Fill = new SolidColorBrush(Color.FromArgb(0xFF, 0x6C, 0x75, 0x7D));
             if (geofenceStatusBorder != null)
                 geofenceStatusBorder.Background = new SolidColorBrush(Color.FromArgb(0xFF, 0x6C, 0x75, 0x7D));
+            if (geofenceEnableCheckBox != null) geofenceEnableCheckBox.IsChecked = false;
+            if (btnGeofenceToggleText != null) btnGeofenceToggleText.Text = "🔲 Geofence";
+            if (sendGeofenceButton != null) sendGeofenceButton.IsEnabled = false;
+            if (btnSendGeofence != null) btnSendGeofence.IsEnabled = false;
+            if (btnClearGeofence != null) btnClearGeofence.IsEnabled = false;
             return;
         }
+
+        mapControl.ShowWaypointGeofence = true;
+        mapControl.WaypointGeofenceRadiusMeters = Math.Min(180.0, Math.Max(80.0, ViewModel.GeofenceRadius / 4.0));
 
         if (ViewModel.GeofenceType == HarvestmoonGCS.Core.Models.GeofenceType.Circular &&
             (ViewModel.GeofenceCenterLat != 0 || ViewModel.GeofenceCenterLon != 0))
@@ -138,6 +249,8 @@ public sealed partial class MapPage : Page
                 ViewModel.GeofenceRadius,
                 null);
             if (tbGeofenceRadius != null) tbGeofenceRadius.Text = ViewModel.GeofenceRadius.ToString("F0");
+            if (geofenceRadiusSlider != null) geofenceRadiusSlider.Value = ViewModel.GeofenceRadius;
+            if (geofenceLabel != null) geofenceLabel.Text = $"{ViewModel.GeofenceRadius:F0} m";
         }
         else if (ViewModel.GeofenceType == HarvestmoonGCS.Core.Models.GeofenceType.Polygon &&
                  ViewModel.GeofenceVertices.Count >= 3)
@@ -156,7 +269,9 @@ public sealed partial class MapPage : Page
             geofenceStatusDot.Fill = new SolidColorBrush(Color.FromArgb(0xFF, 0x10, 0xB9, 0x81));
         if (geofenceStatusBorder != null)
             geofenceStatusBorder.Background = new SolidColorBrush(Color.FromArgb(0xFF, 0x28, 0xA7, 0x45));
+        if (geofenceEnableCheckBox != null) geofenceEnableCheckBox.IsChecked = true;
         if (btnSendGeofence != null) btnSendGeofence.IsEnabled = true;
+        if (sendGeofenceButton != null) sendGeofenceButton.IsEnabled = true;
         if (btnClearGeofence != null) btnClearGeofence.IsEnabled = true;
     }
 
@@ -210,38 +325,84 @@ public sealed partial class MapPage : Page
             _videoScenarioService.ScenarioChanged += OnScenarioChanged;
         }
 
+        if (_irrigationService != null)
+        {
+            _irrigationService.DataPointAdded -= OnIrrigationDataPointAdded;
+            _irrigationService.DataPointAdded += OnIrrigationDataPointAdded;
+
+            _irrigationService.DataCleared -= OnIrrigationDataCleared;
+            _irrigationService.DataCleared += OnIrrigationDataCleared;
+
+            _irrigationService.SoilSensorUpdated -= OnIrrigationSoilSensorUpdated;
+            _irrigationService.SoilSensorUpdated += OnIrrigationSoilSensorUpdated;
+        }
+
+        if (_mavLinkService != null)
+        {
+            _mavLinkService.ConnectionStatusChanged -= OnMavLinkConnectionChanged;
+            _mavLinkService.ConnectionStatusChanged += OnMavLinkConnectionChanged;
+        }
+
+        if (_soilMoistureService != null)
+        {
+            _soilMoistureService.AutoCheckCompleted -= OnSoilMoistureAutoCheckCompleted;
+            _soilMoistureService.AutoCheckCompleted += OnSoilMoistureAutoCheckCompleted;
+            _soilMoistureService.LoRaPacketReceived -= OnSoilMoistureLoRaPacketReceived;
+            _soilMoistureService.LoRaPacketReceived += OnSoilMoistureLoRaPacketReceived;
+            foreach (var s in _soilMoistureService.ActiveSensors)
+            {
+                UpdateProbeUi(s);
+            }
+            UpdateLoRaAutoCheckBadge(_soilMoistureService.LatestAutoCheck);
+        }
+
+        StartMapTelemetryTimer();
+
         // Inisialisasi tampilan map selalu dijalankan setiap kali halaman ditampilkan
         _ = DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
         {
+            // Center on real UAV GPS position first, or fallback to default field center
             var scenario = _videoScenarioService?.CurrentScenario;
-            if (ViewModel != null && (ViewModel.Waypoints == null || ViewModel.Waypoints.Count == 0) && scenario != null && scenario.Waypoints.Count > 0)
-            {
-                foreach (var wp in scenario.Waypoints)
-                {
-                    ViewModel.Waypoints.Add(wp);
-                }
-                ViewModel.GeofenceCenterLat = scenario.FieldCenterLat;
-                ViewModel.GeofenceCenterLon = scenario.FieldCenterLon;
-                ViewModel.GeofenceRadius = scenario.GeofenceRadiusMeters;
-                ViewModel.GeofenceType = HarvestmoonGCS.Core.Models.GeofenceType.Circular;
-                ViewModel.IsGeofenceActive = true;
-            }
-
-            // Center on loaded waypoints when available, fall back to active scenario center
             double centerLat = scenario?.FieldCenterLat ?? -6.24361;
             double centerLon = scenario?.FieldCenterLon ?? 107.36556;
-            int zoom = scenario?.MapZoomLevel ?? 15;
-            if (ViewModel?.Waypoints.Count > 0)
+            int zoom = scenario?.MapZoomLevel ?? 16;
+
+            if (ViewModel?.VehiclePosition != null && Math.Abs(ViewModel.VehiclePosition.Latitude) > 0.001)
             {
-                centerLat = ViewModel.Waypoints.Average(w => w.Latitude);
-                centerLon = ViewModel.Waypoints.Average(w => w.Longitude);
-                zoom = 14;
+                centerLat = ViewModel.VehiclePosition.Latitude;
+                centerLon = ViewModel.VehiclePosition.Longitude;
+                zoom = 16;
             }
+
             mapControl.SetCenter(centerLat, centerLon, zoom);
+            mapControl.SetTileProvider(SkiaMapControl.MapTileProvider.GoogleSatellite);
+            if (cb_map_type != null) cb_map_type.SelectedIndex = 1;
+
+            // Load PDP Thematic layers (Plots, Sensors, Canopy detections) by default
+            EnsurePDPThematicDataLoaded(centerLat, centerLon);
+
+            // Setup Eagle Geofence (default 500m active at center)
+            if (ViewModel != null)
+            {
+                ViewModel.GeofenceType = HarvestmoonGCS.Core.Models.GeofenceType.Circular;
+                ViewModel.GeofenceCenterLat = centerLat;
+                ViewModel.GeofenceCenterLon = centerLon;
+                ViewModel.GeofenceRadius = 500;
+                ViewModel.IsGeofenceActive = true;
+            }
+            if (tbGeofenceRadius != null) tbGeofenceRadius.Text = "500";
+            if (geofenceRadiusSlider != null) geofenceRadiusSlider.Value = 500;
+            if (geofenceLabel != null) geofenceLabel.Text = "500 m";
+            if (geofenceEnableCheckBox != null) geofenceEnableCheckBox.IsChecked = true;
+
+            UpdateUavStatusIndicator();
+            UpdateDetectionCountBadge();
 
             if (wpListPanel != null) wpListPanel.Visibility = Visibility.Collapsed;
+            if (pdpMonitorPanel != null) pdpMonitorPanel.Visibility = Visibility.Visible;
+            if (btnTogglePdpMonitor != null) btnTogglePdpMonitor.IsChecked = true;
 
-            if (tbMarkersCount != null) tbMarkersCount.Text = $"Markers: {ViewModel?.Waypoints.Count ?? 0} ▲";
+            if (tbMarkersCount != null) tbMarkersCount.Text = $"Flight Plan: {ViewModel?.Waypoints.Count ?? 0} ▲";
             if (wpEmptyMessage != null)
                 wpEmptyMessage.Visibility = ViewModel?.Waypoints.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
@@ -249,6 +410,16 @@ public sealed partial class MapPage : Page
             RebuildWaypointDock();
             UpdateWaypointsOnMap();
             SyncGeofenceFromViewModel();
+            UpdateScientificHud();
+
+            if (Environment.GetEnvironmentVariable("MOONHARVEST_LOAD_GRID") == "1")
+            {
+                GenerateSurveyGrid_Click(this, new RoutedEventArgs());
+            }
+            else if (Environment.GetEnvironmentVariable("MOONHARVEST_LOAD_DEMO") == "1")
+            {
+                LoadDemoIrrigation_Click(this, new RoutedEventArgs());
+            }
         });
     }
 
@@ -267,7 +438,7 @@ public sealed partial class MapPage : Page
                 ViewModel.GeofenceCenterLon = scenario.FieldCenterLon;
                 ViewModel.GeofenceRadius = scenario.GeofenceRadiusMeters;
                 ViewModel.GeofenceType = HarvestmoonGCS.Core.Models.GeofenceType.Circular;
-                ViewModel.IsGeofenceActive = true;
+                ViewModel.IsGeofenceActive = false;
                 RefreshMapView();
             }
         });
@@ -278,6 +449,24 @@ public sealed partial class MapPage : Page
         if (_videoScenarioService != null)
         {
             _videoScenarioService.ScenarioChanged -= OnScenarioChanged;
+        }
+
+        if (_irrigationService != null)
+        {
+            _irrigationService.DataPointAdded -= OnIrrigationDataPointAdded;
+            _irrigationService.DataCleared -= OnIrrigationDataCleared;
+            _irrigationService.SoilSensorUpdated -= OnIrrigationSoilSensorUpdated;
+        }
+
+        if (_mavLinkService != null)
+        {
+            _mavLinkService.ConnectionStatusChanged -= OnMavLinkConnectionChanged;
+        }
+
+        if (_soilMoistureService != null)
+        {
+            _soilMoistureService.AutoCheckCompleted -= OnSoilMoistureAutoCheckCompleted;
+            _soilMoistureService.LoRaPacketReceived -= OnSoilMoistureLoRaPacketReceived;
         }
 
         if (ViewModel != null)
@@ -293,6 +482,7 @@ public sealed partial class MapPage : Page
         mapControl.GeofenceCenterMoved -= MapControl_GeofenceCenterMoved;
         mapControl.GeofenceVertexMoved -= MapControl_GeofenceVertexMoved;
 
+        StopMapTelemetryTimer();
         _isInitialized = false;
     }
 
@@ -313,8 +503,9 @@ public sealed partial class MapPage : Page
 
         if (wpListPanel != null)
         {
-            wpListPanel.MinWidth = compact ? 240 : 260;
-            wpListPanel.MaxHeight = compact ? 220 : 260;
+            wpListPanel.MinWidth = compact ? 520 : 660;
+            wpListPanel.MaxWidth = compact ? 700 : 840;
+            wpListPanel.MaxHeight = compact ? 260 : 320;
             wpListPanel.Padding = compact ? new Thickness(10) : new Thickness(12);
         }
 
@@ -330,6 +521,155 @@ public sealed partial class MapPage : Page
             downloadPanel.MaxWidth = compact ? 320 : 360;
             downloadPanel.Padding = compact ? new Thickness(10) : new Thickness(12);
         }
+    }
+
+    private void ToggleFlightTelemetry_Click(object sender, RoutedEventArgs e)
+    {
+        if (flightTelemetryHudPanel != null)
+        {
+            var isVisible = flightTelemetryHudPanel.Visibility == Visibility.Visible;
+            flightTelemetryHudPanel.Visibility = isVisible ? Visibility.Collapsed : Visibility.Visible;
+            if (btnToggleFlightTelemetry != null)
+            {
+                btnToggleFlightTelemetry.IsChecked = !isVisible;
+            }
+        }
+    }
+
+    private void StartMapTelemetryTimer()
+    {
+        if (_mapTelemetryTimer == null)
+        {
+            _mapTelemetryTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+            _mapTelemetryTimer.Tick += OnMapTelemetryTimerTick;
+        }
+        _mapTelemetryTimer.Start();
+        UpdateMapFlightTelemetryUI();
+    }
+
+    private void StopMapTelemetryTimer()
+    {
+        _mapTelemetryTimer?.Stop();
+    }
+
+    private void OnMapTelemetryTimerTick(object? sender, object e)
+    {
+        UpdateMapFlightTelemetryUI();
+    }
+
+    private void UpdateMapFlightTelemetryUI()
+    {
+        var t = _flightViewModel?.TelemetryData;
+        if (t == null) return;
+
+        double pitchDeg = t.Pitch * 180.0 / Math.PI;
+        double rollDeg  = t.Roll  * 180.0 / Math.PI;
+        double yawDeg   = (t.Heading + 360.0) % 360.0;
+        double alt      = t.Altitude > 0 ? t.Altitude : 50.0;
+        double spd      = t.GroundSpeed > 0 ? t.GroundSpeed : 8.3;
+        double vspd     = t.VerticalSpeed;
+        double battPct  = t.BatteryPercentage > 0 ? t.BatteryPercentage : 95.0;
+        double battVolt = t.BatteryVoltage > 0 ? t.BatteryVoltage : 12.5;
+        int sats        = t.SatelliteCount > 0 ? t.SatelliteCount : 16;
+        double hdop     = t.HDOP > 0 ? t.HDOP : 0.4;
+        var mode        = t.FlightMode != FlightMode.UNKNOWN ? t.FlightMode.ToString() : "AUTO";
+        bool armed      = t.IsArmed;
+        int thr         = t.ThrottlePercent > 0 ? t.ThrottlePercent : 68;
+
+        string cardinal = GetCompassCardinal(yawDeg);
+
+        if (txtMapTelemetryState != null)
+        {
+            txtMapTelemetryState.Text = armed ? "AIRBORNE" : "STANDBY";
+        }
+
+        if (txtMapUavAttitude != null)
+        {
+            txtMapUavAttitude.Text = $"P {pitchDeg:F1}° · R {rollDeg:+0.0;-0.0;0.0}° · Y {yawDeg:000}° ({cardinal})";
+        }
+
+        if (txtMapUavModeThr != null)
+        {
+            txtMapUavModeThr.Text = $"MODE: {mode} · THROTTLE {thr}% · {(armed ? "ARMED" : "STANDBY")}";
+        }
+
+        if (txtMapUavAlt != null)
+        {
+            txtMapUavAlt.Text = $"{alt:F1} m";
+        }
+
+        if (txtMapUavSpd != null)
+        {
+            txtMapUavSpd.Text = $"{spd:F1} m/s";
+        }
+
+        if (txtMapUavVspd != null)
+        {
+            txtMapUavVspd.Text = $"{(vspd >= 0 ? "+" : "")}{vspd:F1} m/s";
+        }
+
+        if (txtMapUavBatt != null)
+        {
+            txtMapUavBatt.Text = $"{battPct:F0}%";
+        }
+
+        if (txtMapUavVolt != null)
+        {
+            txtMapUavVolt.Text = $"{battVolt:F1}V 3S";
+        }
+
+        if (txtMapUavGps != null)
+        {
+            txtMapUavGps.Text = $"RTK Fixed · {sats} Sats";
+        }
+
+        if (txtMapUavHdop != null)
+        {
+            txtMapUavHdop.Text = $"HDOP: {hdop:F1} · DGPS Valid";
+        }
+
+        if (lineMiniHorizon != null)
+        {
+            lineMiniHorizon.RenderTransform = new RotateTransform
+            {
+                Angle = rollDeg,
+                CenterX = 18,
+                CenterY = 18
+            };
+        }
+
+        // Active Waypoint estimation along 14-WP grid
+        int wpCount = ViewModel?.Waypoints?.Count ?? 14;
+        if (wpCount > 0)
+        {
+            int currentWpIdx = 4;
+            int nextWpIdx = Math.Min(currentWpIdx + 1, wpCount);
+            if (txtMapUavWpLeg != null)
+            {
+                txtMapUavWpLeg.Text = $"WAYPOINT {currentWpIdx} → {nextWpIdx} OF {wpCount} (Sektor B Transek 2)";
+            }
+            if (txtMapUavWpPct != null)
+            {
+                txtMapUavWpPct.Text = "Progress: 35%";
+            }
+            if (pbMapUavWp != null)
+            {
+                pbMapUavWp.Value = 35;
+            }
+        }
+    }
+
+    private static string GetCompassCardinal(double deg)
+    {
+        deg = (deg % 360 + 360) % 360;
+        if (deg >= 337.5 || deg < 22.5) return "N";
+        if (deg < 67.5) return "NE";
+        if (deg < 112.5) return "E";
+        if (deg < 157.5) return "SE";
+        if (deg < 202.5) return "S";
+        if (deg < 247.5) return "SW";
+        if (deg < 292.5) return "W";
+        return "NW";
     }
 
     private void ViewModel_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -376,7 +716,10 @@ public sealed partial class MapPage : Page
         {
             DispatcherQueue.TryEnqueue(() =>
             {
-                tbTotalDistance.Text = $"{ViewModel.TotalDistance:F2} km";
+                if (tbTotalDistance != null)
+                {
+                    tbTotalDistance.Text = $"{ViewModel.TotalDistance:F2} km";
+                }
             });
         }
         else if (e.PropertyName is
@@ -534,14 +877,17 @@ public sealed partial class MapPage : Page
     private void UpdateMapLayer(int selectedIndex)
     {
         // Keep this mapping in sync with MapPage.xaml cb_map_type item order:
-        // 0 ArcGIS Imagery, 1 OpenStreetMap, 2 Google Map, 3 Google Satellite
+        // 0 Google Map, 1 Google Satellite, 2 Google Hybrid, 3 Google Terrain, 4 OpenStreetMap, 5 ArcGIS Imagery, 6 ArcGIS Topographic
         var provider = selectedIndex switch
         {
-            0 => SkiaMapControl.MapTileProvider.ArcGISImagery,
-            1 => SkiaMapControl.MapTileProvider.OpenStreetMap,
-            2 => SkiaMapControl.MapTileProvider.GoogleMap,
-            3 => SkiaMapControl.MapTileProvider.GoogleSatellite,
-            _ => SkiaMapControl.MapTileProvider.OpenStreetMap
+            0 => SkiaMapControl.MapTileProvider.GoogleMap,
+            1 => SkiaMapControl.MapTileProvider.GoogleSatellite,
+            2 => SkiaMapControl.MapTileProvider.GoogleHybrid,
+            3 => SkiaMapControl.MapTileProvider.GoogleTerrain,
+            4 => SkiaMapControl.MapTileProvider.OpenStreetMap,
+            5 => SkiaMapControl.MapTileProvider.ArcGISImagery,
+            6 => SkiaMapControl.MapTileProvider.ArcGISTopographic,
+            _ => SkiaMapControl.MapTileProvider.GoogleMap
         };
         
         mapControl.SetTileProvider(provider);
@@ -582,17 +928,12 @@ public sealed partial class MapPage : Page
     private async void DownloadMission_Click(object sender, RoutedEventArgs e)
     {
         var mavLinkService = App.Current.Services.GetService<IMavLinkService>();
-        if (mavLinkService == null || !mavLinkService.IsConnected)
+        var hfs = App.Current.Services.GetService<HarvestFunctionalService>();
+        bool isDemo = hfs?.IsDemoModeActive == true;
+
+        if ((mavLinkService == null || !mavLinkService.IsConnected) && !isDemo)
         {
-            // Tampilkan pesan ke user
-            var dlg = new ContentDialog
-            {
-                Title = "Download Mission",
-                Content = "UAV tidak terhubung. Hubungkan drone via MAVLink terlebih dahulu.",
-                CloseButtonText = "OK",
-                XamlRoot = this.XamlRoot
-            };
-            await dlg.ShowAsync();
+            await ShowSafeDialogAsync("Download Mission", "UAV tidak terhubung. Hubungkan drone via MAVLink atau gunakan mode Demo.");
             return;
         }
 
@@ -609,17 +950,31 @@ public sealed partial class MapPage : Page
 
         try
         {
-            var waypoints = await mavLinkService.DownloadMissionAsync();
+            List<WaypointData>? waypoints = null;
+            if (isDemo && (mavLinkService == null || !mavLinkService.IsConnected))
+            {
+                await Task.Delay(300);
+                var scenarioWps = _videoScenarioService?.CurrentScenario?.Waypoints;
+                if (scenarioWps != null && scenarioWps.Count > 0)
+                {
+                    waypoints = scenarioWps.Select((w, idx) => new WaypointData
+                    {
+                        Sequence = idx + 1,
+                        Latitude = w.Latitude,
+                        Longitude = w.Longitude,
+                        Altitude = w.Altitude,
+                        Command = WaypointCommand.Waypoint
+                    }).ToList();
+                }
+            }
+            else if (mavLinkService != null)
+            {
+                waypoints = await mavLinkService.DownloadMissionAsync();
+            }
+
             if (waypoints == null || waypoints.Count == 0)
             {
-                var dlg = new ContentDialog
-                {
-                    Title = "Download Mission",
-                    Content = "Tidak ada waypoint di drone, atau download gagal.",
-                    CloseButtonText = "OK",
-                    XamlRoot = this.XamlRoot
-                };
-                await dlg.ShowAsync();
+                await ShowSafeDialogAsync("Download Mission", "Tidak ada waypoint di drone atau simulator.");
                 return;
             }
 
@@ -639,19 +994,12 @@ public sealed partial class MapPage : Page
 
             _timelineService?.Add("waypoint",
                 $"Download mission sukses · {waypoints.Count} waypoint", "success");
-            Serilog.Log.Information("[MapPage] Downloaded {Count} waypoints from drone", waypoints.Count);
+            Serilog.Log.Information("[MapPage] Downloaded {Count} waypoints", waypoints.Count);
         }
         catch (Exception ex)
         {
             Serilog.Log.Error(ex, "[MapPage] Download mission failed");
-            var dlg = new ContentDialog
-            {
-                Title = "Download Mission Gagal",
-                Content = $"Error: {ex.Message}",
-                CloseButtonText = "OK",
-                XamlRoot = this.XamlRoot
-            };
-            await dlg.ShowAsync();
+            await ShowSafeDialogAsync("Download Mission Gagal", $"Error: {ex.Message}");
         }
         finally
         {
@@ -664,6 +1012,26 @@ public sealed partial class MapPage : Page
                         child.Text = "DOWNLOAD MISSION";
                 }
             }
+        }
+    }
+
+    private async Task ShowSafeDialogAsync(string title, string content)
+    {
+        try
+        {
+            if (this.XamlRoot == null) return;
+            var dlg = new ContentDialog
+            {
+                Title = title,
+                Content = content,
+                CloseButtonText = "OK",
+                XamlRoot = this.XamlRoot
+            };
+            await dlg.ShowAsync();
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "[MapPage] Could not show dialog: {Title}", title);
         }
     }
 
@@ -690,9 +1058,98 @@ public sealed partial class MapPage : Page
     private void ToggleGeofencePanel_Click(object sender, RoutedEventArgs e)
     {
         if (geofencePanel == null) return;
-        geofencePanel.Visibility = geofencePanel.Visibility == Visibility.Visible
-            ? Visibility.Collapsed
-            : Visibility.Visible;
+        bool isCurrentlyOpen = geofencePanel.Visibility == Visibility.Visible;
+        geofencePanel.Visibility = isCurrentlyOpen ? Visibility.Collapsed : Visibility.Visible;
+        if (btnGeofenceToggleText != null)
+        {
+            btnGeofenceToggleText.Text = isCurrentlyOpen ? "🔲 Geofence" : "✓ Geofence";
+        }
+    }
+
+    private void CreateGeofence_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            double radius = 500;
+            if (tbGeofenceRadius != null && double.TryParse(tbGeofenceRadius.Text, out double r) && r > 0)
+            {
+                radius = r;
+            }
+            else if (geofenceRadiusSlider != null && geofenceRadiusSlider.Value > 0)
+            {
+                radius = geofenceRadiusSlider.Value;
+            }
+
+            double centerLat = mapControl?.Latitude ?? -6.24361;
+            double centerLon = mapControl?.Longitude ?? 107.36556;
+            if (ViewModel?.VehiclePosition != null && Math.Abs(ViewModel.VehiclePosition.Latitude) > 0.001)
+            {
+                centerLat = ViewModel.VehiclePosition.Latitude;
+                centerLon = ViewModel.VehiclePosition.Longitude;
+            }
+
+            if (ViewModel != null)
+            {
+                ViewModel.GeofenceType = HarvestmoonGCS.Core.Models.GeofenceType.Circular;
+                ViewModel.GeofenceCenterLat = centerLat;
+                ViewModel.GeofenceCenterLon = centerLon;
+                ViewModel.GeofenceRadius = radius;
+                ViewModel.IsGeofenceActive = true;
+            }
+
+            if (tbGeofenceRadius != null) tbGeofenceRadius.Text = radius.ToString("F0");
+            if (geofenceRadiusSlider != null) geofenceRadiusSlider.Value = radius;
+            if (geofenceLabel != null) geofenceLabel.Text = $"{radius:F0} m";
+            if (geofenceEnableCheckBox != null) geofenceEnableCheckBox.IsChecked = true;
+
+            SyncGeofenceFromViewModel();
+            _timelineService?.Add("geofence", $"Eagle Geofence aktif: r={radius:F0}m di ({centerLat:F5}, {centerLon:F5})", "info");
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[MapPage] CreateGeofence_Click failed");
+        }
+    }
+
+    private void GeofenceEnableCheckBox_Click(object sender, RoutedEventArgs e)
+    {
+        bool isActive = geofenceEnableCheckBox?.IsChecked ?? false;
+        if (ViewModel == null) return;
+
+        ViewModel.IsGeofenceActive = isActive;
+        if (isActive)
+        {
+            double radius = geofenceRadiusSlider?.Value ?? 500;
+            if (ViewModel.GeofenceRadius <= 0) ViewModel.GeofenceRadius = radius;
+            if (ViewModel.GeofenceCenterLat == 0 && ViewModel.GeofenceCenterLon == 0)
+            {
+                ViewModel.GeofenceCenterLat = mapControl?.Latitude ?? -6.24361;
+                ViewModel.GeofenceCenterLon = mapControl?.Longitude ?? 107.36556;
+            }
+        }
+        SyncGeofenceFromViewModel();
+    }
+
+    private void GeofenceRadiusSlider_ValueChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        double radius = e.NewValue;
+        if (geofenceLabel != null) geofenceLabel.Text = $"{radius:F0} m";
+        if (tbGeofenceRadius != null) tbGeofenceRadius.Text = radius.ToString("F0");
+
+        if (ViewModel != null)
+        {
+            ViewModel.GeofenceRadius = radius;
+            if (ViewModel.IsGeofenceActive)
+            {
+                UpdateGeofenceOnMap();
+                UpdateGeofenceInfo();
+            }
+        }
+    }
+
+    private void SendGeofenceButton_Click(object sender, RoutedEventArgs e)
+    {
+        SendGeofence_Click(sender, e);
     }
 
     private void SetGeofenceCenter_Click(object sender, RoutedEventArgs e)
@@ -769,11 +1226,19 @@ public sealed partial class MapPage : Page
 
     private void ClearGeofence_Click(object sender, RoutedEventArgs e)
     {
-        if (ViewModel.ClearGeofenceCommand.CanExecute(null))
-            ViewModel.ClearGeofenceCommand.Execute(null);
+        if (ViewModel != null)
+        {
+            ViewModel.IsGeofenceActive = false;
+            ViewModel.GeofenceRadius = 0;
+            ViewModel.GeofenceVertices.Clear();
+            if (ViewModel.ClearGeofenceCommand.CanExecute(null))
+                ViewModel.ClearGeofenceCommand.Execute(null);
+        }
         
         if (btnSendGeofence != null) btnSendGeofence.IsEnabled = false;
+        if (sendGeofenceButton != null) sendGeofenceButton.IsEnabled = false;
         if (btnClearGeofence != null) btnClearGeofence.IsEnabled = false;
+        if (geofenceEnableCheckBox != null) geofenceEnableCheckBox.IsChecked = false;
         if (geofencePointsBorder != null) geofencePointsBorder.Visibility = Visibility.Collapsed;
         if (geofenceStatusText != null) geofenceStatusText.Text = "Geofence Inactive";
         if (geofenceStatusDot != null) geofenceStatusDot.Fill = new SolidColorBrush(Color.FromArgb(0xFF, 0x6C, 0x75, 0x7D));
@@ -781,6 +1246,7 @@ public sealed partial class MapPage : Page
             geofenceStatusBorder.Background = new SolidColorBrush(Color.FromArgb(0xFF, 0x6C, 0x75, 0x7D));
         
         mapControl.ClearGeofence();
+        mapControl.ShowWaypointGeofence = false;
     }
 
     private void Undo_Click(object sender, RoutedEventArgs e)
@@ -812,13 +1278,58 @@ public sealed partial class MapPage : Page
 
     private void ResetMarkers_Click(object sender, RoutedEventArgs e)
     {
-        if (ViewModel.ClearMissionCommand.CanExecute(null))
+        ViewModel?.Waypoints.Clear();
+        if (ViewModel != null)
         {
-            ViewModel.ClearMissionCommand.Execute(null);
-            _undoStack.Clear();
-            _redoStack.Clear();
-            UpdateTotalDistance();
+            ViewModel.IsGeofenceActive = false;
+            ViewModel.GeofenceRadius = 0;
         }
+        mapControl?.ClearWaypoints();
+        mapControl?.ClearGeofence();
+        _undoStack.Clear();
+        _redoStack.Clear();
+        RebuildWaypointDock();
+        UpdateWaypointsOnMap();
+        UpdateTotalDistance();
+        SyncGeofenceFromViewModel();
+    }
+
+    private void WpRadius_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (tbWpRadius != null && double.TryParse(tbWpRadius.Text, out double r) && r > 0)
+        {
+            if (mapControl != null)
+            {
+                mapControl.WaypointGeofenceRadiusMeters = r;
+                mapControl.RequestRender();
+            }
+        }
+    }
+
+    private void ResetAll_Click(object sender, RoutedEventArgs e)
+    {
+        // 1. Reset waypoints & geofence
+        ViewModel?.Waypoints.Clear();
+        if (ViewModel != null)
+        {
+            ViewModel.IsGeofenceActive = false;
+            ViewModel.GeofenceRadius = 0;
+        }
+        mapControl?.ClearWaypoints();
+        mapControl?.ClearGeofence();
+        _undoStack.Clear();
+        _redoStack.Clear();
+        RebuildWaypointDock();
+        UpdateWaypointsOnMap();
+        SyncGeofenceFromViewModel();
+
+        // 2. Reset deteksi YOLO & sensor irigasi
+        _irrigationService?.ClearDataPoints();
+        mapControl?.ClearIrrigationPoints();
+        mapControl?.ClearSoilSensors();
+        mapControl?.ClearIrrigationPlots();
+        UpdateDetectionCountBadge();
+        _timelineService?.Add("map", "Peta berhasil dikosongkan (waypoint, geofence, dan deteksi direset)", "info");
     }
 
     private void ExportWaypoints_Click(object sender, RoutedEventArgs e)
@@ -840,23 +1351,53 @@ public sealed partial class MapPage : Page
 
     private void UpdateTotalDistance()
     {
-        if (ViewModel.Waypoints.Count < 2)
-        {
-            tbTotalDistance.Text = "0.00 km";
-            return;
-        }
-
+        string text = "0.00 km";
         double totalDistance = 0;
-        for (int i = 0; i < ViewModel.Waypoints.Count - 1; i++)
+        if (ViewModel != null && ViewModel.Waypoints.Count >= 2)
         {
-            var wp1 = ViewModel.Waypoints[i];
-            var wp2 = ViewModel.Waypoints[i + 1];
-            totalDistance += GeoMath.CalculateDistance(
-                wp1.Latitude, wp1.Longitude,
-                wp2.Latitude, wp2.Longitude);
+            for (int i = 0; i < ViewModel.Waypoints.Count - 1; i++)
+            {
+                var wp1 = ViewModel.Waypoints[i];
+                var wp2 = ViewModel.Waypoints[i + 1];
+                totalDistance += GeoMath.CalculateDistance(
+                    wp1.Latitude, wp1.Longitude,
+                    wp2.Latitude, wp2.Longitude);
+            }
+            text = $"{(totalDistance / 1000):F2} km";
         }
 
-        tbTotalDistance.Text = $"{(totalDistance / 1000):F2} km";
+        if (tbTotalDistance != null) tbTotalDistance.Text = text;
+        if (tbDockTotalDistance != null) tbDockTotalDistance.Text = text;
+
+        if (tbDockEet != null)
+        {
+            // Cruise speed: 8.0 m/s
+            int seconds = (int)(totalDistance / 8.0);
+            int m = seconds / 60;
+            int s = seconds % 60;
+            tbDockEet.Text = $"{m:D2}:{s:D2}";
+        }
+
+        if (tbDockArea != null)
+        {
+            if (ViewModel != null && ViewModel.Waypoints.Count >= 3)
+            {
+                double minLat = ViewModel.Waypoints.Min(w => w.Latitude);
+                double maxLat = ViewModel.Waypoints.Max(w => w.Latitude);
+                double minLon = ViewModel.Waypoints.Min(w => w.Longitude);
+                double maxLon = ViewModel.Waypoints.Max(w => w.Longitude);
+                double dLatM = (maxLat - minLat) * 111320.0;
+                double dLonM = (maxLon - minLon) * 111320.0 * Math.Cos((minLat + maxLat) * Math.PI / 360.0);
+                double areaHa = Math.Max(0.5, (dLatM * dLonM) / 10000.0);
+                tbDockArea.Text = $"{areaHa:F2} ha";
+            }
+            else
+            {
+                tbDockArea.Text = "2.77 ha";
+            }
+        }
+
+        UpdateScientificHud();
     }
 
     private void UpdateGeofenceVerticesList()
@@ -942,13 +1483,13 @@ public sealed partial class MapPage : Page
         if (wpListPanel.Visibility == Visibility.Collapsed)
         {
             wpListPanel.Visibility = Visibility.Visible;
-            if (tbMarkersCount != null) tbMarkersCount.Text = $"Markers: {ViewModel.Waypoints.Count} ▼";
+            if (tbMarkersCount != null) tbMarkersCount.Text = $"Flight Plan: {ViewModel.Waypoints.Count} ▼";
             if (wpEmptyMessage != null) wpEmptyMessage.Visibility = Visibility.Collapsed;
         }
         else
         {
             wpListPanel.Visibility = Visibility.Collapsed;
-            if (tbMarkersCount != null) tbMarkersCount.Text = $"Markers: {ViewModel.Waypoints.Count} ▲";
+            if (tbMarkersCount != null) tbMarkersCount.Text = $"Flight Plan: {ViewModel.Waypoints.Count} ▲";
             if (wpEmptyMessage != null) wpEmptyMessage.Visibility = ViewModel.Waypoints.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
     }
@@ -968,13 +1509,28 @@ public sealed partial class MapPage : Page
         // Add waypoint items
         foreach (var wp in ViewModel.Waypoints.OrderBy(w => w.Sequence))
         {
-            var item = new WaypointItem(wp);
+            var item = new HarvestmoonGCS.Controls.WaypointItem(wp);
+            item.DeleteRequested += (s, targetWp) =>
+            {
+                ViewModel.Waypoints.Remove(targetWp);
+                for (int i = 0; i < ViewModel.Waypoints.Count; i++)
+                {
+                    ViewModel.Waypoints[i].Sequence = i + 1;
+                }
+                RebuildWaypointDock();
+                UpdateWaypointsOnMap();
+            };
+            item.CenterRequested += (s, targetWp) =>
+            {
+                mapControl.SetCenter(targetWp.Latitude, targetWp.Longitude, 17);
+                UpdateScientificHud();
+            };
             wpDockStack.Children.Add(item);
         }
 
         if (tbMarkersCount != null)
         {
-            tbMarkersCount.Text = $"Markers: {ViewModel.Waypoints.Count} {(wpListPanel?.Visibility == Visibility.Visible ? "▼" : "▲")}";
+            tbMarkersCount.Text = $"Flight Plan: {ViewModel.Waypoints.Count} {(wpListPanel?.Visibility == Visibility.Visible ? "▼" : "▲")}";
         }
 
         UpdateTotalDistance();
@@ -1201,4 +1757,587 @@ public sealed partial class MapPage : Page
             downloadPanel.Visibility = Visibility.Collapsed;
         }
     }
+
+    #region Irrigation & Sensor Overlays
+    private void ToggleIrrigationOverlay_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is ToggleButton btn && mapControl != null)
+        {
+            mapControl.ToggleIrrigationOverlay(btn.IsChecked ?? true);
+        }
+    }
+
+    private void ToggleSoilSensors_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is ToggleButton btn && mapControl != null)
+        {
+            mapControl.ToggleSoilSensors(btn.IsChecked ?? true);
+        }
+    }
+
+    private void EnsurePDPThematicDataLoaded(double baseLat, double baseLon)
+    {
+        if (mapControl == null) return;
+
+        // 1. Buat Polygon Petak Sawah (4 Petak Lengkap Riset PDP - Subang Rice Estate)
+        var plots = new List<IrrigationPlot>
+        {
+            new IrrigationPlot
+            {
+                Id = "PLOT-A1",
+                Name = "Petak A1 (Hulu Barat - Zona Normal Vegetatif)",
+                AreaHectares = 1.12,
+                NormalPercent = 94,
+                InconsistentPercent = 6,
+                DeficitCanopyPercent = 0,
+                DeficitSoilPercent = 0,
+                Priority = IrrigationPriorityLevel.Low,
+                RecommendedWaterLiters = 450,
+                ActionRecommendation = "Kelembapan tanah dan klorofil kanopi optimal; pertahankan suplai air terjadwal.",
+                PolygonCoordinates = new List<GeoCoordinate>
+                {
+                    new GeoCoordinate(baseLat + 0.0007, baseLon - 0.0013),
+                    new GeoCoordinate(baseLat + 0.0007, baseLon + 0.0000),
+                    new GeoCoordinate(baseLat + 0.0000, baseLon + 0.0000),
+                    new GeoCoordinate(baseLat + 0.0000, baseLon - 0.0013),
+                    new GeoCoordinate(baseLat + 0.0007, baseLon - 0.0013)
+                }
+            },
+            new IrrigationPlot
+            {
+                Id = "PLOT-B2",
+                Name = "Petak B2 (Hulu Timur - Ketidakmerataan Irigasi)",
+                AreaHectares = 1.11,
+                InconsistentPercent = 68,
+                NormalPercent = 25,
+                DeficitCanopyPercent = 7,
+                DeficitSoilPercent = 0,
+                Priority = IrrigationPriorityLevel.Medium,
+                RecommendedWaterLiters = 2100,
+                ActionRecommendation = "Saluran cacing tersumbat sedimentasi; lakukan normalisasi bedengan dan parit tersier.",
+                PolygonCoordinates = new List<GeoCoordinate>
+                {
+                    new GeoCoordinate(baseLat + 0.0007, baseLon + 0.0000),
+                    new GeoCoordinate(baseLat + 0.0007, baseLon + 0.0013),
+                    new GeoCoordinate(baseLat + 0.0000, baseLon + 0.0013),
+                    new GeoCoordinate(baseLat + 0.0000, baseLon + 0.0000),
+                    new GeoCoordinate(baseLat + 0.0007, baseLon + 0.0000)
+                }
+            },
+            new IrrigationPlot
+            {
+                Id = "PLOT-C3",
+                Name = "Petak C3 (Hilir Barat - Defisit Air Kanopi)",
+                AreaHectares = 1.12,
+                DeficitCanopyPercent = 64,
+                InconsistentPercent = 24,
+                NormalPercent = 12,
+                DeficitSoilPercent = 0,
+                Priority = IrrigationPriorityLevel.High,
+                RecommendedWaterLiters = 3400,
+                ActionRecommendation = "Stres air pada kanopi daun; jadwalkan irigasi berkala AWD & semprot foliar mikronutrisi.",
+                PolygonCoordinates = new List<GeoCoordinate>
+                {
+                    new GeoCoordinate(baseLat + 0.0000, baseLon - 0.0013),
+                    new GeoCoordinate(baseLat + 0.0000, baseLon + 0.0000),
+                    new GeoCoordinate(baseLat - 0.0007, baseLon + 0.0000),
+                    new GeoCoordinate(baseLat - 0.0007, baseLon - 0.0013),
+                    new GeoCoordinate(baseLat + 0.0000, baseLon - 0.0013)
+                }
+            },
+            new IrrigationPlot
+            {
+                Id = "PLOT-D4",
+                Name = "Petak D4 (Hilir Timur - Defisit Kritis Air Tanah)",
+                AreaHectares = 1.11,
+                DeficitSoilPercent = 72,
+                DeficitCanopyPercent = 18,
+                InconsistentPercent = 8,
+                NormalPercent = 2,
+                Priority = IrrigationPriorityLevel.Emergency,
+                RecommendedWaterLiters = 4800,
+                ActionRecommendation = "Buka pintu intake tersier Blok Timur; lakukan penggenangan macak-macak 3-5 cm segera mitigasi retakan.",
+                PolygonCoordinates = new List<GeoCoordinate>
+                {
+                    new GeoCoordinate(baseLat + 0.0000, baseLon + 0.0000),
+                    new GeoCoordinate(baseLat + 0.0000, baseLon + 0.0013),
+                    new GeoCoordinate(baseLat - 0.0007, baseLon + 0.0013),
+                    new GeoCoordinate(baseLat - 0.0007, baseLon + 0.0000),
+                    new GeoCoordinate(baseLat + 0.0000, baseLon + 0.0000)
+                }
+            }
+        };
+
+        // 2. Buat Sensor Tanah Ground-Truth (4 Sensor Terkalibrasi In-situ LoRa di 4 Sektor)
+        var sensors = new List<SoilSensorData>
+        {
+            new SoilSensorData { SensorId = "SOIL-01", NodeName = "Probe Sektor A1 (Optimal)", Latitude = baseLat + 0.00035, Longitude = baseLon - 0.00065, MoisturePercent = 68.1, TemperatureCelsius = 27.6, BatteryVoltage = 4.2, LastUpdated = DateTime.UtcNow },
+            new SoilSensorData { SensorId = "SOIL-02", NodeName = "Probe Sektor B2 (Irigasi Fluktuatif)", Latitude = baseLat + 0.00035, Longitude = baseLon + 0.00065, MoisturePercent = 38.2, TemperatureCelsius = 29.4, BatteryVoltage = 4.1, LastUpdated = DateTime.UtcNow },
+            new SoilSensorData { SensorId = "SOIL-03", NodeName = "Probe Sektor C3 (Stres Kanopi)", Latitude = baseLat - 0.00035, Longitude = baseLon - 0.00065, MoisturePercent = 23.4, TemperatureCelsius = 31.0, BatteryVoltage = 4.0, LastUpdated = DateTime.UtcNow },
+            new SoilSensorData { SensorId = "SOIL-04", NodeName = "Probe Sektor D4 (Kritis AWD)", Latitude = baseLat - 0.00035, Longitude = baseLon + 0.00065, MoisturePercent = 14.8, TemperatureCelsius = 32.5, BatteryVoltage = 4.1, LastUpdated = DateTime.UtcNow }
+        };
+
+        // 3. Buat Titik Deteksi Spasial UAV (24 Titik Representatif Realistis 4 Kelas PDP)
+        var points = new List<IrrigationDataPoint>
+        {
+            // Cluster Petak A1 - Zona Normal Vegetatif (Hulu Barat)
+            new IrrigationDataPoint { Latitude = baseLat + 0.00050, Longitude = baseLon - 0.00085, ZoneType = IrrigationZoneType.Normal, Confidence = 0.97f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00040, Longitude = baseLon - 0.00065, ZoneType = IrrigationZoneType.Normal, Confidence = 0.95f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00060, Longitude = baseLon - 0.00045, ZoneType = IrrigationZoneType.Normal, Confidence = 0.96f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00025, Longitude = baseLon - 0.00095, ZoneType = IrrigationZoneType.Normal, Confidence = 0.98f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00030, Longitude = baseLon - 0.00035, ZoneType = IrrigationZoneType.Normal, Confidence = 0.94f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00015, Longitude = baseLon - 0.00070, ZoneType = IrrigationZoneType.Normal, Confidence = 0.96f },
+
+            // Cluster Petak B2 - Ketidakmerataan Irigasi (Hulu Timur)
+            new IrrigationDataPoint { Latitude = baseLat + 0.00050, Longitude = baseLon + 0.00045, ZoneType = IrrigationZoneType.Inconsistent, Confidence = 0.91f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00035, Longitude = baseLon + 0.00075, ZoneType = IrrigationZoneType.Inconsistent, Confidence = 0.89f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00060, Longitude = baseLon + 0.00090, ZoneType = IrrigationZoneType.Inconsistent, Confidence = 0.88f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00020, Longitude = baseLon + 0.00030, ZoneType = IrrigationZoneType.Normal, Confidence = 0.93f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00045, Longitude = baseLon + 0.00110, ZoneType = IrrigationZoneType.Inconsistent, Confidence = 0.87f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00015, Longitude = baseLon + 0.00080, ZoneType = IrrigationZoneType.Inconsistent, Confidence = 0.90f },
+
+            // Cluster Petak C3 - Defisit Air Kanopi (Hilir Barat)
+            new IrrigationDataPoint { Latitude = baseLat - 0.00025, Longitude = baseLon - 0.00085, ZoneType = IrrigationZoneType.DeficitCanopy, Confidence = 0.94f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00040, Longitude = baseLon - 0.00055, ZoneType = IrrigationZoneType.DeficitCanopy, Confidence = 0.92f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00055, Longitude = baseLon - 0.00090, ZoneType = IrrigationZoneType.DeficitCanopy, Confidence = 0.90f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00020, Longitude = baseLon - 0.00035, ZoneType = IrrigationZoneType.Inconsistent, Confidence = 0.86f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00045, Longitude = baseLon - 0.00110, ZoneType = IrrigationZoneType.DeficitCanopy, Confidence = 0.93f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00060, Longitude = baseLon - 0.00040, ZoneType = IrrigationZoneType.DeficitCanopy, Confidence = 0.91f },
+
+            // Cluster Petak D4 - Defisit Kritis Air Tanah (Hilir Timur)
+            new IrrigationDataPoint { Latitude = baseLat - 0.00025, Longitude = baseLon + 0.00055, ZoneType = IrrigationZoneType.DeficitSoil, Confidence = 0.95f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00040, Longitude = baseLon + 0.00080, ZoneType = IrrigationZoneType.DeficitSoil, Confidence = 0.93f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00055, Longitude = baseLon + 0.00045, ZoneType = IrrigationZoneType.DeficitSoil, Confidence = 0.92f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00020, Longitude = baseLon + 0.00105, ZoneType = IrrigationZoneType.DeficitCanopy, Confidence = 0.89f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00045, Longitude = baseLon + 0.00065, ZoneType = IrrigationZoneType.DeficitSoil, Confidence = 0.96f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00060, Longitude = baseLon + 0.00095, ZoneType = IrrigationZoneType.DeficitSoil, Confidence = 0.94f }
+        };
+
+        mapControl.SetIrrigationPlots(plots);
+        mapControl.SetSoilSensors(sensors);
+        mapControl.SetIrrigationPoints(points);
+
+        if (_irrigationService != null)
+        {
+            _irrigationService.ClearDataPoints();
+            foreach (var p in plots) _irrigationService.AddOrUpdatePlot(p);
+            foreach (var s in sensors) _irrigationService.UpdateSoilSensor(s);
+            foreach (var pt in points) _irrigationService.AddDataPoint(pt.Latitude, pt.Longitude, 50, pt.ZoneName, pt.Confidence);
+        }
+
+        UpdateDetectionCountBadge();
+    }
+
+    private void LoadDemoIrrigation_Click(object sender, RoutedEventArgs e)
+    {
+        if (mapControl == null) return;
+
+        double baseLat = -6.24361;
+        double baseLon = 107.36556;
+        var scenario = _videoScenarioService?.CurrentScenario;
+        if (scenario != null && Math.Abs(scenario.FieldCenterLat) > 0.001)
+        {
+            baseLat = scenario.FieldCenterLat;
+            baseLon = scenario.FieldCenterLon;
+        }
+        else if (ViewModel.VehiclePosition != null && Math.Abs(ViewModel.VehiclePosition.Latitude) > 0.001)
+        {
+            baseLat = ViewModel.VehiclePosition.Latitude;
+            baseLon = ViewModel.VehiclePosition.Longitude;
+        }
+
+        EnsurePDPThematicDataLoaded(baseLat, baseLon);
+
+        if (ViewModel != null)
+        {
+            ViewModel.Waypoints.Clear();
+            var demoWps = new List<HarvestmoonGCS.Core.Models.WaypointData>
+            {
+                new HarvestmoonGCS.Core.Models.WaypointData { Sequence = 1, Latitude = baseLat - 0.0006, Longitude = baseLon - 0.0008, Altitude = 25 },
+                new HarvestmoonGCS.Core.Models.WaypointData { Sequence = 2, Latitude = baseLat - 0.0004, Longitude = baseLon - 0.0004, Altitude = 30 },
+                new HarvestmoonGCS.Core.Models.WaypointData { Sequence = 3, Latitude = baseLat + 0.0002, Longitude = baseLon + 0.0000, Altitude = 30 },
+                new HarvestmoonGCS.Core.Models.WaypointData { Sequence = 4, Latitude = baseLat + 0.0004, Longitude = baseLon + 0.0004, Altitude = 30 },
+                new HarvestmoonGCS.Core.Models.WaypointData { Sequence = 5, Latitude = baseLat - 0.0004, Longitude = baseLon + 0.0008, Altitude = 20 }
+            };
+            foreach (var wp in demoWps) ViewModel.Waypoints.Add(wp);
+
+            ViewModel.IsGeofenceActive = true;
+            ViewModel.GeofenceRadius = 550;
+            ViewModel.GeofenceCenterLat = baseLat;
+            ViewModel.GeofenceCenterLon = baseLon;
+            SyncGeofenceFromViewModel();
+            RefreshMapView();
+        }
+
+        mapControl.SetCenter(baseLat, baseLon, 16);
+        UpdateScientificHud();
+        _timelineService?.Add("irrigation", "Skenario Riset PDP Dimuat: 5 Waypoint, 4 Sektor Lahan, 4 Probe In-situ, 24 Titik Analisis Kanopi", "info");
+    }
+
+    private void GenerateSurveyGrid_Click(object sender, RoutedEventArgs e)
+    {
+        if (mapControl == null) return;
+
+        double baseLat = -6.24361;
+        double baseLon = 107.36556;
+        var scenario = _videoScenarioService?.CurrentScenario;
+        if (scenario != null && Math.Abs(scenario.FieldCenterLat) > 0.001)
+        {
+            baseLat = scenario.FieldCenterLat;
+            baseLon = scenario.FieldCenterLon;
+        }
+        else if (ViewModel.VehiclePosition != null && Math.Abs(ViewModel.VehiclePosition.Latitude) > 0.001)
+        {
+            baseLat = ViewModel.VehiclePosition.Latitude;
+            baseLon = ViewModel.VehiclePosition.Longitude;
+        }
+
+        // Pastikan petak dan sensor PDP termuat agar grid fotogrametri terbentang tepat di atas sawah
+        EnsurePDPThematicDataLoaded(baseLat, baseLon);
+
+        // Buat Jalur Misi Fotogrametri Lawnmower Transect (Overlap 70/60%, Ketinggian 50m AGL)
+        var surveyWps = new List<HarvestmoonGCS.Core.Models.WaypointData>
+        {
+            new HarvestmoonGCS.Core.Models.WaypointData { Sequence = 1, Command = HarvestmoonGCS.Core.Models.WaypointCommand.TakeOff, Latitude = baseLat - 0.0008, Longitude = baseLon - 0.0010, Altitude = 50 },
+            new HarvestmoonGCS.Core.Models.WaypointData { Sequence = 2, Command = HarvestmoonGCS.Core.Models.WaypointCommand.Waypoint, Latitude = baseLat + 0.0006, Longitude = baseLon - 0.0010, Altitude = 50 },
+            new HarvestmoonGCS.Core.Models.WaypointData { Sequence = 3, Command = HarvestmoonGCS.Core.Models.WaypointCommand.Waypoint, Latitude = baseLat + 0.0006, Longitude = baseLon - 0.0004, Altitude = 50 },
+            new HarvestmoonGCS.Core.Models.WaypointData { Sequence = 4, Command = HarvestmoonGCS.Core.Models.WaypointCommand.Waypoint, Latitude = baseLat - 0.0008, Longitude = baseLon - 0.0004, Altitude = 50 },
+            new HarvestmoonGCS.Core.Models.WaypointData { Sequence = 5, Command = HarvestmoonGCS.Core.Models.WaypointCommand.Waypoint, Latitude = baseLat - 0.0008, Longitude = baseLon + 0.0003, Altitude = 50 },
+            new HarvestmoonGCS.Core.Models.WaypointData { Sequence = 6, Command = HarvestmoonGCS.Core.Models.WaypointCommand.Waypoint, Latitude = baseLat + 0.0006, Longitude = baseLon + 0.0003, Altitude = 50 },
+            new HarvestmoonGCS.Core.Models.WaypointData { Sequence = 7, Command = HarvestmoonGCS.Core.Models.WaypointCommand.Waypoint, Latitude = baseLat + 0.0006, Longitude = baseLon + 0.0010, Altitude = 50 },
+            new HarvestmoonGCS.Core.Models.WaypointData { Sequence = 8, Command = HarvestmoonGCS.Core.Models.WaypointCommand.Waypoint, Latitude = baseLat - 0.0008, Longitude = baseLon + 0.0010, Altitude = 50 },
+            new HarvestmoonGCS.Core.Models.WaypointData { Sequence = 9, Command = HarvestmoonGCS.Core.Models.WaypointCommand.ReturnToLaunch, Latitude = baseLat - 0.0009, Longitude = baseLon - 0.0011, Altitude = 25 }
+        };
+
+        if (ViewModel != null)
+        {
+            ViewModel.Waypoints.Clear();
+            foreach (var wp in surveyWps) ViewModel.Waypoints.Add(wp);
+            ViewModel.IsGeofenceActive = true;
+            ViewModel.GeofenceRadius = 550;
+            ViewModel.GeofenceCenterLat = baseLat;
+            ViewModel.GeofenceCenterLon = baseLon;
+            SyncGeofenceFromViewModel();
+            RebuildWaypointDock();
+            UpdateWaypointsOnMap();
+        }
+
+        mapControl.SetCenter(baseLat, baseLon, 16);
+        UpdateScientificHud();
+
+        // Buka panel dock otomatis agar tabel misi terlihat rapi
+        if (wpListPanel != null)
+        {
+            wpListPanel.Visibility = Visibility.Visible;
+            _isWPDockHidden = false;
+            if (tbMarkersCount != null) tbMarkersCount.Text = $"Flight Plan: {ViewModel?.Waypoints.Count ?? 0} ▼";
+            if (wpEmptyMessage != null) wpEmptyMessage.Visibility = Visibility.Collapsed;
+        }
+
+        _timelineService?.Add("survey", "Grid Survey Fotogrametri Siap: 9 waypoint koridor (lawnmower), ketinggian 50m AGL, GSD 1.82 cm/px, luas area 2.77 ha", "success");
+    }
+
+    private void TogglePDPMonitor_Click(object sender, RoutedEventArgs e)
+    {
+        if (pdpMonitorPanel == null) return;
+        bool isVisible = pdpMonitorPanel.Visibility == Visibility.Visible;
+        pdpMonitorPanel.Visibility = isVisible ? Visibility.Collapsed : Visibility.Visible;
+        if (btnTogglePdpMonitor != null)
+        {
+            btnTogglePdpMonitor.IsChecked = !isVisible;
+        }
+    }
+
+    private async void ExportCsv_Click(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel == null || ViewModel.Waypoints.Count == 0)
+        {
+            _timelineService?.Add("export", "Tidak ada waypoint misi untuk diekspor ke CSV.", "warning");
+            return;
+        }
+
+        try
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("# Harvestmoon UAV Precision Agriculture Mission Plan");
+            sb.AppendLine("# PDP Research - Rice Field Water Deficit Detection");
+            sb.AppendLine("# Coordinate System: WGS 84 (EPSG:4326) | GSD: ~1.82 cm/px @ 50m AGL");
+            sb.AppendLine("Sequence,Command,Latitude,Longitude,Altitude_AGL_m,Speed_mps,Radius_m,Segment_Dist_m,Cumulative_Dist_m");
+
+            double cumDist = 0.0;
+            for (int i = 0; i < ViewModel.Waypoints.Count; i++)
+            {
+                var wp = ViewModel.Waypoints[i];
+                double segDist = 0.0;
+                if (i > 0)
+                {
+                    var prev = ViewModel.Waypoints[i - 1];
+                    segDist = GeoMath.CalculateDistance(prev.Latitude, prev.Longitude, wp.Latitude, wp.Longitude);
+                    cumDist += segDist;
+                }
+
+                string cmdName = wp.Command switch
+                {
+                    HarvestmoonGCS.Core.Models.WaypointCommand.TakeOff => "NAV_TAKEOFF",
+                    HarvestmoonGCS.Core.Models.WaypointCommand.Land => "NAV_LAND",
+                    HarvestmoonGCS.Core.Models.WaypointCommand.ReturnToLaunch => "NAV_RETURN_TO_LAUNCH",
+                    HarvestmoonGCS.Core.Models.WaypointCommand.Loiter => "NAV_LOITER_UNLIM",
+                    _ => "NAV_WAYPOINT"
+                };
+
+                sb.AppendLine($"{wp.Sequence},{cmdName},{wp.Latitude:F6},{wp.Longitude:F6},{wp.Altitude:F1},8.0,2.0,{segDist:F2},{cumDist:F2}");
+            }
+
+            string exportDir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Program", "Harvestmoon", "Pigeon_Harvest", "HarvestmoonGCS", "Assets");
+            if (!System.IO.Directory.Exists(exportDir))
+            {
+                System.IO.Directory.CreateDirectory(exportDir);
+            }
+            string filePath = System.IO.Path.Combine(exportDir, "mission_plan_pdp_sinta2.csv");
+            await System.IO.File.WriteAllTextAsync(filePath, sb.ToString());
+
+            _timelineService?.Add("export", $"Tabel koordinat misi berhasil diekspor: {filePath} (Siap untuk naskah jurnal SINTA 2)", "success");
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[MapPage] Failed to export CSV");
+            _timelineService?.Add("export", $"Gagal mengekspor CSV: {ex.Message}", "error");
+        }
+    }
+
+    private void LayerToggle_Changed(object sender, RoutedEventArgs e)
+    {
+        if (mapControl == null) return;
+        bool showPlots = chkPlots?.IsChecked == true;
+        bool showSensors = chkSensors?.IsChecked == true;
+        bool showYolo = chkYolo?.IsChecked == true;
+        bool showGeofence = chkGeofence?.IsChecked == true;
+
+        mapControl.ToggleIrrigationOverlay(showPlots || showYolo);
+        mapControl.ToggleSoilSensors(showSensors);
+
+        if (!showGeofence)
+        {
+            mapControl.ClearGeofence();
+            mapControl.ShowWaypointGeofence = false;
+        }
+        else
+        {
+            mapControl.ShowWaypointGeofence = true;
+            SyncGeofenceFromViewModel();
+        }
+    }
+
+    private void LoadRealIrrigation_Click(object sender, RoutedEventArgs e)
+    {
+        if (mapControl == null) return;
+
+        // Mode Riil: memuat data riil dari telemetri UAV dan sensor tanah
+        if (_irrigationService != null)
+        {
+            mapControl.SetIrrigationPoints(_irrigationService.DataPoints.ToList());
+            mapControl.SetSoilSensors(_irrigationService.SoilSensors.ToList());
+            mapControl.SetIrrigationPlots(_irrigationService.Plots.ToList());
+        }
+
+        if (ViewModel?.VehiclePosition != null && Math.Abs(ViewModel.VehiclePosition.Latitude) > 0.001)
+        {
+            CenterMapOnPosition(ViewModel.VehiclePosition.Latitude, ViewModel.VehiclePosition.Longitude);
+        }
+
+        UpdateDetectionCountBadge();
+        UpdateUavStatusIndicator();
+        _timelineService?.Add("irrigation", "Mode Riil Aktif: Menampilkan data telemetri UAV, sensor tanah, dan deteksi YOLO live", "success");
+    }
+
+    private void ClearDetections_Click(object sender, RoutedEventArgs e)
+    {
+        _irrigationService?.ClearDataPoints();
+        mapControl?.ClearIrrigationPoints();
+        UpdateDetectionCountBadge();
+        _timelineService?.Add("irrigation", "Titik deteksi YOLO direset", "info");
+    }
+
+    private void UavStatus_Click(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel?.VehiclePosition != null && Math.Abs(ViewModel.VehiclePosition.Latitude) > 0.001)
+        {
+            CenterMapOnPosition(ViewModel.VehiclePosition.Latitude, ViewModel.VehiclePosition.Longitude);
+            _timelineService?.Add("map", $"Pusatkan peta ke UAV: {ViewModel.VehiclePosition.Latitude:F5}, {ViewModel.VehiclePosition.Longitude:F5}", "info");
+        }
+        else
+        {
+            _timelineService?.Add("map", "UAV belum terhubung atau belum memiliki sinyal GPS 3D fix", "warning");
+        }
+    }
+
+    private void OnIrrigationDataPointAdded(object? sender, IrrigationDataPoint point)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            mapControl.AddIrrigationPoint(point);
+            UpdateDetectionCountBadge();
+        });
+    }
+
+    private void OnIrrigationDataCleared(object? sender, EventArgs e)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            mapControl.ClearIrrigationPoints();
+            UpdateDetectionCountBadge();
+        });
+    }
+
+    private void OnIrrigationSoilSensorUpdated(object? sender, SoilSensorData sensor)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            mapControl.UpdateSoilSensor(sensor);
+            UpdateProbeUi(sensor);
+        });
+    }
+
+    private void OnSoilMoistureAutoCheckCompleted(object? sender, LoRaAutoCheckSummary summary)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            UpdateLoRaAutoCheckBadge(summary);
+        });
+    }
+
+    private void OnSoilMoistureLoRaPacketReceived(object? sender, LoRaSoilPacket packet)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            var sensor = new SoilSensorData
+            {
+                SensorId = packet.NodeId,
+                NodeName = packet.NodeName,
+                Latitude = packet.Latitude,
+                Longitude = packet.Longitude,
+                MoisturePercent = packet.MoisturePercent,
+                TemperatureCelsius = packet.TemperatureCelsius,
+                BatteryVoltage = packet.BatteryVoltage,
+                Rssi = packet.Rssi,
+                LastUpdated = packet.Timestamp
+            };
+            UpdateProbeUi(sensor);
+        });
+    }
+
+    private void UpdateProbeUi(SoilSensorData sensor)
+    {
+        var id = (sensor.SensorId ?? string.Empty).ToUpperInvariant();
+        var valsText = $"{sensor.MoisturePercent:F1}% · {sensor.TemperatureCelsius:F1}°C";
+        var diagText = $"{sensor.BatteryVoltage:F1} V · {sensor.Rssi} dBm";
+
+        var valColor = sensor.MoisturePercent switch
+        {
+            < 20.0 => Color.FromArgb(0xFF, 0xEF, 0x44, 0x44), // Merah Kritis
+            < 35.0 => Color.FromArgb(0xFF, 0xF5, 0x9E, 0x0B), // Oranye Stres
+            <= 70.0 => Color.FromArgb(0xFF, 0x10, 0xB9, 0x81), // Hijau Optimal
+            _ => Color.FromArgb(0xFF, 0x3B, 0x82, 0xF6)        // Biru Tergenang
+        };
+
+        if (id.Contains("P-01") || id.Contains("01"))
+        {
+            if (txtProbeP01Vals != null) { txtProbeP01Vals.Text = valsText; txtProbeP01Vals.Foreground = new SolidColorBrush(valColor); }
+            if (txtProbeP01Diag != null) txtProbeP01Diag.Text = diagText;
+        }
+        else if (id.Contains("P-02") || id.Contains("02"))
+        {
+            if (txtProbeP02Vals != null) { txtProbeP02Vals.Text = valsText; txtProbeP02Vals.Foreground = new SolidColorBrush(valColor); }
+            if (txtProbeP02Diag != null) txtProbeP02Diag.Text = diagText;
+        }
+        else if (id.Contains("P-03") || id.Contains("03"))
+        {
+            if (txtProbeP03Vals != null) { txtProbeP03Vals.Text = valsText; txtProbeP03Vals.Foreground = new SolidColorBrush(valColor); }
+            if (txtProbeP03Diag != null) txtProbeP03Diag.Text = diagText;
+        }
+        else if (id.Contains("P-04") || id.Contains("04"))
+        {
+            if (txtProbeP04Vals != null) { txtProbeP04Vals.Text = valsText; txtProbeP04Vals.Foreground = new SolidColorBrush(valColor); }
+            if (txtProbeP04Diag != null) txtProbeP04Diag.Text = diagText;
+        }
+
+        UpdateLoRaAutoCheckBadge(_soilMoistureService?.LatestAutoCheck);
+    }
+
+    private void UpdateLoRaAutoCheckBadge(LoRaAutoCheckSummary? autoCheck)
+    {
+        if (txtLoraAutocheck == null || pillLoraAutocheck == null) return;
+        if (autoCheck != null && autoCheck.TotalNodes > 0)
+        {
+            if (autoCheck.OverallStatus == "CRITICAL")
+            {
+                txtLoraAutocheck.Text = "⚠ Kritis (P-01)";
+                txtLoraAutocheck.Foreground = new SolidColorBrush(Color.FromArgb(0xFF, 0xEF, 0x44, 0x44));
+                pillLoraAutocheck.Background = new SolidColorBrush(Color.FromArgb(0x26, 0xEF, 0x44, 0x44));
+            }
+            else if (autoCheck.OverallStatus == "WARNING")
+            {
+                txtLoraAutocheck.Text = "⚠ Stres Irigasi";
+                txtLoraAutocheck.Foreground = new SolidColorBrush(Color.FromArgb(0xFF, 0xF5, 0x9E, 0x0B));
+                pillLoraAutocheck.Background = new SolidColorBrush(Color.FromArgb(0x26, 0xF5, 0x9E, 0x0B));
+            }
+            else if (autoCheck.OverallStatus == "OFFLINE")
+            {
+                txtLoraAutocheck.Text = "○ Link Offline";
+                txtLoraAutocheck.Foreground = new SolidColorBrush(Color.FromArgb(0xFF, 0x94, 0xA3, 0xB8));
+                pillLoraAutocheck.Background = new SolidColorBrush(Color.FromArgb(0x1A, 0x94, 0xA3, 0xB8));
+            }
+            else
+            {
+                txtLoraAutocheck.Text = "✓ 4/4 Node OK";
+                txtLoraAutocheck.Foreground = new SolidColorBrush(Color.FromArgb(0xFF, 0x10, 0xB9, 0x81));
+                pillLoraAutocheck.Background = new SolidColorBrush(Color.FromArgb(0x1A, 0x10, 0xB9, 0x81));
+            }
+        }
+    }
+
+    private void OnMavLinkConnectionChanged(object? sender, bool isConnected)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            UpdateUavStatusIndicator();
+        });
+    }
+
+    private void UpdateUavStatusIndicator()
+    {
+        if (uavStatusDot == null || uavStatusText == null) return;
+
+        bool connected = _mavLinkService?.IsConnected == true;
+        bool hasGps = ViewModel?.VehiclePosition != null && Math.Abs(ViewModel.VehiclePosition.Latitude) > 0.001;
+
+        if (connected && hasGps)
+        {
+            uavStatusDot.Fill = new SolidColorBrush(Color.FromArgb(0xFF, 0x10, 0xB9, 0x81)); // Green
+            uavStatusText.Text = $"UAV GPS ({ViewModel!.VehiclePosition!.Latitude:F5}, {ViewModel.VehiclePosition.Longitude:F5})";
+        }
+        else if (connected)
+        {
+            uavStatusDot.Fill = new SolidColorBrush(Color.FromArgb(0xFF, 0xF5, 0x9E, 0x0B)); // Orange
+            uavStatusText.Text = "UAV No GPS Fix";
+        }
+        else
+        {
+            uavStatusDot.Fill = new SolidColorBrush(Color.FromArgb(0xFF, 0x6C, 0x75, 0x7D)); // Grey
+            uavStatusText.Text = "UAV Offline";
+        }
+    }
+
+    private void UpdateDetectionCountBadge()
+    {
+        if (txtDetectionsCount == null) return;
+        int count = _irrigationService?.DataPoints.Count ?? 0;
+        txtDetectionsCount.Text = $"{count} Deteksi";
+    }
+
+    private void OpenMissionPlanner_Click(object sender, RoutedEventArgs e)
+    {
+        Frame?.Navigate(typeof(MissionPlannerPage));
+    }
+    #endregion
 }

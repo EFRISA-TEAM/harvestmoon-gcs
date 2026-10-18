@@ -35,8 +35,11 @@ public sealed partial class MissionPlannerPage : Page
     private readonly IGeofenceService? _geofenceService;
     private readonly IVideoScenarioService? _videoScenarioService;
     private readonly IFileService? _fileService;
+    private readonly IIrrigationService? _irrigationService;
     private readonly MapViewModel? _mapViewModel;
     private readonly List<MissionWaypointItem> _waypoints = new();
+    private DispatcherTimer? _demoSensorTimer;
+    private readonly Random _rnd = new();
     private bool _initialized;
     private double _defaultLat = -6.24361;
     private double _defaultLon = 107.36556;
@@ -51,6 +54,7 @@ public sealed partial class MissionPlannerPage : Page
         _geofenceService = App.Current.Services.GetService<IGeofenceService>();
         _videoScenarioService = App.Current.Services.GetService<IVideoScenarioService>();
         _fileService = App.Current.Services.GetService<IFileService>();
+        _irrigationService = App.Current.Services.GetService<IIrrigationService>();
         _mapViewModel   = App.GetService<MapViewModel>();
 
         Loaded += MissionPlannerPage_Loaded;
@@ -133,8 +137,13 @@ public sealed partial class MissionPlannerPage : Page
             }
             MapProviderComboBox.SelectedIndex = 0;
             MissionMapControl.SetCenter(_defaultLat, _defaultLon, 14);
-            SeedInitialWaypoints();
+            _waypoints.Clear();
             _initialized = true;
+
+            if (Environment.GetEnvironmentVariable("MOONHARVEST_LOAD_DEMO") == "1")
+            {
+                LoadDemoMission_Click(this, new RoutedEventArgs());
+            }
         }
 
         if (_videoScenarioService != null)
@@ -146,6 +155,23 @@ public sealed partial class MissionPlannerPage : Page
         // subscribe to waypoint changes
         _waypointService.WaypointsChanged -= WaypointService_WaypointsChanged;
         _waypointService.WaypointsChanged += WaypointService_WaypointsChanged;
+
+        if (_irrigationService != null)
+        {
+            _irrigationService.DataPointAdded -= OnIrrigationDataPointAdded;
+            _irrigationService.DataPointAdded += OnIrrigationDataPointAdded;
+            _irrigationService.SoilSensorUpdated -= OnSoilSensorUpdated;
+            _irrigationService.SoilSensorUpdated += OnSoilSensorUpdated;
+            _irrigationService.DataCleared -= OnIrrigationDataCleared;
+            _irrigationService.DataCleared += OnIrrigationDataCleared;
+
+            if (_irrigationService.Plots.Count > 0)
+                MissionMapControl.SetIrrigationPlots(_irrigationService.Plots);
+            if (_irrigationService.SoilSensors.Count > 0)
+                MissionMapControl.SetSoilSensors(_irrigationService.SoilSensors);
+            if (_irrigationService.DataPoints.Count > 0)
+                MissionMapControl.SetIrrigationPoints(_irrigationService.DataPoints);
+        }
 
         _ = SafeSyncFromWaypointServiceAsync();
     }
@@ -179,6 +205,7 @@ public sealed partial class MissionPlannerPage : Page
 
     private void MissionPlannerPage_Unloaded(object sender, RoutedEventArgs e)
     {
+        _demoSensorTimer?.Stop();
         MissionMapControl.SetActive(false);
         MissionMapControl.WaypointMoved -= MissionMapControl_WaypointMoved;
         if (_mapViewModel != null)
@@ -186,6 +213,13 @@ public sealed partial class MissionPlannerPage : Page
 
         if (_videoScenarioService != null)
             _videoScenarioService.ScenarioChanged -= OnScenarioChanged;
+
+        if (_irrigationService != null)
+        {
+            _irrigationService.DataPointAdded -= OnIrrigationDataPointAdded;
+            _irrigationService.SoilSensorUpdated -= OnSoilSensorUpdated;
+            _irrigationService.DataCleared -= OnIrrigationDataCleared;
+        }
 
         _waypointService.WaypointsChanged -= WaypointService_WaypointsChanged;
     }
@@ -255,21 +289,21 @@ public sealed partial class MissionPlannerPage : Page
             return;
         }
 
-        // Fallback transect
-        double centerLat = scenario?.FieldCenterLat ?? -6.24361;
-        double centerLon = scenario?.FieldCenterLon ?? 107.36556;
+        // Fallback transect 14 points
+        double centerLat = scenario?.FieldCenterLat ?? -6.42580;
+        double centerLon = scenario?.FieldCenterLon ?? 107.61890;
         double mPerDegLon = 111320.0 * Math.Cos(centerLat * Math.PI / 180.0);
-        double spacingLon = (600.0 / 4.0) / mPerDegLon;
-        double startLon = centerLon - 2.0 * spacingLon;
+        double spacingLon = (1200.0 / 13.0) / mPerDegLon;
+        double startLon = centerLon - 6.5 * spacingLon;
 
-        for (int i = 0; i < 5; i++)
+        for (int i = 0; i < 14; i++)
         {
             _waypoints.Add(new MissionWaypointItem
             {
                 Sequence = 1 + i,
-                Latitude = centerLat,
+                Latitude = centerLat + Math.Sin(i * 0.8) * 0.0008,
                 Longitude = startLon + i * spacingLon,
-                Altitude = 60
+                Altitude = i == 0 ? 25 : (i == 13 ? 15 : 50)
             });
         }
     }
@@ -283,14 +317,15 @@ public sealed partial class MissionPlannerPage : Page
 
         var provider = MapProviderComboBox.SelectedIndex switch
         {
-            0 => SkiaMapControl.MapTileProvider.ArcGISTopographic,
-            1 => SkiaMapControl.MapTileProvider.ArcGISImagery,
-            2 => SkiaMapControl.MapTileProvider.ArcGISStreetMap,
-            3 => SkiaMapControl.MapTileProvider.GoogleMap,
-            4 => SkiaMapControl.MapTileProvider.GoogleSatellite,
-            5 => SkiaMapControl.MapTileProvider.GoogleTerrain,
-            6 => SkiaMapControl.MapTileProvider.GoogleHybrid,
-            _ => SkiaMapControl.MapTileProvider.OpenStreetMap
+            0 => SkiaMapControl.MapTileProvider.GoogleMap,
+            1 => SkiaMapControl.MapTileProvider.GoogleSatellite,
+            2 => SkiaMapControl.MapTileProvider.GoogleHybrid,
+            3 => SkiaMapControl.MapTileProvider.GoogleTerrain,
+            4 => SkiaMapControl.MapTileProvider.OpenStreetMap,
+            5 => SkiaMapControl.MapTileProvider.ArcGISTopographic,
+            6 => SkiaMapControl.MapTileProvider.ArcGISImagery,
+            7 => SkiaMapControl.MapTileProvider.ArcGISStreetMap,
+            _ => SkiaMapControl.MapTileProvider.GoogleMap
         };
 
         MissionMapControl.SetTileProvider(provider);
@@ -337,7 +372,19 @@ public sealed partial class MissionPlannerPage : Page
     {
         try
         {
+            _demoSensorTimer?.Stop();
             await _waypointService.ClearWaypointsAsync();
+            _irrigationService?.ClearDataPoints();
+            MissionMapControl.ClearIrrigationPoints();
+            MissionMapControl.ClearSoilSensors();
+            MissionMapControl.ClearIrrigationPlots();
+            MissionMapControl.ClearWaypoints();
+            MissionMapControl.ClearGeofence();
+            MissionMapControl.ShowWaypointGeofence = false;
+            if (GeofenceEnableCheckBox != null) GeofenceEnableCheckBox.IsChecked = false;
+            _waypoints.Clear();
+            RefreshWaypointList();
+            WaypointSummaryText.Text = "0 waypoints (Flight plan kosong)";
         }
         catch (Exception ex)
         {
@@ -355,9 +402,10 @@ public sealed partial class MissionPlannerPage : Page
             return;
         }
 
-        if (!_mavLinkService.IsConnected)
+        bool demoMode = IsDemoRunning();
+        if (!_mavLinkService.IsConnected && !demoMode)
         {
-            WaypointSummaryText.Text = "Vehicle not connected";
+            WaypointSummaryText.Text = "Vehicle not connected · Hubungkan UAV atau aktifkan Demo Mode";
             return;
         }
 
@@ -386,17 +434,28 @@ public sealed partial class MissionPlannerPage : Page
             }
 
             WaypointSummaryText.Text = "Uploading mission...";
-            var success = await _missionService.UploadMissionAsync(missionWaypoints);
-            if (success)
+            if (demoMode && !_mavLinkService.IsConnected)
             {
+                await Task.Delay(400);
                 var warningSuffix = validation.Warnings.Count > 0
                     ? $" ({validation.Warnings.Count} warning)"
                     : string.Empty;
-                WaypointSummaryText.Text = $"Uploaded {missionWaypoints.Count} waypoints{warningSuffix}";
+                WaypointSummaryText.Text = $"Uploaded {missionWaypoints.Count} waypoints to Simulator{warningSuffix}";
             }
             else
             {
-                WaypointSummaryText.Text = "Mission upload failed";
+                var success = await _missionService.UploadMissionAsync(missionWaypoints);
+                if (success)
+                {
+                    var warningSuffix = validation.Warnings.Count > 0
+                        ? $" ({validation.Warnings.Count} warning)"
+                        : string.Empty;
+                    WaypointSummaryText.Text = $"Uploaded {missionWaypoints.Count} waypoints{warningSuffix}";
+                }
+                else
+                {
+                    WaypointSummaryText.Text = "Mission upload failed";
+                }
             }
         }
         catch (Exception ex)
@@ -493,9 +552,265 @@ public sealed partial class MissionPlannerPage : Page
         RefreshWaypointList();
     }
 
+    private void GeofenceEnableCheckBox_Click(object sender, RoutedEventArgs e)
+    {
+        bool isEnabled = GeofenceEnableCheckBox?.IsChecked == true;
+        if (GeofenceRadiusSlider != null) GeofenceRadiusSlider.IsEnabled = isEnabled;
+        if (SendGeofenceButton != null) SendGeofenceButton.IsEnabled = isEnabled && _waypoints.Count > 0;
+        ApplyGeofence();
+    }
+
+    private void ToggleIrrigationBtn_Click(object sender, RoutedEventArgs e)
+    {
+        MissionMapControl.ToggleIrrigationOverlay(ToggleIrrigationBtn?.IsChecked == true);
+    }
+
+    private void ToggleSensorsBtn_Click(object sender, RoutedEventArgs e)
+    {
+        MissionMapControl.ToggleSoilSensors(ToggleSensorsBtn?.IsChecked == true);
+    }
+
+    private void OnIrrigationDataPointAdded(object? sender, IrrigationDataPoint point)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            MissionMapControl?.AddIrrigationPoint(point);
+        });
+    }
+
+    private void OnSoilSensorUpdated(object? sender, SoilSensorData sensor)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            MissionMapControl?.UpdateSoilSensor(sensor);
+        });
+    }
+
+    private void OnIrrigationDataCleared(object? sender, EventArgs e)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            MissionMapControl?.ClearIrrigationPoints();
+        });
+    }
+
+    private async void LoadDemoMission_Click(object sender, RoutedEventArgs e)
+    {
+        var scenario = _videoScenarioService?.CurrentScenario;
+        double baseLat = scenario?.FieldCenterLat ?? -6.42580;
+        double baseLon = scenario?.FieldCenterLon ?? 107.61890;
+
+        // 1. Waypoint Demo (14 titik fotogrametri lawnmower grid survei PDP multi-sektor)
+        var demoWps = new List<WaypointData>
+        {
+            new WaypointData { Sequence = 1,  Latitude = baseLat - 0.0010, Longitude = baseLon - 0.0037, Altitude = 25, Command = WaypointCommand.TakeOff },
+            new WaypointData { Sequence = 2,  Latitude = baseLat - 0.0006, Longitude = baseLon - 0.0031, Altitude = 50, Command = WaypointCommand.Waypoint },
+            new WaypointData { Sequence = 3,  Latitude = baseLat - 0.0006, Longitude = baseLon - 0.0004, Altitude = 50, Command = WaypointCommand.Waypoint },
+            new WaypointData { Sequence = 4,  Latitude = baseLat - 0.0006, Longitude = baseLon + 0.0026, Altitude = 50, Command = WaypointCommand.Waypoint },
+            new WaypointData { Sequence = 5,  Latitude = baseLat + 0.0000, Longitude = baseLon + 0.0031, Altitude = 50, Command = WaypointCommand.Waypoint },
+            new WaypointData { Sequence = 6,  Latitude = baseLat + 0.0002, Longitude = baseLon + 0.0023, Altitude = 50, Command = WaypointCommand.Waypoint },
+            new WaypointData { Sequence = 7,  Latitude = baseLat + 0.0002, Longitude = baseLon - 0.0009, Altitude = 50, Command = WaypointCommand.Waypoint },
+            new WaypointData { Sequence = 8,  Latitude = baseLat + 0.0002, Longitude = baseLon - 0.0034, Altitude = 50, Command = WaypointCommand.Waypoint },
+            new WaypointData { Sequence = 9,  Latitude = baseLat + 0.0009, Longitude = baseLon - 0.0037, Altitude = 50, Command = WaypointCommand.Waypoint },
+            new WaypointData { Sequence = 10, Latitude = baseLat + 0.0011, Longitude = baseLon - 0.0014, Altitude = 50, Command = WaypointCommand.Waypoint },
+            new WaypointData { Sequence = 11, Latitude = baseLat + 0.0013, Longitude = baseLon + 0.0016, Altitude = 50, Command = WaypointCommand.Waypoint },
+            new WaypointData { Sequence = 12, Latitude = baseLat + 0.0017, Longitude = baseLon + 0.0023, Altitude = 50, Command = WaypointCommand.Waypoint },
+            new WaypointData { Sequence = 13, Latitude = baseLat - 0.0003, Longitude = baseLon - 0.0019, Altitude = 35, Command = WaypointCommand.Waypoint },
+            new WaypointData { Sequence = 14, Latitude = baseLat - 0.0010, Longitude = baseLon - 0.0037, Altitude = 15, Command = WaypointCommand.Land }
+        };
+        await _waypointService.ReplaceWaypointsAsync(demoWps);
+
+        // 2. Petak Sawah Tematik Proposal (4 Petak Lengkap mencakup 4 Kelas PDP)
+        var plots = new List<IrrigationPlot>
+        {
+            new IrrigationPlot
+            {
+                Id = "PLOT-A1",
+                Name = "Petak A1 (Defisit Tanah)",
+                AreaHectares = 0.65,
+                DeficitSoilPercent = 70,
+                DeficitCanopyPercent = 20,
+                NormalPercent = 10,
+                Priority = IrrigationPriorityLevel.Emergency,
+                RecommendedWaterLiters = 4800,
+                ActionRecommendation = "Buka pintu intake tersier Blok Barat; lakukan penggenangan macak-macak 3-5 cm segera.",
+                PolygonCoordinates = new List<GeoCoordinate>
+                {
+                    new GeoCoordinate(baseLat - 0.0009, baseLon - 0.0011),
+                    new GeoCoordinate(baseLat - 0.0009, baseLon + 0.0000),
+                    new GeoCoordinate(baseLat - 0.0002, baseLon + 0.0000),
+                    new GeoCoordinate(baseLat - 0.0002, baseLon - 0.0011),
+                    new GeoCoordinate(baseLat - 0.0009, baseLon - 0.0011)
+                }
+            },
+            new IrrigationPlot
+            {
+                Id = "PLOT-B2",
+                Name = "Petak B2 (Defisit Kanopi)",
+                AreaHectares = 0.58,
+                DeficitCanopyPercent = 62,
+                InconsistentPercent = 26,
+                NormalPercent = 12,
+                Priority = IrrigationPriorityLevel.High,
+                RecommendedWaterLiters = 3400,
+                ActionRecommendation = "Stres air pada kanopi daun; jadwalkan irigasi berkala dan semprot nutrisi foliar.",
+                PolygonCoordinates = new List<GeoCoordinate>
+                {
+                    new GeoCoordinate(baseLat - 0.0001, baseLon - 0.0011),
+                    new GeoCoordinate(baseLat - 0.0001, baseLon + 0.0000),
+                    new GeoCoordinate(baseLat + 0.0006, baseLon + 0.0000),
+                    new GeoCoordinate(baseLat + 0.0006, baseLon - 0.0011),
+                    new GeoCoordinate(baseLat - 0.0001, baseLon - 0.0011)
+                }
+            },
+            new IrrigationPlot
+            {
+                Id = "PLOT-C3",
+                Name = "Petak C3 (Ketidakmerataan Irigasi)",
+                AreaHectares = 0.70,
+                InconsistentPercent = 65,
+                NormalPercent = 28,
+                DeficitSoilPercent = 7,
+                Priority = IrrigationPriorityLevel.Medium,
+                RecommendedWaterLiters = 2100,
+                ActionRecommendation = "Saluran cacing tersumbat sedimentasi; lakukan normalisasi bedengan dan parit tersier.",
+                PolygonCoordinates = new List<GeoCoordinate>
+                {
+                    new GeoCoordinate(baseLat - 0.0001, baseLon + 0.0001),
+                    new GeoCoordinate(baseLat - 0.0001, baseLon + 0.0013),
+                    new GeoCoordinate(baseLat + 0.0006, baseLon + 0.0013),
+                    new GeoCoordinate(baseLat + 0.0006, baseLon + 0.0001),
+                    new GeoCoordinate(baseLat - 0.0001, baseLon + 0.0001)
+                }
+            },
+            new IrrigationPlot
+            {
+                Id = "PLOT-D4",
+                Name = "Petak D4 (Zona Normal - Optimal)",
+                AreaHectares = 0.84,
+                NormalPercent = 94,
+                InconsistentPercent = 6,
+                Priority = IrrigationPriorityLevel.Low,
+                RecommendedWaterLiters = 450,
+                ActionRecommendation = "Kelembapan tanah dan klorofil kanopi optimal; pertahankan suplai air terjadwal.",
+                PolygonCoordinates = new List<GeoCoordinate>
+                {
+                    new GeoCoordinate(baseLat - 0.0009, baseLon + 0.0001),
+                    new GeoCoordinate(baseLat - 0.0009, baseLon + 0.0013),
+                    new GeoCoordinate(baseLat - 0.0002, baseLon + 0.0013),
+                    new GeoCoordinate(baseLat - 0.0002, baseLon + 0.0001),
+                    new GeoCoordinate(baseLat - 0.0009, baseLon + 0.0001)
+                }
+            }
+        };
+
+        // 3. Sensor Tanah Ground-Truth (4 Sensor Terkalibrasi pada Masing-Masing Petak)
+        var sensors = new List<SoilSensorData>
+        {
+            new SoilSensorData { SensorId = "SOIL-01", NodeName = "Sensor Sektor A1 (Kritis)", Latitude = baseLat - 0.0005, Longitude = baseLon - 0.0005, MoisturePercent = 14.8, TemperatureCelsius = 32.5, BatteryVoltage = 4.1, LastUpdated = DateTime.UtcNow },
+            new SoilSensorData { SensorId = "SOIL-02", NodeName = "Sensor Sektor B2 (Stres Kanopi)", Latitude = baseLat + 0.0002, Longitude = baseLon - 0.0005, MoisturePercent = 23.4, TemperatureCelsius = 31.0, BatteryVoltage = 4.0, LastUpdated = DateTime.UtcNow },
+            new SoilSensorData { SensorId = "SOIL-03", NodeName = "Sensor Sektor C3 (Fluktuatif)", Latitude = baseLat + 0.0002, Longitude = baseLon + 0.0007, MoisturePercent = 38.2, TemperatureCelsius = 29.4, BatteryVoltage = 4.2, LastUpdated = DateTime.UtcNow },
+            new SoilSensorData { SensorId = "SOIL-04", NodeName = "Sensor Sektor D4 (Optimal)", Latitude = baseLat - 0.0005, Longitude = baseLon + 0.0007, MoisturePercent = 68.1, TemperatureCelsius = 27.6, BatteryVoltage = 4.2, LastUpdated = DateTime.UtcNow }
+        };
+
+        // 4. Titik Deteksi Spasial YOLO (24 Titik Representatif Realistis Sesuai 4 Kelas PDP)
+        var points = new List<IrrigationDataPoint>
+        {
+            // Cluster Petak A1 - Defisit Tanah
+            new IrrigationDataPoint { Latitude = baseLat - 0.00055, Longitude = baseLon - 0.00055, ZoneType = IrrigationZoneType.DeficitSoil, Confidence = 0.95f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00045, Longitude = baseLon - 0.00050, ZoneType = IrrigationZoneType.DeficitSoil, Confidence = 0.93f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00060, Longitude = baseLon - 0.00040, ZoneType = IrrigationZoneType.DeficitSoil, Confidence = 0.91f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00040, Longitude = baseLon - 0.00060, ZoneType = IrrigationZoneType.DeficitCanopy, Confidence = 0.89f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00070, Longitude = baseLon - 0.00070, ZoneType = IrrigationZoneType.DeficitSoil, Confidence = 0.94f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00030, Longitude = baseLon - 0.00030, ZoneType = IrrigationZoneType.DeficitCanopy, Confidence = 0.88f },
+
+            // Cluster Petak B2 - Defisit Kanopi
+            new IrrigationDataPoint { Latitude = baseLat + 0.00025, Longitude = baseLon - 0.00055, ZoneType = IrrigationZoneType.DeficitCanopy, Confidence = 0.94f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00015, Longitude = baseLon - 0.00045, ZoneType = IrrigationZoneType.DeficitCanopy, Confidence = 0.92f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00035, Longitude = baseLon - 0.00040, ZoneType = IrrigationZoneType.DeficitCanopy, Confidence = 0.90f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00010, Longitude = baseLon - 0.00065, ZoneType = IrrigationZoneType.Inconsistent, Confidence = 0.86f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00040, Longitude = baseLon - 0.00070, ZoneType = IrrigationZoneType.DeficitCanopy, Confidence = 0.93f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00020, Longitude = baseLon - 0.00030, ZoneType = IrrigationZoneType.Inconsistent, Confidence = 0.85f },
+
+            // Cluster Petak C3 - Ketidakmerataan Irigasi
+            new IrrigationDataPoint { Latitude = baseLat + 0.00025, Longitude = baseLon + 0.00065, ZoneType = IrrigationZoneType.Inconsistent, Confidence = 0.91f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00015, Longitude = baseLon + 0.00075, ZoneType = IrrigationZoneType.Inconsistent, Confidence = 0.89f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00035, Longitude = baseLon + 0.00060, ZoneType = IrrigationZoneType.Inconsistent, Confidence = 0.87f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00010, Longitude = baseLon + 0.00080, ZoneType = IrrigationZoneType.Normal, Confidence = 0.93f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00040, Longitude = baseLon + 0.00090, ZoneType = IrrigationZoneType.Inconsistent, Confidence = 0.88f },
+            new IrrigationDataPoint { Latitude = baseLat + 0.00020, Longitude = baseLon + 0.00050, ZoneType = IrrigationZoneType.Normal, Confidence = 0.92f },
+
+            // Cluster Petak D4 - Zona Normal
+            new IrrigationDataPoint { Latitude = baseLat - 0.00045, Longitude = baseLon + 0.00065, ZoneType = IrrigationZoneType.Normal, Confidence = 0.97f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00055, Longitude = baseLon + 0.00075, ZoneType = IrrigationZoneType.Normal, Confidence = 0.96f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00035, Longitude = baseLon + 0.00080, ZoneType = IrrigationZoneType.Normal, Confidence = 0.95f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00065, Longitude = baseLon + 0.00060, ZoneType = IrrigationZoneType.Normal, Confidence = 0.98f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00040, Longitude = baseLon + 0.00090, ZoneType = IrrigationZoneType.Normal, Confidence = 0.94f },
+            new IrrigationDataPoint { Latitude = baseLat - 0.00060, Longitude = baseLon + 0.00050, ZoneType = IrrigationZoneType.Normal, Confidence = 0.96f }
+        };
+
+        MissionMapControl.SetIrrigationPlots(plots);
+        MissionMapControl.SetSoilSensors(sensors);
+        MissionMapControl.SetIrrigationPoints(points);
+
+        if (_irrigationService != null)
+        {
+            _irrigationService.ClearDataPoints();
+            foreach (var p in plots) _irrigationService.AddOrUpdatePlot(p);
+            foreach (var s in sensors) _irrigationService.UpdateSoilSensor(s);
+            foreach (var pt in points) _irrigationService.AddDataPoint(pt.Latitude, pt.Longitude, 50, pt.ZoneName, pt.Confidence);
+        }
+
+        // Jalankan simulasi sensor tanah live IoT
+        StartDemoSensorSimulation(sensors);
+
+        // Aktifkan Geofencing Eagle & Center Peta
+        if (GeofenceEnableCheckBox != null) GeofenceEnableCheckBox.IsChecked = true;
+        MissionMapControl.ShowWaypointGeofence = true;
+        if (GeofenceRadiusSlider != null) GeofenceRadiusSlider.Value = 650;
+        ApplyGeofence();
+
+        MissionMapControl.SetCenter(baseLat, baseLon, 16);
+        WaypointSummaryText.Text = "Skenario Riset PDP: 6 WP (Eagle Geofence), 4 Sektor Lahan, 4 Probe In-situ, 24 Titik Analisis Kanopi";
+    }
+
+    private void StartDemoSensorSimulation(List<SoilSensorData> sensors)
+    {
+        _demoSensorTimer?.Stop();
+        _demoSensorTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(2.5)
+        };
+        _demoSensorTimer.Tick += (s, e) =>
+        {
+            if (sensors == null || sensors.Count == 0 || _irrigationService == null) return;
+            foreach (var sensor in sensors)
+            {
+                double delta = (_rnd.NextDouble() - 0.5) * 0.4;
+                sensor.MoisturePercent = Math.Clamp(sensor.MoisturePercent + delta, 5.0, 95.0);
+                sensor.TemperatureCelsius = Math.Clamp(sensor.TemperatureCelsius + ((_rnd.NextDouble() - 0.5) * 0.1), 20.0, 42.0);
+                sensor.LastUpdated = DateTime.UtcNow;
+                _irrigationService.UpdateSoilSensor(sensor);
+            }
+        };
+        _demoSensorTimer.Start();
+    }
+
     private void ApplyGeofence()
     {
+        bool isEnabled = GeofenceEnableCheckBox?.IsChecked == true;
+        MissionMapControl.ShowWaypointGeofence = isEnabled;
         if (_waypoints.Count == 0)
+        {
+            MissionMapControl.ClearGeofence();
+            _geofenceService?.SetGeofenceActive(false);
+            return;
+        }
+
+        double radius = GeofenceRadiusSlider?.Value ?? 650;
+        MissionMapControl.WaypointGeofenceRadiusMeters = Math.Min(200.0, Math.Max(100.0, radius / 3.0));
+
+        if (!isEnabled)
         {
             MissionMapControl.ClearGeofence();
             _geofenceService?.SetGeofenceActive(false);
@@ -504,11 +819,9 @@ public sealed partial class MissionPlannerPage : Page
 
         double centerLat = _waypoints.Average(w => w.Latitude);
         double centerLon = _waypoints.Average(w => w.Longitude);
-        double radius = GeofenceRadiusSlider?.Value ?? 650;
         MissionMapControl.SetGeofence(true, centerLat, centerLon, radius);
 
-        // Keep the shared geofence model (used by IGeofenceService.SendGeofenceToVehicleAsync and
-        // the Dashboard's boundary-distance alerting) in sync with what's drawn here.
+        // Keep the shared geofence model in sync
         _geofenceService?.SetGeofenceType(GeofenceType.Circular);
         _geofenceService?.SetGeofenceCenter(centerLat, centerLon);
         _geofenceService?.SetGeofenceRadius(radius);
@@ -534,9 +847,10 @@ public sealed partial class MissionPlannerPage : Page
             return;
         }
 
-        if (!_mavLinkService.IsConnected)
+        bool demoMode = IsDemoRunning();
+        if (!_mavLinkService.IsConnected && !demoMode)
         {
-            WaypointSummaryText.Text = "Vehicle not connected";
+            WaypointSummaryText.Text = "Vehicle not connected · Hubungkan UAV atau aktifkan Demo Mode";
             return;
         }
 
@@ -545,8 +859,16 @@ public sealed partial class MissionPlannerPage : Page
         try
         {
             ApplyGeofence();
-            await _geofenceService.SendGeofenceToVehicleAsync();
-            WaypointSummaryText.Text = $"Geofence sent: {GeofenceRadiusSlider.Value:F0} m radius";
+            if (demoMode && !_mavLinkService.IsConnected)
+            {
+                await Task.Delay(300);
+                WaypointSummaryText.Text = $"Geofence active in Simulator: {GeofenceRadiusSlider.Value:F0} m radius";
+            }
+            else
+            {
+                await _geofenceService.SendGeofenceToVehicleAsync();
+                WaypointSummaryText.Text = $"Geofence sent: {GeofenceRadiusSlider.Value:F0} m radius";
+            }
         }
         catch (Exception ex)
         {
@@ -560,9 +882,10 @@ public sealed partial class MissionPlannerPage : Page
 
     private async void DownloadMissionButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!_mavLinkService.IsConnected)
+        bool demoMode = IsDemoRunning();
+        if (!_mavLinkService.IsConnected && !demoMode)
         {
-            WaypointSummaryText.Text = "Vehicle not connected";
+            WaypointSummaryText.Text = "Vehicle not connected · Hubungkan UAV atau aktifkan Demo Mode";
             return;
         }
 
@@ -570,16 +893,33 @@ public sealed partial class MissionPlannerPage : Page
         WaypointSummaryText.Text = "Downloading mission from UAV...";
         try
         {
-            var downloaded = await _missionService.DownloadMissionAsync();
-            if (downloaded.Count > 0)
+            if (demoMode && !_mavLinkService.IsConnected)
             {
-                var wps = WaypointMapper.FromMissionWaypoints(downloaded);
-                await _waypointService.ReplaceWaypointsAsync(wps);
-                WaypointSummaryText.Text = $"Downloaded {wps.Count} waypoints from UAV";
+                await Task.Delay(400);
+                var scenarioWps = _videoScenarioService?.CurrentScenario?.Waypoints;
+                if (scenarioWps != null && scenarioWps.Count > 0)
+                {
+                    await _waypointService.ReplaceWaypointsAsync(scenarioWps);
+                    WaypointSummaryText.Text = $"Downloaded {scenarioWps.Count} waypoints from Simulator";
+                }
+                else
+                {
+                    WaypointSummaryText.Text = "No mission waypoints in Simulator";
+                }
             }
             else
             {
-                WaypointSummaryText.Text = "No mission waypoints on UAV";
+                var downloaded = await _missionService.DownloadMissionAsync();
+                if (downloaded.Count > 0)
+                {
+                    var wps = WaypointMapper.FromMissionWaypoints(downloaded);
+                    await _waypointService.ReplaceWaypointsAsync(wps);
+                    WaypointSummaryText.Text = $"Downloaded {wps.Count} waypoints from UAV";
+                }
+                else
+                {
+                    WaypointSummaryText.Text = "No mission waypoints on UAV";
+                }
             }
         }
         catch (Exception ex)
@@ -783,5 +1123,10 @@ public sealed partial class MissionPlannerPage : Page
         }
 
         return Math.Abs(lat) > 0.000001 || Math.Abs(lon) > 0.000001;
+    }
+
+    private void SwitchToMapPage_Click(object sender, RoutedEventArgs e)
+    {
+        Frame?.Navigate(typeof(MapPage));
     }
 }

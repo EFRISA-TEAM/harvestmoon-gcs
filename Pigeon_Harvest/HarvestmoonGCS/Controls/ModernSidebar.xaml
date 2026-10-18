@@ -111,8 +111,8 @@
                     </Grid>
                 </Button>
 
-                <Button x:Name="MapNavButton" Style="{StaticResource SidebarNavButtonStyle}" Click="NavButton_Click" Tag="MissionPlanner"
-                        ToolTipService.ToolTip="Peta &amp; Misi">
+                <Button x:Name="MapNavButton" Style="{StaticResource SidebarNavButtonStyle}" Click="NavButton_Click" Tag="Map"
+                        ToolTipService.ToolTip="Peta Lahan">
                     <Grid HorizontalAlignment="Stretch">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
@@ -120,8 +120,22 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <FontIcon Grid.Column="0" Glyph="&#xE81D;" FontSize="16" Foreground="{ThemeResource NavMapBrush}" VerticalAlignment="Center" Margin="0,0,7,0"/>
-                        <TextBlock x:Name="MapNavLabel" Grid.Column="1" Text="Peta &amp; Misi" FontSize="10" FontWeight="Medium" VerticalAlignment="Center" Foreground="{ThemeResource SidebarForegroundBrush}"/>
+                        <TextBlock x:Name="MapNavLabel" Grid.Column="1" Text="Peta Lahan" FontSize="10" FontWeight="Medium" VerticalAlignment="Center" Foreground="{ThemeResource SidebarForegroundBrush}"/>
                         <Ellipse x:Name="MapActiveDot" Grid.Column="2" Width="6" Height="6" Fill="{ThemeResource PrimaryBrush}" Opacity="0" VerticalAlignment="Center"/>
+                    </Grid>
+                </Button>
+
+                <Button x:Name="MissionNavButton" Style="{StaticResource SidebarNavButtonStyle}" Click="NavButton_Click" Tag="MissionPlanner"
+                        ToolTipService.ToolTip="Rencana Misi">
+                    <Grid HorizontalAlignment="Stretch">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <FontIcon Grid.Column="0" Glyph="&#xE81E;" FontSize="16" Foreground="{ThemeResource NavMapBrush}" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                        <TextBlock x:Name="MissionNavLabel" Grid.Column="1" Text="Rencana Misi" FontSize="10" FontWeight="Medium" VerticalAlignment="Center" Foreground="{ThemeResource SidebarForegroundBrush}"/>
+                        <Ellipse x:Name="MissionActiveDot" Grid.Column="2" Width="6" Height="6" Fill="{ThemeResource PrimaryBrush}" Opacity="0" VerticalAlignment="Center"/>
                     </Grid>
                 </Button>
 

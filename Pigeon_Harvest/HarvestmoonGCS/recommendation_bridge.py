@@ -135,28 +135,28 @@ def _fallback_result(class_pct: dict, fhi: float, reason: str) -> dict:
     bare    = class_pct.get("bare_soil", 0)
 
     if fhi >= 75:
-        field_status = "healthy"
+        field_status = "zona_normal"
         urgency = "low"
         recs = [
-            f"Field health index {fhi:.1f} — kondisi baik. Lanjutkan monitoring rutin.",
-            f"Zona Lush Green {healthy:.1f}% — pertumbuhan optimal. Pertahankan irigasi saat ini.",
-            "Jadwalkan inspeksi darat pada siklus berikutnya untuk konfirmasi.",
+            f"Zona Normal ({healthy:.1f}%) — Suplai air optimal. Pertahankan debit irigasi saat ini.",
+            "Kanopi vegetasi subur, tidak terdeteksi indikasi defisit air kanopi atau retakan tanah.",
+            "Lanjutkan pemantauan periodik UAV sesuai jadwal misi.",
         ]
     elif fhi >= 55:
-        field_status = "moderate_stress"
+        field_status = "ketidakmerataan_irigasi"
         urgency = "moderate"
         recs = [
-            f"Stress Zone {stress:.1f}% terdeteksi — lakukan pemeriksaan irigasi dalam 24–48 jam.",
-            f"Drought area {drought:.1f}% — pertimbangkan irigasi tambahan di area prioritas.",
-            f"Bare soil {bare:.1f}% — inspeksi fisik untuk deteksi hama atau kerusakan mekanis.",
+            f"Ketidakmerataan Irigasi ({stress:.1f}%) terdeteksi — variasi pertumbuhan tanaman antar petak.",
+            f"Defisit Air Kanopi ({drought:.1f}%) — periksa distribusi pintu air sekunder dan bedengan.",
+            "Lakukan pemerataan debit pengairan untuk mencegah stres berlanjut.",
         ]
     else:
-        field_status = "high_stress"
+        field_status = "defisit_kritis"
         urgency = "high"
         recs = [
-            f"FHI rendah ({fhi:.1f}) — tindakan segera diperlukan. Periksa irigasi dan pupuk.",
-            f"Stress {stress:.1f}% + Drought {drought:.1f}% — prioritaskan zona terburuk untuk intervensi.",
-            "Pertimbangkan sampling tanah untuk analisis kekurangan hara.",
+            f"Defisit Air Kritis — Tanah Kering ({bare:.1f}%) dan Kanopi Dehidrasi ({drought:.1f}%). Tindakan segera!",
+            "Buka pintu air primer dan lakukan penggenangan terarah pada petak prioritas.",
+            "Validasi sensor kelembaban tanah (Ground Truth) dan verifikasi respon tanaman pasca irigasi.",
         ]
 
     return {

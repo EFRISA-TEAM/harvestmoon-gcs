@@ -57,6 +57,13 @@ public partial class App : Application
         // another dialog is already open) crashed the whole app instead of being caught. This
         // must run as early as possible so it is subscribed before any page loads.
         Services.GetRequiredService<GlobalExceptionHandler>();
+
+        // Otomatis jalankan koneksi VIRA AI di background
+        try
+        {
+            Services.GetRequiredService<ViraIntegrationService>().Start();
+        }
+        catch { }
     }
 
     public new static App Current => (App)Application.Current;
@@ -119,6 +126,8 @@ public partial class App : Application
         services.AddSingleton<HarvestFunctionalService>();
         services.AddSingleton<RecommendationService>();
         services.AddSingleton<BatteryWarningSystem>();
+        services.AddSingleton<ISoilMoistureService, SoilMoistureService>();
+        services.AddSingleton<IIrrigationService, IrrigationService>();
 
 #if __ANDROID__
         // Android needs Context for camera, file, and other platform services
@@ -144,6 +153,7 @@ public partial class App : Application
         services.AddSingleton<MissionLoggingService>();
         services.AddSingleton<ILoRaService, LoRaService>();
         services.AddSingleton<ITlogPlayerService, TlogPlayerService>();
+        services.AddSingleton<ViraIntegrationService>();
 
         // AI/PIA services
         services.AddSingleton<IAlertManager, AlertManager>();
