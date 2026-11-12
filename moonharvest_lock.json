@@ -1,0 +1,50 @@
+{
+  "app": "MoonHarvest",
+  "version": "1.0",
+  "global_lock": false,
+  "lock_message": "Sistem Aktif Normal.",
+  "valid_until": "2030-12-31T23:59:59Z",
+  "authorized_hardware": [
+    "*"
+  ],
+  "devices": {
+    "HWID-BCCF-EA6E-7BCC-B560": {
+      "name": "Laptop Fawwaz (Pengembang Utama)",
+      "status": "ACTIVE",
+      "valid_until": "2030-12-31T23:59:59Z",
+      "note": "Akses Penuh Master"
+    },
+    "HWID-310B-B646-30C1-7FBE": {
+      "name": "Workstation C# Desktop Testing",
+      "status": "ACTIVE",
+      "valid_until": "2030-12-31T23:59:59Z",
+      "note": "Akses Penuh Master"
+    }
+  },
+  "licenses": {
+    "MH-MASTER-OWNER": {
+      "status": "ACTIVE",
+      "holder": "Fawwaz Owner",
+      "valid_until": "2030-12-31T23:59:59Z",
+      "description": "Master Developer License"
+    },
+    "MH-CLIENT-001": {
+      "status": "ACTIVE",
+      "holder": "Klien 1 (Trial 7 Hari)",
+      "valid_until": "2026-11-07T23:59:59Z",
+      "description": "Lisensi Paket 1 - Aktif 7 Hari"
+    },
+    "MH-CLIENT-002": {
+      "status": "ACTIVE",
+      "holder": "Klien 2 (Trial 7 Hari)",
+      "valid_until": "2026-11-07T23:59:59Z",
+      "description": "Lisensi Paket 2 - Aktif 7 Hari"
+    },
+    "MH-CLIENT-003": {
+      "status": "ACTIVE",
+      "holder": "Klien 3 (Trial 7 Hari)",
+      "valid_until": "2026-11-07T23:59:59Z",
+      "description": "Lisensi Paket 3 - Aktif 7 Hari"
+    }
+  }
+}

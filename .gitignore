@@ -35,6 +35,12 @@ Pigeon_Harvest/training/weights/
 *.part
 *.tmp
 *.pyc
+*.so
+*.pyd
+*.pyi
+*.build/
+MoonHarvest_Client_Delivery/
+.system_profile/
 __pycache__/
 
 # Output and screenshot directories

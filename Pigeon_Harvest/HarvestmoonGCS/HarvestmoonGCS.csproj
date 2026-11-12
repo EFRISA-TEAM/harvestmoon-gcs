@@ -5,7 +5,7 @@
     <EnableDefaultContentItems>false</EnableDefaultContentItems>
     <!-- Explicit RuntimeIdentifier for Linux/Windows self-contained publish (avoids missing Mono package) -->
     <UseMonoRuntime Condition="!$(TargetFramework.Contains('android'))">false</UseMonoRuntime>
-    <RuntimeFrameworkVersion Condition="'$(RuntimeIdentifier)' == 'linux-x64'">9.0.0</RuntimeFrameworkVersion>
+    <RuntimeFrameworkVersion Condition="'$(RuntimeIdentifier)' == 'linux-x64' or '$(RuntimeIdentifier)' == 'win-x64'">9.0.0</RuntimeFrameworkVersion>
 
     <OutputType>Exe</OutputType>
     <UnoSingleProject>true</UnoSingleProject>
@@ -125,7 +125,7 @@
 
   <!-- MoonHarvest app icon + splash (override default placeholder icon.svg/icon_foreground.svg) -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net9.0-desktop'">
-    <Content Include="moonharvest_detect_stream.py;yolo_classify_stream.py;recommendation_bridge.py;camera_service.py">
+    <Content Include="moonharvest_detect_stream.py;yolo_classify_stream.py;recommendation_bridge.py;camera_service.py;moonharvest_security.py;moonharvest_security.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>

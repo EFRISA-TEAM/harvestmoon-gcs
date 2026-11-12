@@ -1,4 +1,4 @@
-# MoonHarvest — Metodologi Deteksi HSV+YOLO Fusion & Validasi Standar Jurnal
+bau# MoonHarvest — Metodologi Deteksi HSV+YOLO Fusion & Validasi Standar Jurnal
 
 **Versi:** 2.0 (2026-06-26)  
 **Model aktif:** `health_train_v5-20260626/weights/best.pt` (82.2% aerial acc, 78% agreement)  

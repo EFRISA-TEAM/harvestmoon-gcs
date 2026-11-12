@@ -23,9 +23,17 @@ GCS class keys: Healthy / Stress / Drought / Bare Soil
 """
 
 import argparse, base64, json, os, queue, signal, sys, threading, time
+from pathlib import Path
+
+# ── MoonHarvest Master Security & Access Verification (First Guard) ────────────
+try:
+    from moonharvest_security import enforce_security
+    enforce_security(exit_on_failure=True)
+except ImportError:
+    pass
+
 import cv2
 import numpy as np
-from pathlib import Path
 from collections import deque
 
 DEMO_MODE = os.environ.get("MOONHARVEST_DEMO", "0") == "1"

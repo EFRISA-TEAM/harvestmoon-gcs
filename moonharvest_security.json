@@ -1,0 +1,7 @@
+{
+  "_comment": "MoonHarvest Master Security & Remote Switch Configuration",
+  "remote_switch_url": "https://gist.githubusercontent.com/FawwazFA/fc07275e43ed0c1730f63807e163ae1b/raw/moonharvest_lock.json",
+  "offline_lease_hours": 48,
+  "license_key": "MH-MASTER-OWNER",
+  "allow_emergency_offline": true
+}
